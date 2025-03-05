@@ -69,3 +69,6 @@ dmypy.json
 
 # pyre type checker
 .pyre/
+
+# poetry
+poetry.lock

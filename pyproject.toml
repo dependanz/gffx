@@ -1,24 +1,18 @@
 [build-system]
-requires = [
-    "setuptools>=42",
-    "wheel"
-]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "gffx"
 version = "0.1.0"
-description = "A minimal graphics library for PyTorch"
-authors = [
-    { name = "Danzel Serrano", email = "danzel.serrano@gmail.com" }
-]
+description = "A minimal graphics library in PyTorch"
+authors = ["Danzel Serrano <danzel.serrano@gmail.com>"]
+license = "MIT"  # Change as needed
 readme = "README.md"
-license = { file = "LICENSE" }
-dependencies = [
-    "torch"
-]
 
-[project.urls]
-# "Homepage" = "https://example.com"
-# "Repository" = "https://github.com/yourusername/your-repo"
-# "Documentation" = "https://example.com/docs"
+[tool.poetry.dependencies]
+python = "^3.8"
+
+[tool.poetry.group.dev.dependencies]
+pytest   = "^6.2.5"
+coverage = "^6.2.0"
