@@ -29,9 +29,9 @@ camera_dir         /= torch.linalg.norm(camera_dir)
 
 world_up            = torch.tensor([0, 1, 0], device=device, dtype=torch.float32)
 
-camera_u  = torch.cross(camera_dir, world_up)
+camera_u  = torch.cross(camera_dir, world_up, dim=-1)
 camera_u /= torch.linalg.norm(camera_u)
-camera_v  = torch.cross(camera_u, camera_dir)
+camera_v  = torch.cross(camera_u, camera_dir, dim=-1)
 camera_w  = -camera_dir
 
 # Ray origins
@@ -65,27 +65,59 @@ ray_directions /= torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 ################################################################
 
 # Object setup
-sphere_pos = torch.tensor([-1, -1, 2], device=device, dtype=torch.float32)
-sphere_radius = 1
+# sphere_pos = torch.tensor([-1, -1, 2], device=device, dtype=torch.float32)
+# sphere_radius = 1
 
-# Check discriminant (ray-sphere intersection)
-e_min_c = ray_origins - sphere_pos[None, None, None, :]                    # dim(B, H, W, 3)
-d_dot_e_min_c = torch.sum(ray_directions * e_min_c, dim=-1, keepdim=True)  # dim(B, H, W, 1)
-d_dot_d = torch.sum(ray_directions * ray_directions, dim=-1, keepdim=True) # dim(B, H, W, 1)
-discriminant = d_dot_e_min_c ** 2 - d_dot_d * (torch.sum(e_min_c * e_min_c, dim=-1, keepdim=True) - sphere_radius ** 2)
+# t = gffx.ray.ray_sphere_intersection(ray_origins, ray_directions, sphere_pos, sphere_radius)
+# plt.imshow((t[0,:,:,0]).detach().cpu())
+# plt.show()
 
-#
-hit_mask = (discriminant >= 0).float()
-t = torch.sqrt(discriminant * hit_mask) / d_dot_d
-t_minus = torch.clip(-d_dot_e_min_c - t, 0)
-t_plus  = torch.clip(-d_dot_e_min_c + t, 0)
-t = torch.maximum(t_minus, t_plus) * hit_mask
+################################################################
+# [CASE] Ray-Triangle Intersection (4.4.2)
+################################################################
 
+# Object setup
+triangle_vertices = torch.tensor([
+    [-1, -1, 2],
+    [ 1, -1, 2],
+    [ 0,  1, 2]
+], device=device, dtype=torch.float32)[None,...].expand(B,-1,-1) # dim(3, 3)
 
-plt.imshow((t[0,:,:,0]).detach().cpu())
-plt.show()
+# Model Transformation (Translation, Orientation, Scale)
+translation = torch.tensor([0, 0, 0], device=device, dtype=torch.float32)[None,:].expand(B,-1)
+rotation    = torch.tensor([0, 1, 0], device=device, dtype=torch.float32)[None,:].expand(B,-1)
+scale       = torch.tensor([1, 1, 1], device=device, dtype=torch.float32)[None,:].expand(B,-1)
 
+# Rodrigues' rotation formula
+theta = torch.linalg.norm(rotation, dim=-1, keepdim=True)[..., None]
+K = torch.zeros((B, 3, 3), device=device)
+K[:,0,1] = -rotation[:,2]
+K[:,0,2] =  rotation[:,1]
+K[:,1,0] =  rotation[:,2]
+K[:,1,2] = -rotation[:,0]
+K[:,2,0] = -rotation[:,1]
+K[:,2,1] =  rotation[:,0]
 
-# Compute surface normals
+R = (
+    torch.eye(3, device=device)[None,:].expand(B,-1,-1) 
+    + torch.sin(theta) * K 
+    + (1 - torch.cos(theta)) * (K @ K)
+)
+R = torch.cat([R, torch.zeros((B, 3, 1), device=device)], dim=-1)
+R = torch.cat([R, torch.zeros((B, 1, 4), device=device)], dim=-2)
+R[:,3,3] = 1
 
-# Set pixel color to value computed from hit point, light position, and normal
+# Scale Matrix
+S = torch.cat([
+     torch.cat([
+    torch.eye(3, device=device)[None,:].expand(B,-1,-1) * scale[..., None], 
+    torch.zeros((B, 3, 1), device=device)], dim=-1), torch.zeros((B, 1, 4), device=device)], dim=-2)
+
+# Translation Matrix
+T = torch.eye(4, device=device)[None,:].expand(B,-1,-1)
+T[:,0:3,3] = translation
+
+# Model Transformation Matrix
+M = T @ R @ S
+
+breakpoint()
