@@ -42,6 +42,10 @@ def ray_triangle_intersection(
             
         Returns
         -------
+        beta : torch.Tensor
+            beta values -> dim(B, H, W, 1)
+        gamma : torch.Tensor
+            gamma values -> dim(B, H, W, 1)
         t : torch.Tensor
             t values -> dim(B, H, W, 1)
         intersect : torch.Tensor
@@ -61,10 +65,10 @@ def ray_triangle_intersection(
             t     = det(A_3) / det(A)
         Where A_i is A with column i replaced by b
     """
-    B = ray_origins.shape[0]
-    screen_width = ray_origins.shape[1]
+    B             = ray_origins.shape[0]
+    screen_width  = ray_origins.shape[1]
     screen_height = ray_origins.shape[2]
-    device = ray_origins.device
+    device        = ray_origins.device
 
     # Setup
     A = torch.zeros((B, screen_width, screen_height, 3, 3), device=device)
@@ -93,4 +97,4 @@ def ray_triangle_intersection(
     # Intersection Test
     intersect = ((t > t0) & (t < t1)) & ((gamma >= 0) & (gamma <= 1)) & ((beta > 0) & (beta + gamma < 1))
 
-    return t, intersect
+    return beta, gamma, t, intersect
