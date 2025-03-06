@@ -155,8 +155,16 @@ specular_color = [
 specular_color.append(background_color)
 specular_color = torch.tensor(specular_color, device=device, dtype=torch.float32)
 
+ambient_color = [
+    # [0.3, 0.3, 1]
+    [0.3, 0.3, 0.3],
+]
+ambient_color.append(background_color)
+ambient_color = torch.tensor(ambient_color, device=device, dtype=torch.float32)
+
 # Light setup
 light_intensity = 1
+ambient_intensity = 1
 light_pos = torch.tensor([5, 5, 5], device=device, dtype=torch.float32)
 
 object_hit = torch.full((B, screen_width, screen_height), -1, device=device, dtype=torch.int64)
@@ -241,6 +249,7 @@ specular_weight = torch.clamp(torch.sum(bisector_vec * normals, dim=-1, keepdim=
 
 L = diffuse_color[object_hit] * light_intensity * diffuse_weight
 L += specular_color[object_hit] * light_intensity * specular_weight
+L += ambient_color[object_hit] * ambient_intensity
 
 plt.imshow((L[0].cpu()).permute(1, 0, 2))
 plt.gca().invert_yaxis()
