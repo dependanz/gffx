@@ -11,7 +11,7 @@ repository = "https://github.com/dependanz/gffx"
 
 [tool.poetry]
 name = "gffx"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Danzel Serrano <danzel.serrano@gmail.com>"]
 license = "MIT"
 readme = "README.md"
