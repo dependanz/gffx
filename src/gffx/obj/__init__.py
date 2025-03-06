@@ -198,6 +198,7 @@ def generate_cube_mesh(
     ambient_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
     diffuse_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
     specular_color : list | torch.Tensor = [0.5, 0.5, 0.5],
+    specular_coefficient : float = 1.0,
     
     device           : Optional[torch.device]        = None
 ):
@@ -242,7 +243,8 @@ def generate_cube_mesh(
         
         ambient_color  = ambient_color,
         diffuse_color  = diffuse_color,
-        specular_color = specular_color
+        specular_color = specular_color,
+        specular_coefficient = specular_coefficient
     )
     
     
@@ -256,6 +258,7 @@ def generate_icosphere_mesh(
     ambient_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
     diffuse_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
     specular_color : list | torch.Tensor = [0.5, 0.5, 0.5],
+    specular_coefficient : float = 1.0,
     
     device           : Optional[torch.device]        = None
 ):
@@ -363,5 +366,6 @@ def generate_icosphere_mesh(
         
         ambient_color  = ambient_color,
         diffuse_color  = diffuse_color,
-        specular_color = specular_color
+        specular_color = specular_color,
+        specular_coefficient = specular_coefficient
     )
