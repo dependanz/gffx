@@ -1,5 +1,8 @@
 import gffx
 import torch
+from tqdm import tqdm
+
+from .camera import *
 
 def ray_sphere_intersection(ray_origins, ray_directions, sphere_pos, sphere_radius):
     # Check discriminant (ray-sphere intersection)
@@ -106,3 +109,176 @@ def ray_triangle_intersection(
     intersect = ((t > t0) & (t < t1)) & ((gamma >= 0) & (gamma <= 1)) & ((beta > 0) & (beta + gamma < 1))
 
     return beta, gamma, t, intersect
+
+# [4NOW] 1 camera
+def mesh_render(
+    meshes            : list | gffx.obj.MeshObject,
+    camera            : Camera,
+    light_intensity   : float               = 1,
+    ambient_intensity : float               = 0.2,
+    light_pos         : list | torch.Tensor = [5, 5, 5],
+    background_color  : list | torch.Tensor = [0, 0, 0],
+    ray_chunk_size    : int                 = 4096,
+    
+    verbose           : bool                = False,
+    
+    device : Optional[torch.device] = None
+):
+    # [4NOW] 1 camera  
+    B = 1
+
+    if isinstance(meshes, gffx.obj.MeshObject):
+        meshes = [meshes]
+    
+    # [4NOW] Flat colors
+    if isinstance(background_color, list):
+        background_color = torch.tensor(background_color, device=device, dtype=torch.float32)
+
+    diffuse_colors = [obj.diffuse_color for obj in meshes] + [background_color]
+    diffuse_colors = torch.stack(diffuse_colors, dim=0).to(device)
+
+    specular_coefficients = [obj.specular_coefficient for obj in meshes] + [1]
+    specular_coefficients = torch.tensor(specular_coefficients, device=device, dtype=torch.float32)
+
+    specular_colors = [obj.specular_color for obj in meshes] + [background_color]
+    specular_colors = torch.stack(specular_colors, dim=0).to(device)
+
+    ambient_colors = [obj.ambient_color for obj in meshes] + [background_color]
+    ambient_colors = torch.stack(ambient_colors, dim=0).to(device)
+
+    # Light setup
+    if isinstance(light_pos, list):
+        light_pos  = torch.tensor(light_pos, device=device, dtype=torch.float32)
+
+    # 
+    object_hit = torch.full((B * camera.width * camera.height,), -1, device=device, dtype=torch.int64)
+    face_hit   = torch.full((B * camera.width * camera.height,), -1, device=device, dtype=torch.int64)
+    t_val      = torch.full((B * camera.width * camera.height,), float('inf'), device=device)
+    normals    = torch.zeros((B * camera.width * camera.height, 3), device=device)
+    hit_pos    = torch.zeros((B * camera.width * camera.height, 3), device=device)
+
+    # 
+    if verbose:
+        print('Ray Chunk Size:', ray_chunk_size)
+    ray_origins    = camera.ray_origins.view(B * camera.width * camera.height, 3)       # dim(B * W * H, 3)
+    ray_directions = camera.ray_directions.view(B * camera.width * camera.height, 3) # dim(B * W * H, 3)
+
+    # 
+    for obj_idx, obj in enumerate(meshes):
+        transformed_vertices, transformed_normals = obj.get_transformed()
+        
+        face_tri_vertices = transformed_vertices[obj.faces] # dim(F, 3, 3)
+        face_tri_normals  = transformed_normals[obj.faces]  # dim(F, 3, 3)
+        
+        # Chunking
+        pbar = tqdm(
+            iterable = range(0, B * camera.width * camera.height, ray_chunk_size),
+            desc     = f'Object {obj_idx}',
+        )
+        for i in pbar:
+            C = ray_chunk_size if i + ray_chunk_size < B * camera.width * camera.height else (B * camera.width * camera.height - i)
+            
+            # 
+            beta, gamma, t, intersect = gffx.ray.ray_triangle_intersection(
+                ray_origins       = ray_origins[i:i+C],    # dim(C, 3)
+                ray_directions    = ray_directions[i:i+C], # dim(C, 3)
+                triangle_vertices = face_tri_vertices,     # dim(F, 3, 3)
+                t0                = 0,
+                t1                = 100
+            )
+            
+            # Choose the smallest t which intersects
+            t_valid = torch.where(
+                intersect,
+                torch.where(t < 0, float('inf'), t),
+                float('inf')
+            )
+            face_idx_valid_min = t_valid.argmin(dim=-1, keepdim=True)
+            beta_valid_min = torch.gather(
+                input = beta,
+                dim   = -1,
+                index = face_idx_valid_min
+            )[:,0]
+            gamma_valid_min = torch.gather(
+                input = gamma,
+                dim   = -1,
+                index = face_idx_valid_min
+            )[:,0]
+            
+            t_valid_min = torch.gather(
+                input = t_valid,
+                dim   = -1,
+                index = face_idx_valid_min
+            )[:,0]
+            intersect_valid_min = torch.gather(
+                input = intersect,
+                dim   = -1,
+                index = face_idx_valid_min
+            )[:,0]
+            
+            # 
+            object_hit[i:i+C] = torch.where(
+                ((t_valid_min < t_val[i:i+C]) & intersect_valid_min),
+                obj_idx,
+                object_hit[i:i+C]
+            )
+            
+            #
+            face_hit[i:i+C] = torch.where(
+                ((t_valid_min < t_val[i:i+C]) & intersect_valid_min),
+                face_idx_valid_min[:,0],
+                face_hit[i:i+C]
+            )
+            
+            # Interpolate normals
+            interpolated_normals = (1 - beta - gamma)[...,None] * face_tri_normals[None, :, 0] + beta[...,None] * face_tri_normals[None, :, 1] + gamma[...,None] * face_tri_normals[None, :, 2]
+
+            interpolated_normals = torch.gather(
+                input = interpolated_normals,   # dim(C, F, 3)
+                dim   = 1,
+                index = face_idx_valid_min[..., None].expand(-1, -1, 3)
+            )[:,0,:]
+            normals[i:i+C] = torch.where(
+                ((t_valid_min < t_val[i:i+C]) & intersect_valid_min)[:,None],
+                interpolated_normals,
+                normals[i:i+C]
+            )
+            
+            # Interpolate hit positions
+            hit_pos[i:i+C] = torch.where(
+                ((t_valid_min < t_val[i:i+C]) & intersect_valid_min)[:,None],
+                ray_origins[i:i+C] + t_valid_min[:,None] * ray_directions[i:i+C],
+                hit_pos[i:i+C]
+            )
+            
+            #
+            t_val[i:i+C] = torch.where(
+                ((t_valid_min < t_val[i:i+C]) & intersect_valid_min),
+                t_valid_min,
+                t_val[i:i+C]
+            )
+        
+    # Reshape
+    object_hit = object_hit.view(B, camera.width, camera.height)
+    face_hit   = face_hit.view(B, camera.width, camera.height)
+    normals    = normals.view(B, camera.width, camera.height, 3)
+    hit_pos    = hit_pos.view(B, camera.width, camera.height, 3)
+
+    # Compute Phong Shading
+    light_pos = light_pos[None, None, None, :]
+    light_dir = light_pos - hit_pos
+    light_dir /= torch.linalg.norm(light_dir, dim=-1, keepdim=True)
+
+    view_dir  = camera.pos[None, None, None, :] - hit_pos
+    view_dir /= torch.linalg.norm(view_dir, dim=-1, keepdim=True)
+    bisector_vec  = light_dir + view_dir
+    bisector_vec /= torch.linalg.norm(bisector_vec, dim=-1, keepdim=True)
+
+    diffuse_weight  = torch.clamp(torch.sum(light_dir * normals, dim=-1, keepdim=True), min=0)
+    specular_weight = torch.clamp(torch.sum(bisector_vec * normals, dim=-1, keepdim=True), min=0) ** specular_coefficients[object_hit][...,None]
+
+    L  = diffuse_colors[object_hit]  * light_intensity * diffuse_weight
+    L += specular_colors[object_hit] * light_intensity * specular_weight
+    L += ambient_colors[object_hit]  * ambient_intensity
+
+    return L

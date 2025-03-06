@@ -44,7 +44,12 @@ class MeshObject:
         init_transform   : Optional[Transform]    = None,
         init_translation : Optional[torch.Tensor] = None,
         init_rotation    : Optional[torch.Tensor] = None,
-        init_scale       : Optional[torch.Tensor] = None
+        init_scale       : Optional[torch.Tensor] = None,
+        
+        ambient_color    : list | torch.Tensor = [0.5, 0.5, 0.5],
+        diffuse_color    : list | torch.Tensor = [0.5, 0.5, 0.5],
+        specular_color   : list | torch.Tensor = [0.5, 0.5, 0.5],
+        specular_coefficient : float = 1.0
     ):
         # Defaults
         if init_transform:
@@ -63,6 +68,21 @@ class MeshObject:
         self.faces    = faces
         self.normals  = normals
         self.device   = vertices.device
+        
+        # [4NOW] Flat colors
+        self.ambient_color = ambient_color
+        if isinstance(self.ambient_color, list):
+            self.ambient_color = torch.tensor(self.ambient_color, device=self.device, dtype=torch.float32)
+            
+        self.diffuse_color = diffuse_color
+        if isinstance(self.diffuse_color, list):
+            self.diffuse_color = torch.tensor(self.diffuse_color, device=self.device, dtype=torch.float32)
+            
+        self.specular_color = specular_color
+        if isinstance(self.specular_color, list):
+            self.specular_color = torch.tensor(self.specular_color, device=self.device, dtype=torch.float32)
+        
+        self.specular_coefficient = specular_coefficient
         
     def get_transformed(self):
         """
@@ -135,7 +155,13 @@ def mesh_from_vertices_and_faces(
     init_translation : Optional[list | torch.Tensor] = None,
     init_rotation    : Optional[list | torch.Tensor] = None,
     init_scale       : Optional[list | torch.Tensor] = None,
-    device           : Optional[torch.device]        = None 
+    
+    ambient_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
+    diffuse_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
+    specular_color : list | torch.Tensor = [0.5, 0.5, 0.5],
+    specular_coefficient : float = 1.0,
+    
+    device           : Optional[torch.device]        = None
 ):
     # 
     if isinstance(init_translation, list):
@@ -155,7 +181,12 @@ def mesh_from_vertices_and_faces(
         init_transform   = init_transform,
         init_translation = init_translation,
         init_rotation    = init_rotation,
-        init_scale       = init_scale
+        init_scale       = init_scale,
+        
+        ambient_color  = ambient_color,
+        diffuse_color  = diffuse_color,
+        specular_color = specular_color,
+        specular_coefficient = specular_coefficient
     )
     
 def generate_cube_mesh(
@@ -163,6 +194,11 @@ def generate_cube_mesh(
     init_translation : Optional[list | torch.Tensor] = None,
     init_rotation    : Optional[list | torch.Tensor] = None,
     init_scale       : Optional[list | torch.Tensor] = None,
+    
+    ambient_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
+    diffuse_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
+    specular_color : list | torch.Tensor = [0.5, 0.5, 0.5],
+    
     device           : Optional[torch.device]        = None
 ):
     # 
@@ -202,7 +238,11 @@ def generate_cube_mesh(
         init_transform   = init_transform,
         init_translation = init_translation,
         init_rotation    = init_rotation,
-        init_scale       = init_scale
+        init_scale       = init_scale,
+        
+        ambient_color  = ambient_color,
+        diffuse_color  = diffuse_color,
+        specular_color = specular_color
     )
     
     
@@ -212,6 +252,11 @@ def generate_icosphere_mesh(
     init_translation : Optional[list | torch.Tensor] = None,
     init_rotation    : Optional[list | torch.Tensor] = None,
     init_scale       : Optional[list | torch.Tensor] = None,
+    
+    ambient_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
+    diffuse_color  : list | torch.Tensor = [0.5, 0.5, 0.5],
+    specular_color : list | torch.Tensor = [0.5, 0.5, 0.5],
+    
     device           : Optional[torch.device]        = None
 ):
     #
@@ -314,5 +359,9 @@ def generate_icosphere_mesh(
         init_transform   = init_transform,
         init_translation = init_translation,
         init_rotation    = init_rotation,
-        init_scale       = init_scale
+        init_scale       = init_scale,
+        
+        ambient_color  = ambient_color,
+        diffuse_color  = diffuse_color,
+        specular_color = specular_color
     )
