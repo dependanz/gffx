@@ -86,7 +86,7 @@ ray_directions /= torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 triangle_vertices = torch.tensor([
     [-0.5, -0.5, 0],
     [ 0.5, -0.5, 0],
-    [ 0,  0.5, 0]
+    [ 0,    0.5, 0]
 ], device=device, dtype=torch.float32)[None,...].expand(B,-1,-1) # dim(3, 3)
 
 # Model Transformation (Translation, Orientation, Scale)
@@ -133,4 +133,11 @@ object_list.append(
     )
 )
 
-breakpoint()
+for obj in object_list:
+    for tri in obj.faces:
+        triangle_vertices = obj.vertices[tri]
+        
+        # Transform triangle vertices
+        triangle_vertices_h = torch.cat([triangle_vertices, torch.ones((1, 3, 1), device=device)], dim=-1)
+        
+        breakpoint()
