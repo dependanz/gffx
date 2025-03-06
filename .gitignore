@@ -75,3 +75,5 @@ poetry.lock
 
 # archive
 archive/
+
+.pytest_cache/

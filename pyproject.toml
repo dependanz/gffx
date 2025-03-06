@@ -2,12 +2,18 @@
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[project]
+name = "gffx"
+description = "A minimal graphics library in PyTorch"
+
+[project.urls]
+repository = "https://github.com/dependanz/gffx"
+
 [tool.poetry]
 name = "gffx"
 version = "0.1.0"
-description = "A minimal graphics library in PyTorch"
 authors = ["Danzel Serrano <danzel.serrano@gmail.com>"]
-license = "MIT"  # Change as needed
+license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
