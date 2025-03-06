@@ -73,28 +73,28 @@ def ray_triangle_intersection(
     B = ray_origins.shape[0]
     N = triangle_vertices.shape[0]
     device = triangle_vertices.device
-
+    
     # Setup
     A = torch.zeros((B, N, 3, 3), device=device)
     b = torch.zeros((B, N, 3, 1), device=device)
-
-    breakpoint()
-    triangle_vertices = triangle_vertices[None, ...]
-    A[...,0,0] = triangle_vertices[...,0:1,0:1] - triangle_vertices[...,1:2,0:1]
-    A[...,0,1] = triangle_vertices[...,0:1,0:1] - triangle_vertices[...,2:3,0:1]
+    triangle_vertices = triangle_vertices[None, :, :, :]
+    ray_directions = ray_directions[:, None, :]
+    ray_origins = ray_origins[:, None, :]
+    
+    # 
+    A[...,0,0] = triangle_vertices[...,0,0] - triangle_vertices[...,1,0]
+    A[...,0,1] = triangle_vertices[...,0,0] - triangle_vertices[...,2,0]
     A[...,0,2] = ray_directions[...,0]
-    A[...,1,0] = triangle_vertices[...,0:1,1:2] - triangle_vertices[...,1:2,1:2]
-    A[...,1,1] = triangle_vertices[...,0:1,1:2] - triangle_vertices[...,2:3,1:2]
+    A[...,1,0] = triangle_vertices[...,0,1] - triangle_vertices[...,1,1]
+    A[...,1,1] = triangle_vertices[...,0,1] - triangle_vertices[...,2,1]
     A[...,1,2] = ray_directions[...,1]
-    A[...,2,0] = triangle_vertices[...,0:1,2:3] - triangle_vertices[...,1:2,2:3]
-    A[...,2,1] = triangle_vertices[...,0:1,2:3] - triangle_vertices[...,2:3,2:3]
+    A[...,2,0] = triangle_vertices[...,0,2] - triangle_vertices[...,1,2]
+    A[...,2,1] = triangle_vertices[...,0,2] - triangle_vertices[...,2,2]
     A[...,2,2] = ray_directions[...,2]
 
-    b[...,0,0] = triangle_vertices[...,0:1,0:1] - ray_origins[...,0]
-    b[...,1,0] = triangle_vertices[...,0:1,1:2] - ray_origins[...,1]
-    b[...,2,0] = triangle_vertices[...,0:1,2:3] - ray_origins[...,2]
-    
-    breakpoint()
+    b[...,0,0] = triangle_vertices[...,0,0] - ray_origins[...,0]
+    b[...,1,0] = triangle_vertices[...,0,1] - ray_origins[...,1]
+    b[...,2,0] = triangle_vertices[...,0,2] - ray_origins[...,2]
 
     # Cramer's Rule
     x     = gffx.linalg.cramer(A, b)

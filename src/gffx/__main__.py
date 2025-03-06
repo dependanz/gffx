@@ -1,11 +1,11 @@
-from typing import Optional
-import gffx
+import math
 import torch
 import argparse
-import math
+from tqdm import tqdm
+from typing import Optional
 import matplotlib.pyplot as plt
 
-import gffx.linalg
+import gffx
 
 ################################################################
 # ARGUMENT PARSER
@@ -18,8 +18,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # [DEBUG] RAY TRACING
 ################################################################
 
+
+
+
 #
-B = 2
+B = 1
 
 # Setup screen
 screen_width  = 512
@@ -313,12 +316,12 @@ object_list = [
 background_color = [0, 0, 0]
 diffuse_color = [
     # [0.3, 0.3, 1],
-    [0.5, 0.5, 0.5],
+    [1.0, 0.2, 0.2],
 ]
 diffuse_color.append(background_color)
 diffuse_color = torch.tensor(diffuse_color, device=device, dtype=torch.float32)
 
-specular_coefficient = 1
+specular_coefficient = 20
 specular_color = [
     # [0.3, 0.3, 1],
     [0.5, 0.5, 0.5],
@@ -338,81 +341,119 @@ light_intensity = 1
 ambient_intensity = 0.2
 light_pos  = torch.tensor([5, 5, 5], device=device, dtype=torch.float32)
 
-object_hit = torch.full((B,  screen_width, screen_height), -1, device=device, dtype=torch.int64)
-face_hit   = torch.full((B,  screen_width, screen_height), -1, device=device, dtype=torch.int64)
-t_val      = torch.full((B,  screen_width, screen_height), float('inf'), device=device)
-normals    = torch.zeros((B, screen_width, screen_height, 3), device=device)
-hit_pos    = torch.zeros((B, screen_width, screen_height, 3), device=device)
+object_hit = torch.full((B * screen_width * screen_height,), -1, device=device, dtype=torch.int64)
+face_hit   = torch.full((B * screen_width * screen_height,), -1, device=device, dtype=torch.int64)
+t_val      = torch.full((B * screen_width * screen_height,), float('inf'), device=device)
+normals    = torch.zeros((B * screen_width * screen_height, 3), device=device)
+hit_pos    = torch.zeros((B * screen_width * screen_height, 3), device=device)
+
+# 
+ray_chunk_size = 4096
+print('Ray Chunk Size:', ray_chunk_size)
+ray_origins = ray_origins.view(B * screen_width * screen_height, 3) # dim(B * W * H, 3)
+ray_directions = ray_directions.view(B * screen_width * screen_height, 3) # dim(B * W * H, 3)
+
+# 
 for obj_idx, obj in enumerate(object_list):
     transformed_vertices, transformed_normals = obj.get_transformed()
     
     face_tri_vertices = transformed_vertices[obj.faces] # dim(F, 3, 3)
     face_tri_normals  = transformed_normals[obj.faces]  # dim(F, 3, 3)
     
-    B, H, W, _ = ray_origins.shape
-    breakpoint()
-    beta, gamma, t, intersect = gffx.ray.ray_triangle_intersection(
-        ray_origins       = ray_origins.view(B * H * W, 3),    # dim(B * H * W, 3)
-        ray_directions    = ray_directions.view(B * H * W, 3), # dim(B * H * W, 3)
-        triangle_vertices = face_tri_vertices,                 # dim(F, 3, 3)
-        t0                = 0,
-        t1                = 100
-    ) # dim(B * H * W, F) -> dim(B, H, W, F)
-    
-    breakpoint()
-    
-    for face_idx, tri in enumerate(obj.faces):
-        triangle_vertices = transformed_vertices[tri][None, ...] # dim(1, 3, 3)
-        triangle_normals  = transformed_normals[tri][None, ...] # dim(1, 3, 3)
+    # Chunking
+    pbar = tqdm(
+        iterable = range(0, B * screen_width * screen_height, ray_chunk_size),
+        desc     = f'Object {obj_idx}',
+    )
+    for i in pbar:
+        C = ray_chunk_size if i + ray_chunk_size < B * screen_width * screen_height else (B * screen_width * screen_height - i)
         
         # 
         beta, gamma, t, intersect = gffx.ray.ray_triangle_intersection(
-            ray_origins       = ray_origins,
-            ray_directions    = ray_directions,
-            triangle_vertices = triangle_vertices,
+            ray_origins       = ray_origins[i:i+C],    # dim(C, 3)
+            ray_directions    = ray_directions[i:i+C], # dim(C, 3)
+            triangle_vertices = face_tri_vertices,     # dim(F, 3, 3)
             t0                = 0,
             t1                = 100
         )
-        beta  = beta[...,None]
-        gamma = gamma[...,None]
+        
+        # Choose the smallest t which intersects
+        t_valid = torch.where(
+            intersect,
+            torch.where(t < 0, float('inf'), t),
+            float('inf')
+        )
+        face_idx_valid_min = t_valid.argmin(dim=-1, keepdim=True)
+        beta_valid_min = torch.gather(
+            input = beta,
+            dim   = -1,
+            index = face_idx_valid_min
+        )[:,0]
+        gamma_valid_min = torch.gather(
+            input = gamma,
+            dim   = -1,
+            index = face_idx_valid_min
+        )[:,0]
+        
+        t_valid_min = torch.gather(
+            input = t_valid,
+            dim   = -1,
+            index = face_idx_valid_min
+        )[:,0]
+        intersect_valid_min = torch.gather(
+            input = intersect,
+            dim   = -1,
+            index = face_idx_valid_min
+        )[:,0]
         
         # 
-        object_hit = torch.where(
-            (t < t_val) & intersect,
+        object_hit[i:i+C] = torch.where(
+            ((t_valid_min < t_val[i:i+C]) & intersect_valid_min),
             obj_idx,
-            object_hit
+            object_hit[i:i+C]
         )
         
         #
-        face_hit = torch.where(
-            (t < t_val) & intersect,
-            face_idx,
-            face_hit
+        face_hit[i:i+C] = torch.where(
+            ((t_valid_min < t_val[i:i+C]) & intersect_valid_min),
+            face_idx_valid_min[:,0],
+            face_hit[i:i+C]
         )
         
         # Interpolate normals
-        interpolated_normals = (1 - beta - gamma) * triangle_normals[:,None,None,0] + beta * triangle_normals[:,None,None,1] + gamma * triangle_normals[:,None,None,2]
-        normals = torch.where(
-            ((t < t_val) & intersect)[...,None],
+        interpolated_normals = (1 - beta - gamma)[...,None] * face_tri_normals[None, :, 0] + beta[...,None] * face_tri_normals[None, :, 1] + gamma[...,None] * face_tri_normals[None, :, 2]
+
+        interpolated_normals = torch.gather(
+            input = interpolated_normals,   # dim(C, F, 3)
+            dim   = 1,
+            index = face_idx_valid_min[..., None].expand(-1, -1, 3)
+        )[:,0,:]
+        normals[i:i+C] = torch.where(
+            ((t_valid_min < t_val[i:i+C]) & intersect_valid_min)[:,None],
             interpolated_normals,
-            normals
+            normals[i:i+C]
         )
         
         # Interpolate hit positions
-        hit_pos = torch.where(
-            ((t < t_val) & intersect)[...,None],
-            ray_origins + t[...,None] * ray_directions,
-            hit_pos
+        hit_pos[i:i+C] = torch.where(
+            ((t_valid_min < t_val[i:i+C]) & intersect_valid_min)[:,None],
+            ray_origins[i:i+C] + t_valid_min[:,None] * ray_directions[i:i+C],
+            hit_pos[i:i+C]
         )
         
         #
-        t_val = torch.where(
-            (t < t_val) & intersect,
-            t,
-            t_val
+        t_val[i:i+C] = torch.where(
+            ((t_valid_min < t_val[i:i+C]) & intersect_valid_min),
+            t_valid_min,
+            t_val[i:i+C]
         )
-        
-        print(obj_idx, face_idx)
+    
+# Reshape
+object_hit = object_hit.view(B, screen_width, screen_height)
+face_hit   = face_hit.view(B, screen_width, screen_height)
+normals    = normals.view(B, screen_width, screen_height, 3)
+hit_pos    = hit_pos.view(B, screen_width, screen_height, 3)
+# t_val      = t_val.view(B, screen_width, screen_height)
 
 # Compute Lambertian shading
 # light_pos = light_pos[None, None, None, :]
