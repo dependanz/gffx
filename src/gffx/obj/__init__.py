@@ -31,9 +31,9 @@ class Transform:
             scale = torch.tensor(scale, device=device)[None,:]
         
         # 
-        self.translation = translation
-        self.rotation    = rotation
-        self.scale       = scale
+        self.translation = translation.float()
+        self.rotation    = rotation.float()
+        self.scale       = scale.float()
 
 class MeshObject:
     def __init__(
@@ -75,10 +75,10 @@ class MeshObject:
             if normals are not None, also returns transformed normals
         """
         M = gffx.linalg.transformation_matrix(
-            translation_vec = self.transform.translation,
-            rotation_vec    = self.transform.rotation,
-            scale_vec       = self.transform.scale
-        ) # dim(B, 4, 4)
+            translation_vec = self.transform.translation[None,...],
+            rotation_vec    = self.transform.rotation[None,...],
+            scale_vec       = self.transform.scale[None,...]
+        ) # dim(1, 4, 4)
         vertices_h = torch.cat([self.vertices, torch.ones((self.vertices.shape[0], 1), device=self.device)], dim=-1)
         vertices_h = vertices_h @ M.transpose(-1, -2)
         
@@ -86,9 +86,9 @@ class MeshObject:
         if self.normals is not None:
             M = M[:, 0:3, 0:3].inverse()
             normals = self.normals @ M
-            return vertices_h[..., 0:3], normals
+            return vertices_h[0,..., 0:3], normals[0]
         
-        return vertices_h[..., 0:3], None
+        return vertices_h[0,..., 0:3], None
     
 def compute_normals(vertices: torch.Tensor, faces: torch.Tensor) -> torch.Tensor:
     """
@@ -127,6 +127,36 @@ def compute_normals(vertices: torch.Tensor, faces: torch.Tensor) -> torch.Tensor
     vertex_normals = vertex_normals / norm
 
     return vertex_normals
+
+def mesh_from_vertices_and_faces(
+    vertices         : torch.Tensor,
+    faces            : torch.Tensor,
+    init_transform   : Optional[Transform]           = None,
+    init_translation : Optional[list | torch.Tensor] = None,
+    init_rotation    : Optional[list | torch.Tensor] = None,
+    init_scale       : Optional[list | torch.Tensor] = None,
+    device           : Optional[torch.device]        = None 
+):
+    # 
+    if isinstance(init_translation, list):
+        init_translation = torch.tensor(init_translation, device=device)
+    if isinstance(init_rotation, list):
+        init_rotation = torch.tensor(init_rotation, device=device)
+    if isinstance(init_scale, list):
+        init_scale = torch.tensor(init_scale, device=device)
+    
+    # Compute Normals
+    normals = compute_normals(vertices[None,:], faces[None,:])[0]
+    
+    return MeshObject(
+        vertices         = vertices,
+        faces            = faces,
+        normals          = normals,
+        init_transform   = init_transform,
+        init_translation = init_translation,
+        init_rotation    = init_rotation,
+        init_scale       = init_scale
+    )
     
 def generate_cube_mesh(
     init_transform   : Optional[Transform]           = None,
@@ -168,7 +198,7 @@ def generate_cube_mesh(
     return MeshObject(
         vertices         = vertices, 
         faces            = faces,
-        normals          = torch.linalg.norm(vertices, dim=-1),
+        normals          = vertices / torch.linalg.norm(vertices, dim=-1, keepdim=True),
         init_transform   = init_transform,
         init_translation = init_translation,
         init_rotation    = init_rotation,

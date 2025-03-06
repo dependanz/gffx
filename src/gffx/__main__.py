@@ -22,8 +22,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 B = 2
 
 # Setup screen
-screen_width  = 720
-screen_height = 480
+screen_width  = 512
+screen_height = 512
 screens = torch.zeros((B, screen_width, screen_height, 3), device=device)
 
 # Setup camera
@@ -122,19 +122,34 @@ ray_directions /= torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 ################################################################
 
 # Object setup
+face_vertices = torch.load('/home/danzieboy/dev/face-animation/PDGA/PDGA/assets/cache/vocaset/motionspace/template_vertices.pt')[0].to(device)
+face_faces    = torch.load('/home/danzieboy/dev/face-animation/PDGA/PDGA/assets/cache/vocaset/motionspace/template_faces.pt')[0].to(device)
+face_vertices_mean = torch.mean(face_vertices, dim=0)
+face_vertices_centered = face_vertices - face_vertices_mean
+face_vertices_scale = torch.max(torch.linalg.norm(face_vertices_centered, dim=-1))
+face_vertices = face_vertices / face_vertices_scale
+
 object_list = [
     # gffx.obj.generate_cube_mesh(
-    #     init_translation = [0, -5, 5],
+    #     init_translation = [0, 0, 0],
     #     init_rotation    = [0, 0, 0],
     #     init_scale       = [1, 1, 1],
     #     device           = device
     # ),
-    gffx.obj.generate_icosphere_mesh(
-        num_subdivisions = 2,
-        init_translation = [0, 0, 0],
-        init_rotation    = [0, 0, 0],
-        init_scale       = [1, 1, 1],
-        device           = device
+    # gffx.obj.generate_icosphere_mesh(
+    #     num_subdivisions = 2,
+    #     init_translation = [0, 0, 0],
+    #     init_rotation    = [0, 0, 0],
+    #     init_scale       = [1, 1, 1],
+    #     device           = device
+    # )
+    gffx.obj.mesh_from_vertices_and_faces(
+        vertices             = face_vertices,
+        faces                = face_faces,
+            init_translation = [0, 0.0, 2],
+            init_rotation    = [0, 0, 0],
+            init_scale       = [1, 1, 1],
+            device           = device
     )
 ]
 
@@ -142,7 +157,7 @@ object_list = [
 background_color = [0, 0, 0]
 diffuse_color = [
     # [0.3, 0.3, 1],
-    [1.0, 0.0, 0.0],
+    [0.5, 0.5, 0.5],
 ]
 diffuse_color.append(background_color)
 diffuse_color = torch.tensor(diffuse_color, device=device, dtype=torch.float32)
@@ -157,7 +172,7 @@ specular_color = torch.tensor(specular_color, device=device, dtype=torch.float32
 
 ambient_color = [
     # [0.3, 0.3, 1],
-    [1.0, 0.0, 0.0],
+    [0.5, 0.5, 0.5],
 ]
 ambient_color.append(background_color)
 ambient_color = torch.tensor(ambient_color, device=device, dtype=torch.float32)
@@ -174,7 +189,6 @@ normals    = torch.zeros((B, screen_width, screen_height, 3), device=device)
 hit_pos    = torch.zeros((B, screen_width, screen_height, 3), device=device)
 for obj_idx, obj in enumerate(object_list):
     transformed_vertices, transformed_normals = obj.get_transformed()
-    breakpoint()
     for face_idx, tri in enumerate(obj.faces):
         triangle_vertices = transformed_vertices[tri][None,...] # dim(1, 3, 3)
         triangle_normals  = transformed_normals[tri][None, ...] # dim(1, 3, 3)
@@ -225,6 +239,8 @@ for obj_idx, obj in enumerate(object_list):
             t,
             t_val
         )
+        
+        print(obj_idx, face_idx)
 
 # Compute Lambertian shading
 # light_pos = light_pos[None, None, None, :]
