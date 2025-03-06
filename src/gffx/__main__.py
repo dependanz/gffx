@@ -117,8 +117,164 @@ ray_directions /= torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 # plt.gca().invert_yaxis()
 # plt.show()
 
+# ################################################################
+# # [CASE] Multiple Objects (4.4.4)
+# ################################################################
+
+# # Object setup
+# face_vertices = torch.load('/home/danzieboy/dev/face-animation/PDGA/PDGA/assets/cache/vocaset/motionspace/template_vertices.pt')[0].to(device)
+# face_faces    = torch.load('/home/danzieboy/dev/face-animation/PDGA/PDGA/assets/cache/vocaset/motionspace/template_faces.pt')[0].to(device)
+# face_vertices_mean = torch.mean(face_vertices, dim=0)
+# face_vertices_centered = face_vertices - face_vertices_mean
+# face_vertices_scale = torch.max(torch.linalg.norm(face_vertices_centered, dim=-1))
+# face_vertices = face_vertices / face_vertices_scale
+
+# object_list = [
+#     # gffx.obj.generate_cube_mesh(
+#     #     init_translation = [0, 0, 0],
+#     #     init_rotation    = [0, 0, 0],
+#     #     init_scale       = [1, 1, 1],
+#     #     device           = device
+#     # ),
+#     # gffx.obj.generate_icosphere_mesh(
+#     #     num_subdivisions = 2,
+#     #     init_translation = [0, 0, 0],
+#     #     init_rotation    = [0, 0, 0],
+#     #     init_scale       = [1, 1, 1],
+#     #     device           = device
+#     # )
+#     gffx.obj.mesh_from_vertices_and_faces(
+#         vertices             = face_vertices,
+#         faces                = face_faces,
+#             init_translation = [0, 0.0, 2],
+#             init_rotation    = [0, 0, 0],
+#             init_scale       = [1, 1, 1],
+#             device           = device
+#     )
+# ]
+
+# # [4NOW] Flat colors
+# background_color = [0, 0, 0]
+# diffuse_color = [
+#     # [0.3, 0.3, 1],
+#     [0.5, 0.5, 0.5],
+# ]
+# diffuse_color.append(background_color)
+# diffuse_color = torch.tensor(diffuse_color, device=device, dtype=torch.float32)
+
+# specular_coefficient = 1
+# specular_color = [
+#     # [0.3, 0.3, 1],
+#     [0.5, 0.5, 0.5],
+# ]
+# specular_color.append(background_color)
+# specular_color = torch.tensor(specular_color, device=device, dtype=torch.float32)
+
+# ambient_color = [
+#     # [0.3, 0.3, 1],
+#     [0.5, 0.5, 0.5],
+# ]
+# ambient_color.append(background_color)
+# ambient_color = torch.tensor(ambient_color, device=device, dtype=torch.float32)
+
+# # Light setup
+# light_intensity = 1
+# ambient_intensity = 0.2
+# light_pos = torch.tensor([5, 5, 5], device=device, dtype=torch.float32)
+
+# object_hit = torch.full((B, screen_width, screen_height), -1, device=device, dtype=torch.int64)
+# face_hit   = torch.full((B, screen_width, screen_height), -1, device=device, dtype=torch.int64)
+# t_val      = torch.full((B, screen_width, screen_height), float('inf'), device=device)
+# normals    = torch.zeros((B, screen_width, screen_height, 3), device=device)
+# hit_pos    = torch.zeros((B, screen_width, screen_height, 3), device=device)
+# for obj_idx, obj in enumerate(object_list):
+#     transformed_vertices, transformed_normals = obj.get_transformed()
+#     for face_idx, tri in enumerate(obj.faces):
+#         triangle_vertices = transformed_vertices[tri][None,...] # dim(1, 3, 3)
+#         triangle_normals  = transformed_normals[tri][None, ...] # dim(1, 3, 3)
+        
+#         # 
+#         beta, gamma, t, intersect = gffx.ray.ray_triangle_intersection(
+#             ray_origins       = ray_origins,
+#             ray_directions    = ray_directions,
+#             triangle_vertices = triangle_vertices,
+#             t0                = 0,
+#             t1                = 100
+#         )
+#         beta  = beta[...,None]
+#         gamma = gamma[...,None]
+        
+#         # 
+#         object_hit = torch.where(
+#             (t < t_val) & intersect,
+#             obj_idx,
+#             object_hit
+#         )
+        
+#         #
+#         face_hit = torch.where(
+#             (t < t_val) & intersect,
+#             face_idx,
+#             face_hit
+#         )
+        
+#         # Interpolate normals
+#         interpolated_normals = (1 - beta - gamma) * triangle_normals[:,None,None,0] + beta * triangle_normals[:,None,None,1] + gamma * triangle_normals[:,None,None,2]
+#         normals = torch.where(
+#             ((t < t_val) & intersect)[...,None],
+#             interpolated_normals,
+#             normals
+#         )
+        
+#         # Interpolate hit positions
+#         hit_pos = torch.where(
+#             ((t < t_val) & intersect)[...,None],
+#             ray_origins + t[...,None] * ray_directions,
+#             hit_pos
+#         )
+        
+#         #
+#         t_val = torch.where(
+#             (t < t_val) & intersect,
+#             t,
+#             t_val
+#         )
+        
+#         print(obj_idx, face_idx)
+
+# # Compute Lambertian shading
+# # light_pos = light_pos[None, None, None, :]
+# # light_dir = light_pos - hit_pos
+# # light_dir /= torch.linalg.norm(light_dir, dim=-1, keepdim=True)
+
+# # light_dir_dot_normals = torch.sum(light_dir * normals, dim=-1, keepdim=True) # dim(B, H, W, 1)
+# # light_dir_dot_normals = light_intensity * torch.clamp(light_dir_dot_normals, min=0)
+
+# # L = diffuse_color[object_hit] * light_dir_dot_normals
+
+# # Compute Phong Shading
+# light_pos = light_pos[None, None, None, :]
+# light_dir = light_pos - hit_pos
+# light_dir /= torch.linalg.norm(light_dir, dim=-1, keepdim=True)
+
+# view_dir = camera_pos[None, None, None, :] - hit_pos
+# view_dir /= torch.linalg.norm(view_dir, dim=-1, keepdim=True)
+# bisector_vec = light_dir + view_dir
+# bisector_vec /= torch.linalg.norm(bisector_vec, dim=-1, keepdim=True)
+
+# diffuse_weight = torch.clamp(torch.sum(light_dir * normals, dim=-1, keepdim=True), min=0)
+# specular_weight = torch.clamp(torch.sum(bisector_vec * normals, dim=-1, keepdim=True), min=0) ** specular_coefficient
+
+# L = diffuse_color[object_hit] * light_intensity * diffuse_weight
+# L += specular_color[object_hit] * light_intensity * specular_weight
+# L += ambient_color[object_hit] * ambient_intensity
+
+# plt.imshow((L[0].cpu()).permute(1, 0, 2))
+# plt.gca().invert_yaxis()
+# plt.show()
+
 ################################################################
-# [CASE] Multiple Objects (4.4.4)
+# FASTER ALGORITHM
 ################################################################
 
 # Object setup
@@ -180,17 +336,33 @@ ambient_color = torch.tensor(ambient_color, device=device, dtype=torch.float32)
 # Light setup
 light_intensity = 1
 ambient_intensity = 0.2
-light_pos = torch.tensor([5, 5, 5], device=device, dtype=torch.float32)
+light_pos  = torch.tensor([5, 5, 5], device=device, dtype=torch.float32)
 
-object_hit = torch.full((B, screen_width, screen_height), -1, device=device, dtype=torch.int64)
-face_hit   = torch.full((B, screen_width, screen_height), -1, device=device, dtype=torch.int64)
-t_val      = torch.full((B, screen_width, screen_height), float('inf'), device=device)
+object_hit = torch.full((B,  screen_width, screen_height), -1, device=device, dtype=torch.int64)
+face_hit   = torch.full((B,  screen_width, screen_height), -1, device=device, dtype=torch.int64)
+t_val      = torch.full((B,  screen_width, screen_height), float('inf'), device=device)
 normals    = torch.zeros((B, screen_width, screen_height, 3), device=device)
 hit_pos    = torch.zeros((B, screen_width, screen_height, 3), device=device)
 for obj_idx, obj in enumerate(object_list):
     transformed_vertices, transformed_normals = obj.get_transformed()
+    
+    face_tri_vertices = transformed_vertices[obj.faces] # dim(F, 3, 3)
+    face_tri_normals  = transformed_normals[obj.faces]  # dim(F, 3, 3)
+    
+    B, H, W, _ = ray_origins.shape
+    breakpoint()
+    beta, gamma, t, intersect = gffx.ray.ray_triangle_intersection(
+        ray_origins       = ray_origins.view(B * H * W, 3),    # dim(B * H * W, 3)
+        ray_directions    = ray_directions.view(B * H * W, 3), # dim(B * H * W, 3)
+        triangle_vertices = face_tri_vertices,                 # dim(F, 3, 3)
+        t0                = 0,
+        t1                = 100
+    ) # dim(B * H * W, F) -> dim(B, H, W, F)
+    
+    breakpoint()
+    
     for face_idx, tri in enumerate(obj.faces):
-        triangle_vertices = transformed_vertices[tri][None,...] # dim(1, 3, 3)
+        triangle_vertices = transformed_vertices[tri][None, ...] # dim(1, 3, 3)
         triangle_normals  = transformed_normals[tri][None, ...] # dim(1, 3, 3)
         
         # 

@@ -27,14 +27,19 @@ def ray_triangle_intersection(
     """
         Compute ray-triangle intersection using Cramer's Rule
         
+        Terms
+        -----
+        B = batch size
+        N = number of triangles
+        
         Parameters
         ----------
         ray_origins : torch.Tensor
-            Ray origins -> dim(B, H, W, 3)
+            Ray origins -> dim(B, 3)
         ray_directions : torch.Tensor
-            Ray directions -> dim(B, H, W, 3)
+            Ray directions -> dim(B, 3)
         triangle_vertices : torch.Tensor
-            Triangle vertices -> dim(B, 3, 3)
+            Triangle vertices -> dim(N, 3, 3)
         t0 : float
             Minimum t value (default: 0)
         t1 : float
@@ -43,13 +48,13 @@ def ray_triangle_intersection(
         Returns
         -------
         beta : torch.Tensor
-            beta values -> dim(B, H, W, 1)
+            beta values -> dim(B, N)
         gamma : torch.Tensor
-            gamma values -> dim(B, H, W, 1)
+            gamma values -> dim(B, N)
         t : torch.Tensor
-            t values -> dim(B, H, W, 1)
+            t values -> dim(B, N)
         intersect : torch.Tensor
-            Intersection mask -> dim(B, H, W, 1)
+            Intersection mask -> dim(B, N)
         
         Notes
         -----
@@ -65,15 +70,16 @@ def ray_triangle_intersection(
             t     = det(A_3) / det(A)
         Where A_i is A with column i replaced by b
     """
-    B             = ray_origins.shape[0]
-    screen_width  = ray_origins.shape[1]
-    screen_height = ray_origins.shape[2]
-    device        = ray_origins.device
+    B = ray_origins.shape[0]
+    N = triangle_vertices.shape[0]
+    device = triangle_vertices.device
 
     # Setup
-    A = torch.zeros((B, screen_width, screen_height, 3, 3), device=device)
-    b = torch.zeros((B, screen_width, screen_height, 3, 1), device=device)
+    A = torch.zeros((B, N, 3, 3), device=device)
+    b = torch.zeros((B, N, 3, 1), device=device)
 
+    breakpoint()
+    triangle_vertices = triangle_vertices[None, ...]
     A[...,0,0] = triangle_vertices[...,0:1,0:1] - triangle_vertices[...,1:2,0:1]
     A[...,0,1] = triangle_vertices[...,0:1,0:1] - triangle_vertices[...,2:3,0:1]
     A[...,0,2] = ray_directions[...,0]
@@ -87,6 +93,8 @@ def ray_triangle_intersection(
     b[...,0,0] = triangle_vertices[...,0:1,0:1] - ray_origins[...,0]
     b[...,1,0] = triangle_vertices[...,0:1,1:2] - ray_origins[...,1]
     b[...,2,0] = triangle_vertices[...,0:1,2:3] - ray_origins[...,2]
+    
+    breakpoint()
 
     # Cramer's Rule
     x     = gffx.linalg.cramer(A, b)
