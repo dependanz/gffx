@@ -1,6 +1,8 @@
+from typing import Optional
 import gffx
 import torch
 import argparse
+import math
 import matplotlib.pyplot as plt
 
 import gffx.linalg
@@ -114,3 +116,11 @@ t, intersect = gffx.ray.ray_triangle_intersection(
 plt.imshow((t[0].cpu() * intersect[0].cpu()).T)
 plt.gca().invert_yaxis()
 plt.show()
+
+
+################################################################
+# [CASE] Multiple Objects (4.4.4)
+################################################################
+
+# Object setup
+
