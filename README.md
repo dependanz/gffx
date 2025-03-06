@@ -1,4 +1,4 @@
-# gffx - a minimal library for (differentiable) graphics
+### gffx - a minimal library for (differentiable) graphics
 
 ```Python
 import gffx
