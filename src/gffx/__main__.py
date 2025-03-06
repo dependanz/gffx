@@ -3,6 +3,8 @@ import torch
 import argparse
 import matplotlib.pyplot as plt
 
+import gffx.linalg
+
 ################################################################
 # ARGUMENT PARSER
 ################################################################
@@ -18,13 +20,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 B = 2
 
 # Setup screen
-screen_width  = 512
-screen_height = 512
-screens = torch.zeros((B, screen_height, screen_width, 3), device=device)
+screen_width  = 720
+screen_height = 480
+screens = torch.zeros((B, screen_width, screen_height, 3), device=device)
 
 # Setup camera
-camera_pos          = torch.tensor([0, 0, 0], device=device, dtype=torch.float32)
-camera_dir          = torch.tensor([0, 0, 1], device=device, dtype=torch.float32)
+camera_pos          = torch.tensor([0, 0, 3], device=device, dtype=torch.float32)
+camera_dir          = torch.tensor([0, 0, -1], device=device, dtype=torch.float32)
 camera_dir         /= torch.linalg.norm(camera_dir)
 
 world_up            = torch.tensor([0, 1, 0], device=device, dtype=torch.float32)
@@ -35,10 +37,11 @@ camera_v  = torch.cross(camera_u, camera_dir, dim=-1)
 camera_w  = -camera_dir
 
 # Ray origins
-left   = -1
-right  = 1
-bottom = -1
-top    = 1
+aspect_ratio = screen_width / screen_height
+left         = -aspect_ratio
+right        = aspect_ratio
+bottom       = -1
+top          = 1
 
 screen_grids = torch.stack(torch.meshgrid(
     (right - left) * ((torch.arange(0, screen_width, device=device) + 0.5) / screen_width) + left,
@@ -58,6 +61,7 @@ distance = 1
 ray_directions  = screen_grids[..., 0:1] * camera_u[None, None, None, :]
 ray_directions += screen_grids[..., 1:2] * camera_v[None, None, None, :]
 ray_directions += camera_pos[None,None,None,:] - (camera_w[None,None,None,:] * distance)
+ray_directions -= ray_origins
 ray_directions /= torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 
 ################################################################
@@ -78,46 +82,35 @@ ray_directions /= torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 
 # Object setup
 triangle_vertices = torch.tensor([
-    [-1, -1, 2],
-    [ 1, -1, 2],
-    [ 0,  1, 2]
+    [-0.5, -0.5, 0],
+    [ 0.5, -0.5, 0],
+    [ 0,  0.5, 0]
 ], device=device, dtype=torch.float32)[None,...].expand(B,-1,-1) # dim(3, 3)
 
 # Model Transformation (Translation, Orientation, Scale)
-translation = torch.tensor([0, 0, 0], device=device, dtype=torch.float32)[None,:].expand(B,-1)
-rotation    = torch.tensor([0, 1, 0], device=device, dtype=torch.float32)[None,:].expand(B,-1)
+translation = torch.tensor([0.5, 0, 0], device=device, dtype=torch.float32)[None,:].expand(B,-1)
+rotation    = torch.tensor([0, 0, 0], device=device, dtype=torch.float32)[None,:].expand(B,-1)
 scale       = torch.tensor([1, 1, 1], device=device, dtype=torch.float32)[None,:].expand(B,-1)
 
-# Rodrigues' rotation formula
-theta = torch.linalg.norm(rotation, dim=-1, keepdim=True)[..., None]
-K = torch.zeros((B, 3, 3), device=device)
-K[:,0,1] = -rotation[:,2]
-K[:,0,2] =  rotation[:,1]
-K[:,1,0] =  rotation[:,2]
-K[:,1,2] = -rotation[:,0]
-K[:,2,0] = -rotation[:,1]
-K[:,2,1] =  rotation[:,0]
-
-R = (
-    torch.eye(3, device=device)[None,:].expand(B,-1,-1) 
-    + torch.sin(theta) * K 
-    + (1 - torch.cos(theta)) * (K @ K)
-)
-R = torch.cat([R, torch.zeros((B, 3, 1), device=device)], dim=-1)
-R = torch.cat([R, torch.zeros((B, 1, 4), device=device)], dim=-2)
-R[:,3,3] = 1
-
-# Scale Matrix
-S = torch.cat([
-     torch.cat([
-    torch.eye(3, device=device)[None,:].expand(B,-1,-1) * scale[..., None], 
-    torch.zeros((B, 3, 1), device=device)], dim=-1), torch.zeros((B, 1, 4), device=device)], dim=-2)
-
-# Translation Matrix
-T = torch.eye(4, device=device)[None,:].expand(B,-1,-1)
-T[:,0:3,3] = translation
-
 # Model Transformation Matrix
-M = T @ R @ S
+M = gffx.linalg.transformation_matrix(
+    translation_vec = translation,
+    rotation_vec    = rotation,
+    scale_vec       = scale
+)
 
-breakpoint()
+# Transform triangle vertices
+triangle_vertices_h = torch.cat([triangle_vertices, torch.ones((B, 3, 1), device=device)], dim=-1) # dim(B, 3, 4)
+triangle_vertices_h = triangle_vertices_h @ M.transpose(-1, -2) # dim(B, 3, 4)
+transfomed_triangle_vertices = triangle_vertices_h[..., 0:3]
+
+t, intersect = gffx.ray.ray_triangle_intersection(
+    ray_origins = ray_origins,
+    ray_directions = ray_directions,
+    triangle_vertices = transfomed_triangle_vertices,
+    t0 = 0,
+    t1 = 100
+)
+plt.imshow((t[0].cpu() * intersect[0].cpu()).T)
+plt.gca().invert_yaxis()
+plt.show()
