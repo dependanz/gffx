@@ -1,4 +1,5 @@
 import math
+import gffx
 import torch
 from typing import Optional
 
@@ -62,6 +63,32 @@ class MeshObject:
         self.faces    = faces
         self.normals  = normals
         self.device   = vertices.device
+        
+    def get_transformed(self):
+        """
+            Apply transformation to vertices
+            
+            Returns:
+            -------
+            torch.Tensor: Transformed vertices
+            
+            if normals are not None, also returns transformed normals
+        """
+        M = gffx.linalg.transformation_matrix(
+            translation_vec = self.transform.translation,
+            rotation_vec    = self.transform.rotation,
+            scale_vec       = self.transform.scale
+        ) # dim(B, 4, 4)
+        vertices_h = torch.cat([self.vertices, torch.ones((self.vertices.shape[0], 1), device=self.device)], dim=-1)
+        vertices_h = vertices_h @ M.transpose(-1, -2)
+        
+        # [Optional] Transform normals
+        if self.normals is not None:
+            M = M[:, 0:3, 0:3].inverse()
+            normals = self.normals @ M
+            return vertices_h[..., 0:3], normals
+        
+        return vertices_h[..., 0:3], None
     
 def compute_normals(vertices: torch.Tensor, faces: torch.Tensor) -> torch.Tensor:
     """

@@ -173,9 +173,11 @@ t_val      = torch.full((B, screen_width, screen_height), float('inf'), device=d
 normals    = torch.zeros((B, screen_width, screen_height, 3), device=device)
 hit_pos    = torch.zeros((B, screen_width, screen_height, 3), device=device)
 for obj_idx, obj in enumerate(object_list):
+    transformed_vertices, transformed_normals = obj.get_transformed()
+    breakpoint()
     for face_idx, tri in enumerate(obj.faces):
-        triangle_vertices = obj.vertices[tri][None,...] # dim(1, 3, 3)
-        triangle_normals  = obj.normals[tri][None, ...] # dim(1, 3, 3)
+        triangle_vertices = transformed_vertices[tri][None,...] # dim(1, 3, 3)
+        triangle_normals  = transformed_normals[tri][None, ...] # dim(1, 3, 3)
         
         # 
         beta, gamma, t, intersect = gffx.ray.ray_triangle_intersection(
