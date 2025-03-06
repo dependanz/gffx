@@ -113,9 +113,9 @@ t, intersect = gffx.ray.ray_triangle_intersection(
     t0 = 0,
     t1 = 100
 )
-plt.imshow((t[0].cpu() * intersect[0].cpu()).T)
-plt.gca().invert_yaxis()
-plt.show()
+# plt.imshow((t[0].cpu() * intersect[0].cpu()).T)
+# plt.gca().invert_yaxis()
+# plt.show()
 
 
 ################################################################
@@ -123,21 +123,37 @@ plt.show()
 ################################################################
 
 # Object setup
-object_list = []
-object_list.append(
-    gffx.obj.generate_cube_mesh(
-        init_translation = [0, 0, 2],
+object_list = [
+    # gffx.obj.generate_cube_mesh(
+    #     init_translation = [0, 0, 2],
+    #     init_rotation    = [0, 0, 0],
+    #     init_scale       = [1, 1, 1],
+    #     device           = device
+    # ),
+    gffx.obj.generate_icosphere_mesh(
+        init_translation = [0, 0, 5],
         init_rotation    = [0, 0, 0],
         init_scale       = [1, 1, 1],
         device           = device
     )
-)
+]
 
+final_intersect = torch.zeros((B, screen_width, screen_height), device=device)
 for obj in object_list:
     for tri in obj.faces:
-        triangle_vertices = obj.vertices[tri]
+        triangle_vertices = obj.vertices[tri][None,...] # dim(1, 3, 3)
         
-        # Transform triangle vertices
-        triangle_vertices_h = torch.cat([triangle_vertices, torch.ones((1, 3, 1), device=device)], dim=-1)
+        # 
+        t, intersect = gffx.ray.ray_triangle_intersection(
+            ray_origins       = ray_origins,
+            ray_directions    = ray_directions,
+            triangle_vertices = triangle_vertices,
+            t0                = 0,
+            t1                = 100
+        )
+        final_intersect += intersect
         
-        breakpoint()
+    intersect = final_intersect > 0
+    plt.imshow((intersect[0].cpu()).T)
+    plt.gca().invert_yaxis()
+    plt.show()

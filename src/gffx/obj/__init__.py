@@ -37,9 +37,9 @@ class Transform:
 class MeshObject:
     def __init__(
         self, 
-        vertices : torch.Tensor,
-        faces    : torch.Tensor,
-        
+        vertices         : torch.Tensor,
+        faces            : torch.Tensor,
+        normals          : Optional[torch.Tensor] = None,
         init_transform   : Optional[Transform]    = None,
         init_translation : Optional[torch.Tensor] = None,
         init_rotation    : Optional[torch.Tensor] = None,
@@ -60,7 +60,47 @@ class MeshObject:
         
         self.vertices = vertices
         self.faces    = faces
-        
+        self.normals  = normals
+        self.device   = vertices.device
+    
+def compute_normals(vertices: torch.Tensor, faces: torch.Tensor) -> torch.Tensor:
+    """
+        Compute per-vertex normals for a batch of meshes.
+
+        Args:
+            vertices (torch.Tensor): Tensor of shape (B, V, 3) with vertex positions.
+            faces (torch.Tensor): Long tensor of shape (B, F, 3) with indices into vertices.
+
+        Returns:
+            torch.Tensor: Tensor of shape (B, V, 3) with normalized vertex normals.
+    """
+    B, V, _ = vertices.shape
+    _, F, _ = faces.shape
+    device = vertices.device
+
+    # Initialize normals accumulator
+    vertex_normals = torch.zeros_like(vertices)
+
+    # Gather vertex positions for each corner of every face
+    v0 = torch.gather(vertices, 1, faces[:, :, 0].unsqueeze(-1).expand(-1, -1, 3))
+    v1 = torch.gather(vertices, 1, faces[:, :, 1].unsqueeze(-1).expand(-1, -1, 3))
+    v2 = torch.gather(vertices, 1, faces[:, :, 2].unsqueeze(-1).expand(-1, -1, 3))
+
+    # Compute face normals (unnormalized) via cross product
+    face_normals = torch.cross(v1 - v0, v2 - v0, dim=2) # dim(B,F,3)
+    face_normals = face_normals / (face_normals.norm(dim=2, keepdim=True) + 1e-8)
+
+    # Accumulate face normals to each vertex using scatter_add_
+    for i in range(3):
+        idx = faces[:, :, i].unsqueeze(-1).expand(-1, -1, 3)
+        vertex_normals.scatter_add_(1, idx, face_normals)
+
+    # Normalize the accumulated vertex normals
+    norm = vertex_normals.norm(dim=2, keepdim=True).clamp(min=1e-8)
+    vertex_normals = vertex_normals / norm
+
+    return vertex_normals
+    
 def generate_cube_mesh(
     init_transform   : Optional[Transform]           = None,
     init_translation : Optional[list | torch.Tensor] = None,
@@ -97,10 +137,11 @@ def generate_cube_mesh(
         [0, 2, 4], [2, 6, 4],  # Back face
         [1, 5, 3], [3, 5, 7]   # Front face
     ], device=device, dtype=torch.int64)
-
+    
     return MeshObject(
         vertices         = vertices, 
         faces            = faces,
+        normals          = torch.linalg.norm(vertices, dim=-1),
         init_transform   = init_transform,
         init_translation = init_translation,
         init_rotation    = init_rotation,
@@ -109,6 +150,7 @@ def generate_cube_mesh(
     
     
 def generate_icosphere_mesh(
+    num_subdivisions : int                           = 1,
     init_transform   : Optional[Transform]           = None,
     init_translation : Optional[list | torch.Tensor] = None,
     init_rotation    : Optional[list | torch.Tensor] = None,
@@ -170,9 +212,48 @@ def generate_icosphere_mesh(
         [9, 8, 1],
     ], device=device, dtype=torch.int64)
 
+    # Subdivide faces
+    for _ in range(num_subdivisions):
+        new_faces = []
+        midpoints = {}
+        for face in faces:
+            a, b, c = face.tolist()
+            ab = tuple(sorted((a, b)))
+            ac = tuple(sorted((a, c)))
+            bc = tuple(sorted((b, c)))
+
+            if ab not in midpoints:
+                midpoints[ab] = len(vertices)
+                vertices = torch.cat([vertices, (vertices[a:a+1] + vertices[b:b+1]) / 2.0], dim=0)
+            if ac not in midpoints:
+                midpoints[ac] = len(vertices)
+                vertices = torch.cat([vertices, (vertices[a:a+1] + vertices[c:c+1]) / 2.0], dim=0)
+            if bc not in midpoints:
+                midpoints[bc] = len(vertices)
+                vertices = torch.cat([vertices, (vertices[b:b+1] + vertices[c:c+1]) / 2.0], dim=0)
+
+            d = midpoints[ab]
+            e = midpoints[ac]
+            f = midpoints[bc]
+
+            new_faces.extend([
+                [a, d, e],
+                [b, d, f],
+                [c, e, f],
+                [d, e, f]
+            ])
+        faces = torch.tensor(new_faces, device=device, dtype=torch.int64)
+    
+    # Project vertices to unit length
+    vertices = torch.nn.functional.normalize(vertices, dim=-1)
+    vertices = torch.cat([vertices, torch.ones((vertices.shape[0], 1), device=device)], dim=-1)
+    vertices = vertices @ torch.diag(torch.tensor([1, 1, 1, 0], device=device)).to(vertices.dtype)
+    vertices = vertices[..., 0:3]
+    
     return MeshObject(
-        vertices         = vertices, 
+        vertices         = vertices,
         faces            = faces,
+        normals          = vertices,
         init_transform   = init_transform,
         init_translation = init_translation,
         init_rotation    = init_rotation,
