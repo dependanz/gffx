@@ -123,4 +123,14 @@ plt.show()
 ################################################################
 
 # Object setup
+object_list = []
+object_list.append(
+    gffx.obj.generate_cube_mesh(
+        init_translation = [0, 0, 2],
+        init_rotation    = [0, 0, 0],
+        init_scale       = [1, 1, 1],
+        device           = device
+    )
+)
 
+breakpoint()
