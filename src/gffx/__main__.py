@@ -124,7 +124,7 @@ ray_directions /= torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 # Object setup
 object_list = [
     # gffx.obj.generate_cube_mesh(
-    #     init_translation = [0, 0, 2],
+    #     init_translation = [0, -5, 5],
     #     init_rotation    = [0, 0, 0],
     #     init_scale       = [1, 1, 1],
     #     device           = device
@@ -141,7 +141,7 @@ object_list = [
 # [4NOW] Flat colors
 background_color = [0, 0, 0]
 diffuse_color = [
-    # [0.3, 0.3, 1]
+    # [0.3, 0.3, 1],
     [1.0, 0.0, 0.0],
 ]
 diffuse_color.append(background_color)
@@ -149,22 +149,22 @@ diffuse_color = torch.tensor(diffuse_color, device=device, dtype=torch.float32)
 
 specular_coefficient = 1
 specular_color = [
-    # [0.3, 0.3, 1]
+    # [0.3, 0.3, 1],
     [0.5, 0.5, 0.5],
 ]
 specular_color.append(background_color)
 specular_color = torch.tensor(specular_color, device=device, dtype=torch.float32)
 
 ambient_color = [
-    # [0.3, 0.3, 1]
-    [0.3, 0.3, 0.3],
+    # [0.3, 0.3, 1],
+    [1.0, 0.0, 0.0],
 ]
 ambient_color.append(background_color)
 ambient_color = torch.tensor(ambient_color, device=device, dtype=torch.float32)
 
 # Light setup
 light_intensity = 1
-ambient_intensity = 1
+ambient_intensity = 0.2
 light_pos = torch.tensor([5, 5, 5], device=device, dtype=torch.float32)
 
 object_hit = torch.full((B, screen_width, screen_height), -1, device=device, dtype=torch.int64)
