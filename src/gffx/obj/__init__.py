@@ -1,4 +1,7 @@
 import math
+
+from matplotlib import pyplot as plt
+import numpy as np
 import gffx
 import torch
 from typing import Optional
@@ -369,3 +372,55 @@ def generate_icosphere_mesh(
         specular_color = specular_color,
         specular_coefficient = specular_coefficient
     )
+    
+def adjacency_matrix(
+    faces    : torch.Tensor,
+    device   : Optional[torch.device] = None
+):
+    """
+        Computes adjacency matrix for a mesh defined by face triangle indices
+        
+        Terms
+        -----
+            B : Number of batches
+            F : Number of faces
+        
+        Parameters
+        ----------
+        faces : torch.Tensor
+            Tensor of shape (F, 3) or (B, F, 3) with vertex set indexes.
+            
+        Returns
+        -------
+        A : torch.Tensor
+            Adjacency matrix of shape (B, V, V) or (V, V) with adjacency information.
+    """
+    assert faces.ndim in [2,3], "Faces must be 2D or 3D tensor"
+    if faces.ndim == 2:
+        faces = faces[None,...]
+        
+    # Get range of vertices
+    V = faces.max() + 1
+    
+    # 
+    B, F, _ = faces.shape
+    if not device:
+        device = faces.device
+    
+    # Initialize adjacency matrix
+    A = torch.zeros((B, V, V), device=device, dtype=torch.float32)
+    
+    # faces[:, :, 0] # dim(1|B,F)
+    # faces[:, :, 1] # dim(1|B,F)
+    # faces[:, :, 2] # dim(1|B,F)
+    
+    # Set adjacency for each face
+    batch_indices = torch.arange(B, device=device)[:,None,None]
+    A[batch_indices, faces[:, :, 0:1], faces[:, :, 1:2]] = 1
+    A[batch_indices, faces[:, :, 1:2], faces[:, :, 0:1]] = 1
+    A[batch_indices, faces[:, :, 0:1], faces[:, :, 2:3]] = 1
+    A[batch_indices, faces[:, :, 2:3], faces[:, :, 0:1]] = 1
+    A[batch_indices, faces[:, :, 1:2], faces[:, :, 2:3]] = 1
+    A[batch_indices, faces[:, :, 2:3], faces[:, :, 1:2]] = 1
+    
+    return A
