@@ -1,3 +1,4 @@
+from . import utils
 from . import io
 from . import linalg
 from . import obj

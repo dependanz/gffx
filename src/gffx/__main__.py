@@ -1,6 +1,7 @@
 import gffx
 import torch
 import argparse
+import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 
@@ -41,15 +42,15 @@ parser.add_argument(
 )
 parser.add_argument(
     '--camera_pos',
-    type=list,
+    type=str,
     help='Camera position',
-    default=[0, 0, 1.2]
+    default="[0, 0, 1.2]"
 )
 parser.add_argument(
     '--camera_dir',
-    type=list,
+    type=str,
     help='Camera direction',
-    default=[0, 0, -1]
+    default="[0, 0, -1]"
 )
 parser.add_argument(
     '--camera_screen_distance',
@@ -60,21 +61,21 @@ parser.add_argument(
 
 parser.add_argument(
     '--ambient_color',
-    type=list,
+    type=str,
     help='Ambient color',
-    default=[0.5, 0.5, 0.5]
+    default="[0.5, 0.5, 0.5]"
 )
 parser.add_argument(
     '--diffuse_color',
-    type=list,
+    type=str,
     help='Diffuse color',
-    default=[0.5, 0.5, 0.5]
+    default="[0.5, 0.5, 0.5]"
 )
 parser.add_argument(
     '--specular_color',
-    type=list,
+    type=str,
     help='Specular color',
-    default=[0.5, 0.5, 0.5]
+    default="[0.5, 0.5, 0.5]"
 )
 parser.add_argument(
     '--specular_coefficient',
@@ -96,15 +97,15 @@ parser.add_argument(
 )
 parser.add_argument(
     '--light_pos',
-    type=list,
+    type=str,
     help='Light position',
-    default=[5, 5, 5]
+    default="[5, 5, 5]"
 )
 parser.add_argument(
     '--background_color',
-    type=list,
+    type=str,
     help='Background color',
-    default=[0, 0, 0]
+    default="[0, 0, 0]"
 )
 parser.add_argument(
     '--ray_chunk_size',
@@ -112,9 +113,29 @@ parser.add_argument(
     help='Ray chunk size',
     default=1024
 )
+parser.add_argument(
+    '--outimg',
+    type=Path,
+    help='Output image path',
+    default=None
+)
 
 args = parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Parse lists
+args = gffx.utils.parse_list_args(
+    args = args,
+    arg_names = [
+        'camera_pos',
+        'camera_dir',
+        'ambient_color',
+        'diffuse_color',
+        'specular_color',
+        'light_pos',
+        'background_color'
+    ]
+)
 
 # Setup Camera
 camera = gffx.ray.Camera(
@@ -128,8 +149,19 @@ camera = gffx.ray.Camera(
 )
 
 # Setup list of meshes
-vertices          = torch.load(args.vertices)[0].to(device)
-faces             = torch.load(args.faces)[0].to(device)
+if Path(args.vertices).suffix == '.npy':
+    vertices = torch.from_numpy(
+        np.load(args.vertices)
+    ).to(device)
+else:
+    vertices = torch.load(args.vertices)[0].to(device)
+    
+if Path(args.faces).suffix == '.npy':
+    faces = torch.from_numpy(
+        np.load(args.faces)
+    ).to(device)
+else:
+    faces = torch.load(args.faces)[0].to(device)
 
 if args.center_and_scale:
     vertices_mean     = torch.mean(vertices, dim=0)
@@ -169,4 +201,10 @@ images = gffx.ray.mesh_render(
 
 plt.imshow((images[0].cpu()).permute(1, 0, 2))
 plt.gca().invert_yaxis()
-plt.show()
+if args.outimg:
+    plt.savefig(args.outimg)
+    plt.close()
+    
+    print(f"Saved image to {Path(args.outimg).absolute()}")
+else:
+    plt.show()

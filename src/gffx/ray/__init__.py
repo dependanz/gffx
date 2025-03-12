@@ -134,13 +134,13 @@ def mesh_render(
     if isinstance(background_color, list):
         background_color = torch.tensor(background_color, device=device, dtype=torch.float32)
 
-    diffuse_colors = [obj.diffuse_color for obj in meshes] + [background_color]
+    diffuse_colors = [obj.diffuse_color for obj in meshes] + [0 * background_color]
     diffuse_colors = torch.stack(diffuse_colors, dim=0).to(device)
 
     specular_coefficients = [obj.specular_coefficient for obj in meshes] + [1]
     specular_coefficients = torch.tensor(specular_coefficients, device=device, dtype=torch.float32)
 
-    specular_colors = [obj.specular_color for obj in meshes] + [background_color]
+    specular_colors = [obj.specular_color for obj in meshes] + [0 * background_color]
     specular_colors = torch.stack(specular_colors, dim=0).to(device)
 
     ambient_colors = [obj.ambient_color for obj in meshes] + [background_color]
@@ -279,6 +279,6 @@ def mesh_render(
 
     L  = diffuse_colors[object_hit]  * light_intensity * diffuse_weight
     L += specular_colors[object_hit] * light_intensity * specular_weight
-    L += ambient_colors[object_hit]  * ambient_intensity
+    L += ambient_colors[object_hit]  * (((object_hit >= 0) * ambient_intensity) + (object_hit < 0))[...,None]
 
     return L

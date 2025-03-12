@@ -57,8 +57,23 @@ plt.show()
 ```
 
 ### [WIP] CLI
+
 ```
 python -m gffx --vertices '/path/to/vertices.pt' --faces 'path/to/faces.pt'
+```
+
+```
+python -m gffx --vertices '/path/to/vertices.pt' --faces 'path/to/faces.pt'\
+    --center_and_scale --camera_width 512 --camera_height 512\
+    --camera_pos "[0,0,1.2]" --camera_dir "[0,0,-1]"\
+    --camera_screen_distance 1.0 --ambient_color "[0.5, 0.5, 0.5]"\
+    --diffuse_color "[0.5, 0.5, 0.5]" --specular_color "[0.5, 0.5, 0.5]"\
+    --specular_coefficient 1.0 --light_intensity 1.0\
+    --ambient_intensity 0.2 --light_pos "[5, 5, 5]"\
+    --background_color "[0, 0, 0]" --ray_chunk_size 4096\
+    --outimg './out.png'
+
+    python -m gffx --vertices  --faces /mnt/d/_doctorate/cache/vocaset/170725_00137/faces_template.npy --center_and_scale --camera_width 512 --camera_height 512 --camera_pos "[0,0,1.2]" --camera_dir "[0,0,-1]" --camera_screen_distance 1.0 --outimg ./outimg.png
 ```
 
 ### Motivation

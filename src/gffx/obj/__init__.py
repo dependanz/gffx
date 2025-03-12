@@ -1,10 +1,9 @@
 import math
-
-from matplotlib import pyplot as plt
-import numpy as np
 import gffx
 import torch
+import numpy as np
 from typing import Optional
+from matplotlib import pyplot as plt
 
 class Transform:
     def __init__(
