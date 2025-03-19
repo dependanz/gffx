@@ -24,3 +24,21 @@ def parse_list_args(
         setattr(args, arg_name, arg_value)
     
     return args
+
+def attach_args(
+    obj    : object,
+    kwargs : dict,
+):
+    """
+        Intended use is to attach arguments to an object in __init__.
+        
+        Example:
+            def __init__(self, *args, **kwargs):
+                gffx.utils.attach_args(self, locals())
+    """
+    for k, v in kwargs.items():
+        if k == "self":
+            continue
+        if hasattr(obj, k):
+            raise ValueError(f"Object already has attribute {k}")
+        setattr(obj, k, v)

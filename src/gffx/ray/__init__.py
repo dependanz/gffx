@@ -150,6 +150,62 @@ def mesh_render(
     if isinstance(light_pos, list):
         light_pos  = torch.tensor(light_pos, device=device, dtype=torch.float32)
 
+    # Get BVH
+    bvh = gffx.obj.BVH(meshes, leaf_threshold=4)
+    
+    # 
+    object_hit = torch.full((B * camera.width * camera.height,), -1, device=device, dtype=torch.int64)
+    face_hit   = torch.full((B * camera.width * camera.height,), -1, device=device, dtype=torch.int64)
+    t_val      = torch.full((B * camera.width * camera.height,), float('inf'), device=device)
+    normals    = torch.zeros((B * camera.width * camera.height, 3), device=device)
+    hit_pos    = torch.zeros((B * camera.width * camera.height, 3), device=device)
+    
+    # Get nodes for each ray
+    ray_origins    = camera.ray_origins.view(B * camera.width * camera.height, 3)    # dim(B * W * H, 3)
+    ray_directions = camera.ray_directions.view(B * camera.width * camera.height, 3) # dim(B * W * H, 3)
+    bvh_nodes = bvh.get_nodes(ray_origins, ray_directions)
+    
+    breakpoint()
+
+def mesh_render_slow(
+    meshes            : list | gffx.obj.MeshObject,
+    camera            : Camera,
+    light_intensity   : float               = 1,
+    ambient_intensity : float               = 0.2,
+    light_pos         : list | torch.Tensor = [5, 5, 5],
+    background_color  : list | torch.Tensor = [0, 0, 0],
+    ray_chunk_size    : int                 = 4096,
+    
+    verbose           : bool                = False,
+    
+    device : Optional[torch.device] = None
+):
+    # [4NOW] 1 camera  
+    B = 1
+
+    if isinstance(meshes, gffx.obj.MeshObject):
+        meshes = [meshes]
+    
+    # [4NOW] Flat colors
+    if isinstance(background_color, list):
+        background_color = torch.tensor(background_color, device=device, dtype=torch.float32)
+
+    diffuse_colors = [obj.diffuse_color for obj in meshes] + [0 * background_color]
+    diffuse_colors = torch.stack(diffuse_colors, dim=0).to(device)
+
+    specular_coefficients = [obj.specular_coefficient for obj in meshes] + [1]
+    specular_coefficients = torch.tensor(specular_coefficients, device=device, dtype=torch.float32)
+
+    specular_colors = [obj.specular_color for obj in meshes] + [0 * background_color]
+    specular_colors = torch.stack(specular_colors, dim=0).to(device)
+
+    ambient_colors = [obj.ambient_color for obj in meshes] + [background_color]
+    ambient_colors = torch.stack(ambient_colors, dim=0).to(device)
+
+    # Light setup
+    if isinstance(light_pos, list):
+        light_pos  = torch.tensor(light_pos, device=device, dtype=torch.float32)
+
     # 
     object_hit = torch.full((B * camera.width * camera.height,), -1, device=device, dtype=torch.int64)
     face_hit   = torch.full((B * camera.width * camera.height,), -1, device=device, dtype=torch.int64)

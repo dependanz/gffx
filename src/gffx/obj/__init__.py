@@ -1,9 +1,33 @@
+# [TODO] Separate into multiple files
 import math
 import gffx
 import torch
 import numpy as np
 from typing import Optional
 from matplotlib import pyplot as plt
+
+def compute_aabb(vertices: torch.Tensor) -> torch.Tensor:
+    """
+        Compute the axis-aligned bounding box (AABB) of a set of vertices.
+
+        Args:
+            vertices (torch.Tensor): Tensor of shape (B, N, D) or (N, D)
+    """
+    unbatched = False
+    if vertices.ndim == 2:
+        vertices = vertices[None,...]
+        unbatched = True
+    assert vertices.ndim == 3, "Vertices must be 2D or 3D tensor"
+    B, N, D = vertices.shape
+    device  = vertices.device
+    
+    bounding_boxes = torch.zeros((B, 2, D), device=vertices.device)
+    bounding_boxes[:, 0, :] = vertices[:,vertices.min(dim=-1)[0].min(dim=-1)[1]]
+    bounding_boxes[:, 1, :] = vertices[:,vertices.max(dim=-1)[0].max(dim=-1)[1]]
+
+    if unbatched:
+        bounding_boxes = bounding_boxes[0]
+    return bounding_boxes
 
 class Transform:
     def __init__(
@@ -66,9 +90,9 @@ class MeshObject:
                 scale       = init_scale
             )
         
-        self.vertices = vertices
-        self.faces    = faces
-        self.normals  = normals
+        self.vertices = vertices        # dim(V,3)
+        self.faces    = faces           # dim(F,3)
+        self.normals  = normals         # Optional[dim(V,3)]
         self.device   = vertices.device
         
         # [4NOW] Flat colors
@@ -85,6 +109,12 @@ class MeshObject:
             self.specular_color = torch.tensor(self.specular_color, device=self.device, dtype=torch.float32)
         
         self.specular_coefficient = specular_coefficient
+        
+        # Calculate primitive centroids
+        self.centroids = torch.mean(self.vertices[self.faces],dim=1) # dim(F,3)
+        
+        # Bounding Box
+        self.aabb = compute_aabb(self.vertices)
         
     def get_transformed(self):
         """
@@ -111,7 +141,162 @@ class MeshObject:
             return vertices_h[0,..., 0:3], normals[0]
         
         return vertices_h[0,..., 0:3], None
-    
+
+class BBNode:
+    def __init__(
+        self,
+        aabb       : Optional[torch.Tensor] = None,
+        primitives : Optional[torch.Tensor] = None,
+    ):
+        self.parent     = None       # Parent node
+        self.children   = []         # Child nodes
+        self.aabb       = aabb       # Bounding box (if None and used, raise error)
+        self.primitives = primitives # torch.LongTensor[(mesh_id, face_id)]
+        self.id         = -1         # Node ID
+        
+    def link(self, other):
+        """
+            Link this node to another node
+        """
+        other.parent = self
+        self.children.append(other)
+        
+class BVH:
+    """
+        Bounding Volume Hierarchy (BVH)
+    """
+    def __init__(
+        self, 
+        meshes         : list[MeshObject],
+        leaf_threshold : int = 4,
+    ):
+        """
+        Initialize the BVH with a list of meshes.
+        
+        Args:
+            meshes (list): List of meshes to initialize the BVH with.
+        """
+        gffx.utils.attach_args(self, locals())
+        self.device = meshes[0].device
+        
+        ################################################################
+        # ALGORITHM
+        # -------------------------------------------------------------
+        #   1. Each mesh has a bounding box (AABB)
+        #   2. Build BVH trees recursively
+        #       a. 
+        #   3. Combine the trees into a single BVH
+        #       a. 
+        ################################################################
+        subtrees = []
+        vertices = []
+        faces    = []
+        for mesh_id, mesh in enumerate(self.meshes):
+            
+            #
+            root = BBNode(
+                aabb = mesh.aabb, 
+                primitives = torch.stack([
+                    torch.arange(mesh.faces.shape[0], device=self.device),
+                    torch.full((mesh.faces.shape[0],), mesh_id, device=self.device)
+                ], dim=-1)
+            )
+            tree = [root]
+            node_stack = [0]
+            vertices.append(mesh.vertices)
+            faces.append(mesh.faces)
+            
+            # Recursive build
+            i = 0
+            while len(node_stack) > 0:
+                node_id      = node_stack.pop(0)
+                current_node = tree[node_id]
+                
+                # Choose largest axis
+                split_axis = torch.abs(current_node.aabb[1] - current_node.aabb[0]).argmax().item()
+                
+                # Sort primitives by centroid
+                # [4NOW] Using median split
+                # [TODO] Surface Area Heuristic (SAH) or some other heuristic
+                centroids         = mesh.centroids[current_node.primitives[...,0]]
+                indices           = torch.argsort(centroids[:, split_axis], dim=0)
+                sorted_primitives = current_node.primitives[indices]
+                
+                # "Left split"
+                left_primitives = sorted_primitives[:len(sorted_primitives)//2]
+                left_node = BBNode(
+                    aabb       = compute_aabb(vertices[-1][faces[-1][left_primitives[...,0]].unique()]),
+                    primitives = left_primitives
+                )
+                i += 1
+                tree.append(left_node)
+                current_node.link(left_node)
+                if left_primitives.shape[0] >= self.leaf_threshold:
+                    node_stack.append(i)
+                
+                # "Right split"
+                right_primitives = sorted_primitives[len(sorted_primitives)//2:]
+                right_node = BBNode(
+                    aabb       = compute_aabb(vertices[-1][faces[-1][right_primitives[...,0]].unique()]),
+                    primitives = right_primitives
+                )
+                i += 1
+                tree.append(right_node)
+                current_node.link(right_node)
+                if right_primitives.shape[0] >= self.leaf_threshold:
+                    node_stack.append(i)
+                    
+            subtrees.append(tree)
+            
+        # Combine trees into a single BVH
+        if len(subtrees) == 1:
+            self.root = subtrees[0][0]
+            self.tree = subtrees[0]
+        else:
+            self.root = BBNode(
+                aabb = compute_aabb(
+                    torch.cat([
+                        vertices[i][faces[i][subtrees[i][0].primitives[...,0]].unique()] # [TODO] This one-liner is ugly
+                        for i in range(len(subtrees))
+                    ], dim=0)
+                ),
+                primitives = torch.cat([subtree[0].primitives for subtree in subtrees], dim=0)
+            )
+            
+            # Link subtrees to root
+            for i, subtree in enumerate(subtrees):
+                self.root.link(subtree[0])
+                
+            # 
+            self.tree = [self.root]
+            for subtree in subtrees:
+                self.tree.extend(subtree)
+        
+        # Set node IDs
+        for i in range(len(self.tree)):
+            self.tree[i].id = i
+            
+    def get_nodes(
+        self,
+        ray_origins    : torch.Tensor, 
+        ray_directions : torch.Tensor
+    ):
+        """
+            Get nodes that intersect with the rays
+            
+            Args:
+                ray_origins    : torch.Tensor[(B, 3)]
+                ray_directions : torch.Tensor[(B, 3)]
+                
+            Returns:
+
+        """
+        assert ray_origins.shape[0] == ray_directions.shape[0], "Ray origins and directions must have the same batch size"
+        B = ray_origins.shape[0]
+        
+        min_extent = (self.root.aabb[0][None,:] - ray_origins) / ray_directions
+        max_extent = (self.root.aabb[1][None,:] - ray_origins) / ray_directions
+        
 def compute_normals(vertices: torch.Tensor, faces: torch.Tensor) -> torch.Tensor:
     """
         Compute per-vertex normals for a batch of meshes.
@@ -190,6 +375,8 @@ def mesh_from_vertices_and_faces(
         specular_color = specular_color,
         specular_coefficient = specular_coefficient
     )
+    
+
     
 def generate_cube_mesh(
     init_transform   : Optional[Transform]           = None,

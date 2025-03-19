@@ -188,8 +188,8 @@ object_list = [
 
 # Ray Trace Render
 images = gffx.ray.mesh_render(
-    meshes = object_list,
-    camera = camera,
+    meshes              = object_list,
+    camera              = camera,
     light_intensity     = args.light_intensity,
     ambient_intensity   = args.ambient_intensity,
     light_pos           = args.light_pos,
