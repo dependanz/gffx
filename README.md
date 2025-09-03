@@ -78,3 +78,8 @@ python -m gffx --vertices '/path/to/vertices.pt' --faces 'path/to/faces.pt'\
 
 ### Motivation
 1. Installing PyTorch3D everytime in colab is a hassle. This library's first aim is to render a mesh using native operations in PyTorch.
+
+### Checklist as of 090325
+- [ ] Various rendering approaches `gffx.ray`, `gffx.raster`, etc.
+- [ ] Geometry-Aware Mesh Operators `gffx.mop`
+- [ ] Local server for `gffx.server`
