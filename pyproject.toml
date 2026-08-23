@@ -49,6 +49,17 @@ build-frontend = "build"
 # Prove the wheel actually works inside the target container rather than only that it built.
 test-command = "python -c \"import gffx; c = gffx.capabilities(); assert c['native_core']['available'], c; assert c['native_core']['abi_version'] == '1.0', c; assert c['native_core']['limited_api'] == '0x030A0000', c; assert c['gpu_probed'] is False, c; print('wheel ok:', c['python_version'], c['native_core']['abi_version'])\""
 
+[tool.cibuildwheel.windows]
+# ABI v1 requires a 64-bit target and abi.h enforces that with an #error, so 32-bit Windows is not
+# a supported build. Pinning the arch here keeps a bare local run matching CI.
+archs = ["AMD64"]
+
+# gffx_core.dll is built by this project and already installed beside the extension inside the
+# wheel, so delvewheel must not try to locate and vendor it as an external dependency. Windows has
+# no RPATH; resolution works at runtime because CPython loads extension modules with an altered
+# search path rooted at the module's own directory, which delvewheel's static analysis cannot see.
+repair-wheel-command = "delvewheel repair --exclude gffx_core.dll -w {dest_dir} {wheel}"
+
 [tool.cibuildwheel.linux]
 # The support matrix advertises glibc 2.28+, which is exactly the manylinux_2_28 policy.
 manylinux-x86_64-image = "manylinux_2_28"
