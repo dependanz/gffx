@@ -34,6 +34,22 @@ set_target_properties(gffx_python_core PROPERTIES
 
 target_link_libraries(gffx_python_core PRIVATE gffx_core)
 
+# The extension and the core ship side by side inside the installed package. Windows finds the
+# neighbouring DLL for free because CPython loads extensions with an altered search path, but ELF
+# and Mach-O need an explicit runtime search path relative to the loaded module. Without this,
+# auditwheel cannot resolve libgffx_core.so and the Linux wheel fails to repair.
+if(APPLE)
+    set_target_properties(gffx_python_core PROPERTIES
+        INSTALL_RPATH "@loader_path"
+        BUILD_WITH_INSTALL_RPATH ON
+    )
+elseif(UNIX)
+    set_target_properties(gffx_python_core PROPERTIES
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_WITH_INSTALL_RPATH ON
+    )
+endif()
+
 # The loader sits inside the installed package next to gffx_core, which the platform loader finds
 # because CPython loads extension modules with an altered search path rooted at the module.
 install(TARGETS gffx_python_core
