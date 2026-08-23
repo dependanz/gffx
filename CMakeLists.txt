@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.26)  # Python_add_library(USE_SABI) requires 3.26
 
 project(gffx LANGUAGES C)
 
@@ -41,6 +41,22 @@ set_target_properties(gffx_core PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES
 )
+
+# Step 7 packaging: the wheel carries gffx_core beside the Python package, where
+# src/gffx/_capabilities.py looks for it. No CPython extension is installed here.
+install(TARGETS gffx_core
+    RUNTIME DESTINATION gffx
+    LIBRARY DESTINATION gffx
+    # The Windows import library (.lib) is needed only to link against the core at build time and
+    # is deliberately excluded from the runtime wheel, which loads the DLL through ctypes.
+    ARCHIVE DESTINATION gffx EXCLUDE_FROM_ALL
+)
+
+# The private CPython Limited-API loader is built only when a Python target is requested, which
+# keeps the pure C11 core configurable and buildable with no Python present.
+if(GFFX_BUILD_PYTHON)
+    include(GffxPython)
+endif()
 
 include(CTest)
 

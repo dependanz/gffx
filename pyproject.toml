@@ -1,4 +1,6 @@
 [build-system]
+# Build-only dependencies, pinned for reproducible source and wheel builds. None of these is a
+# runtime dependency: an installed wheel needs no build backend, CMake, generator, or C compiler.
 requires = ["scikit-build-core==1.0.3"]
 build-backend = "scikit_build_core.build"
 
@@ -20,3 +22,20 @@ Repository = "https://github.com/dependanz/gffx"
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 wheel.packages = ["src/gffx"]
+
+# CPU-only is the default configuration; CUDA stays explicitly opt-in (Step 9).
+# Tests are a developer/CI concern and are never built while producing a distribution.
+# CMake and the generator are pinned through the backend, which injects them as build-only
+# dependencies; pinning them in build-system.requires instead is rejected by scikit-build-core.
+cmake.version = "==4.4.2"
+ninja.version = "==1.13.0"
+
+cmake.define.BUILD_TESTING = "OFF"
+cmake.define.GFFX_BUILD_PYTHON = "ON"
+cmake.define.GFFX_ENABLE_CUDA = "OFF"
+
+# The wheel carries the private gffx._core extension built against the CPython 3.10 stable ABI,
+# so one artifact serves 3.10+ and the abi3 tag in PYTORCH_SUPPORT_MATRIX_V0_1.md is accurate.
+wheel.py-api = "cp310"
+
+sdist.exclude = ["build", "dist", "*.egg-info", "__pycache__", ".pytest_cache"]

@@ -61,3 +61,47 @@ if(WIN32)
         VERBATIM
     )
 endif()
+
+# Phase 1 Step 5: private calling-path self-test.
+#
+# The self-test entry point is compiled ONLY into this private build of the core, never into the
+# shipped gffx_core target, so the public ABI v1 export set is unchanged.
+add_library(gffx_core_self_test SHARED
+    ${PROJECT_SOURCE_DIR}/native/core/abi.c
+    ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
+    ${PROJECT_SOURCE_DIR}/native/core/status.c
+    ${PROJECT_SOURCE_DIR}/native/core/self_test.c
+)
+target_compile_features(gffx_core_self_test PUBLIC c_std_11)
+target_compile_definitions(gffx_core_self_test PRIVATE
+    GFFX_BUILDING_LIBRARY=1
+    GFFX_ENABLE_SELF_TEST=1
+    GFFX_PACKAGE_VERSION="${GFFX_PACKAGE_VERSION_VALUE}"
+)
+target_include_directories(gffx_core_self_test
+    PUBLIC ${PROJECT_SOURCE_DIR}/include
+    PRIVATE ${PROJECT_SOURCE_DIR}/native/core
+)
+set_target_properties(gffx_core_self_test PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+)
+
+add_executable(gffx_test_self_test_calling_path test_self_test_calling_path.c)
+target_include_directories(gffx_test_self_test_calling_path PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/native/core
+)
+target_link_libraries(gffx_test_self_test_calling_path PRIVATE ${CMAKE_DL_LIBS})
+add_test(NAME runtime.self_test_calling_path
+    COMMAND gffx_test_self_test_calling_path
+        $<TARGET_FILE:gffx_core_self_test>
+        $<TARGET_FILE:gffx_core>
+)
+
+# Phase 1 Step 5: dependency and ownership inspection over the CPU runtime scaffold.
+add_test(NAME runtime.dependency_inspection
+    COMMAND ${CMAKE_COMMAND}
+        -DGFFX_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/dependency_inspection.cmake
+)
