@@ -1,85 +1,31 @@
-### gffx - a minimal library for (differentiable) graphics
+# GFFX
 
-```Python
-import gffx
-import torch
-import matplotlib.pyplot as plt
+GFFX is a portable differentiable-graphics and mesh-operations toolkit for Python 3.10+.
+It is being designed around stable tensor semantics, a dependency-light CPU implementation,
+optional accelerated backends, compilation and export, and real-time or edge deployment.
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+The project will support multiple autodiff frameworks. PyTorch CPU and CUDA are the first
+delivery targets; JAX follows after the first useful PyTorch slice. Framework adapters are kept
+thin so they do not define geometry semantics or force framework dependencies into the base
+package.
 
-# Setup Camera
-camera = gffx.ray.Camera(
-    width   = 512,
-    height  = 512,
-    pos = [0, 0, 3],
-    dir = [0, 0, -1],
+## Development status
 
-    device = device
-)
+The repository is currently establishing its `0.2` package and native-runtime foundation. No
+graphics or geometry operation from the new contract is implemented or advertised yet. The first
+planned end-to-end operation is `mesh.face_geometry`, where "face" means a triangular mesh face.
 
-# Setup list of meshes
-vertices          = torch.load('path/to/vertices.pt').to(device)
-faces             = torch.load('path/to/vertices.pt').to(device)
+The pre-foundation prototype remains available in repository history and on the dedicated
+`codex/archive-pre-phase1-20260821` branch.
 
-object_list = [
-    gffx.obj.mesh_from_vertices_and_faces(
-        vertices             = vertices,
-        faces                = faces,
-        init_translation     = [0, 0.0, 2],
-        init_rotation        = [0, 0, 0],
-        init_scale           = [1, 1, 1],
-        
-        ambient_color        = [0.5, 0.5, 0.5],
-        diffuse_color        = [0.5, 0.5, 0.5],
-        specular_color       = [0.5, 0.5, 0.5],
-        specular_coefficient = 1,
-        
-        device           = device
-    )
-]
+## Source boundaries
 
-# Ray Trace Render
-images = gffx.ray.mesh_render(
-    meshes = object_list,
-    camera = camera,
-    light_intensity = 1.0,
-    ambient_intensity = 0.2,
-    light_pos = [5, 5, 5],
-    background_color = [0, 0, 0],
-    ray_chunk_size = 4096,
-    
-    device = device
-)
+- `include/gffx/` will contain the framework-neutral public C11 ABI.
+- `native/core/` owns the dependency-light runtime and CPU implementations.
+- `native/cuda/` owns the optional CUDA plugin boundary.
+- `adapters/` contains loading and framework-registration glue, not geometry semantics.
+- `src/gffx/` contains the stable, dependency-light Python namespace.
+- `tests/` is organized by ABI, packaging, Python, and framework contract.
 
-plt.imshow((images[0].cpu()).permute(1, 0, 2))
-plt.gca().invert_yaxis()
-plt.show()
-```
-
-### [WIP] CLI
-
-```
-python -m gffx --vertices '/path/to/vertices.pt' --faces 'path/to/faces.pt'
-```
-
-```
-python -m gffx --vertices '/path/to/vertices.pt' --faces 'path/to/faces.pt'\
-    --center_and_scale --camera_width 512 --camera_height 512\
-    --camera_pos "[0,0,1.2]" --camera_dir "[0,0,-1]"\
-    --camera_screen_distance 1.0 --ambient_color "[0.5, 0.5, 0.5]"\
-    --diffuse_color "[0.5, 0.5, 0.5]" --specular_color "[0.5, 0.5, 0.5]"\
-    --specular_coefficient 1.0 --light_intensity 1.0\
-    --ambient_intensity 0.2 --light_pos "[5, 5, 5]"\
-    --background_color "[0, 0, 0]" --ray_chunk_size 4096\
-    --outimg './out.png'
-
-    python -m gffx --vertices  --faces /mnt/d/_doctorate/cache/vocaset/170725_00137/faces_template.npy --center_and_scale --camera_width 512 --camera_height 512 --camera_pos "[0,0,1.2]" --camera_dir "[0,0,-1]" --camera_screen_distance 1.0 --outimg ./outimg.png
-```
-
-### Motivation
-1. Installing PyTorch3D everytime in colab is a hassle. This library's first aim is to render a mesh using native operations in PyTorch.
-
-### Checklist as of 090325
-- [ ] Various rendering approaches `gffx.ray`, `gffx.raster`, etc.
-- [ ] Geometry-Aware Mesh Operators `gffx.mop`
-- [ ] Local server for `gffx.server`
+Build, installation, compatibility, and operation documentation will be added as their release
+gates are implemented and verified.

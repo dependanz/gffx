@@ -1,7 +1,5 @@
-from . import utils
-from . import io
-from . import linalg
-from . import obj
-from . import context
+"""Portable differentiable graphics and mesh operations.
 
-from . import ray
+The dependency-free base import and public capability surface are introduced in Phase 1 Step 6.
+No autodiff framework or accelerator is imported here.
+"""

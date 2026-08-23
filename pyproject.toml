@@ -1,14 +1,22 @@
 [build-system]
-requires      = ["setuptools", "pytest"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core==1.0.3"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "gffx"
-version = "0.1.3"
-dependencies = [
-    'torch',
-]
+version = "0.2.0.dev0"
+description = "Portable differentiable graphics and mesh operations"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
 authors = [
-    {name = "Danzel Serrano", email = "danzel.serrano@gmail.com"}
+    {name = "Danzel Serrano", email = "danzel.serrano@gmail.com"},
 ]
-description = "A minimal graphics library in PyTorch"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/dependanz/gffx"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["src/gffx"]
