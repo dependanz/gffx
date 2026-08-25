@@ -106,10 +106,11 @@ def test_base_import_loads_no_native_library():
 
 
 def test_base_import_does_not_import_the_adapter_namespace():
-    code = "import sys\nimport gffx\nprint('gffx.torch' in sys.modules)\n"
+    code = ("import sys\nimport gffx\n"
+            "print('%s,%s' % ('gffx.cuda' in sys.modules, 'gffx.torch' in sys.modules))\n")
     result = run_python(code)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "False"
+    assert result.stdout.strip() == "False,False"
 
 
 def test_capabilities_reports_state_without_probing_a_gpu():
@@ -162,8 +163,20 @@ def test_dir_reports_the_public_surface():
     import gffx
 
     assert dir(gffx) == sorted(
-        ["__version__", "abi_version", "capabilities", "native_core_is_loaded"]
+        ["__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch"]
     )
+
+
+def test_cuda_namespace_is_lazy_and_probe_is_explicit():
+    code = (
+        "import sys\n"
+        "import gffx\n"
+        "cuda = gffx.cuda\n"
+        "print('%s,%s' % ('gffx._core' in sys.modules, 'gffx._capabilities' in sys.modules))\n"
+    )
+    result = run_python(code)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False,False"
 
 
 def test_missing_framework_fails_only_the_adapter_import_with_an_actionable_error():
@@ -192,16 +205,6 @@ def test_missing_framework_fails_only_the_adapter_import_with_an_actionable_erro
     assert "PyTorch" in output
     assert "pip install torch" in output
     assert "base package" in output
-
-
-def test_adapter_import_does_not_import_the_framework_itself():
-    """Step 6 owns presence detection only; importing torch belongs to the Step 8 adapter."""
-    if __import__("importlib.util", fromlist=["util"]).find_spec("torch") is None:
-        pytest.skip("PyTorch is not installed in this environment")
-    code = "import sys\nimport gffx.torch\nprint('torch' in sys.modules)\n"
-    result = run_python(code)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "False"
 
 
 def test_native_core_loads_only_when_capability_state_is_requested():

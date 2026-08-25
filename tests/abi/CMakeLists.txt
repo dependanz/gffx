@@ -22,6 +22,7 @@ add_test(NAME abi.cpp_headers COMMAND gffx_test_abi_cpp_headers)
 add_library(gffx_core_test_provider SHARED
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
+    ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
 )
 target_compile_features(gffx_core_test_provider PUBLIC c_std_11)
@@ -30,7 +31,11 @@ target_compile_definitions(gffx_core_test_provider PRIVATE
     GFFX_ENABLE_TEST_PROVIDER=1
     GFFX_PACKAGE_VERSION="${GFFX_PACKAGE_VERSION_VALUE}"
 )
-target_include_directories(gffx_core_test_provider PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(gffx_core_test_provider
+    PUBLIC ${PROJECT_SOURCE_DIR}/include
+    PRIVATE ${PROJECT_SOURCE_DIR}/native/core ${PROJECT_SOURCE_DIR}/native/cuda
+)
+target_link_libraries(gffx_core_test_provider PRIVATE ${CMAKE_DL_LIBS})
 set_target_properties(gffx_core_test_provider PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES
@@ -69,6 +74,7 @@ endif()
 add_library(gffx_core_self_test SHARED
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
+    ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
     ${PROJECT_SOURCE_DIR}/native/core/self_test.c
 )
@@ -80,8 +86,9 @@ target_compile_definitions(gffx_core_self_test PRIVATE
 )
 target_include_directories(gffx_core_self_test
     PUBLIC ${PROJECT_SOURCE_DIR}/include
-    PRIVATE ${PROJECT_SOURCE_DIR}/native/core
+    PRIVATE ${PROJECT_SOURCE_DIR}/native/core ${PROJECT_SOURCE_DIR}/native/cuda
 )
+target_link_libraries(gffx_core_self_test PRIVATE ${CMAKE_DL_LIBS})
 set_target_properties(gffx_core_self_test PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES

@@ -13,7 +13,9 @@ No public graphics or geometry operation is advertised in Phase 1.
 
 from __future__ import annotations
 
-__all__ = ["__version__", "abi_version", "capabilities", "native_core_is_loaded"]
+__all__ = [
+    "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch"
+]
 
 
 def __getattr__(name: str):
@@ -26,6 +28,22 @@ def __getattr__(name: str):
         from . import _capabilities
 
         return getattr(_capabilities, name)
+    if name == "cuda":
+        # Importing the namespace is still inert. Only cuda.capabilities() explicitly loads a
+        # plugin/driver and enumerates devices.
+        from importlib import import_module
+
+        backend = import_module(".cuda", __name__)
+        globals()[name] = backend
+        return backend
+    if name == "torch":
+        # Preserve `import gffx` as the one stable entry point while keeping framework activation
+        # explicit: PyTorch and the native adapter load only when this attribute is first used.
+        from importlib import import_module
+
+        adapter = import_module(".torch", __name__)
+        globals()[name] = adapter
+        return adapter
     raise AttributeError("module 'gffx' has no attribute '%s'" % name)
 
 

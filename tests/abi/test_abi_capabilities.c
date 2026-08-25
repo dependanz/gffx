@@ -48,8 +48,8 @@ static int find_key(
 }
 
 static int run_query(int full_probe) {
-    gffx_capability_record records[32] = {{0}};
-    char strings[1024] = {0};
+    gffx_capability_record records[256] = {{0}};
+    char strings[16384] = {0};
     gffx_capability_report report = make_report(NULL, 0u, NULL, 0u);
     const gffx_capability_record *record = NULL;
     gffx_status status;
@@ -67,10 +67,10 @@ static int run_query(int full_probe) {
     CHECK(report.required_string_bytes > 0u);
     required_records = report.required_record_count;
     required_strings = report.required_string_bytes;
-    CHECK(required_records <= 32u);
+    CHECK(required_records <= 256u);
     CHECK(required_strings <= sizeof(strings));
 
-    report = make_report(records, 32u, strings, sizeof(strings));
+    report = make_report(records, 256u, strings, sizeof(strings));
     status = full_probe
         ? gffx_capabilities_probe(GFFX_CAPABILITY_PROBE_FULL, &report, NULL)
         : gffx_capabilities_query(&report, NULL);
@@ -99,7 +99,7 @@ static int run_query(int full_probe) {
         CHECK((report.result_flags & GFFX_CAPABILITY_RESULT_RUNTIME_PROBED) != 0u);
         CHECK((report.result_flags & GFFX_CAPABILITY_RESULT_OPTIONAL_PROVIDER_ABSENT) != 0u);
         CHECK(find_key(&report, GFFX_CAPABILITY_KEY_CUDA_PROVIDER_STATUS, &record));
-        CHECK(strcmp(report.strings + record->string_offset, "not built") == 0);
+        CHECK(strstr(report.strings + record->string_offset, "not found") != NULL);
     } else {
         CHECK(report.result_flags == GFFX_CAPABILITY_RESULT_STATIC);
         CHECK(!find_key(&report, GFFX_CAPABILITY_KEY_CUDA_PROVIDER_STATUS, &record));

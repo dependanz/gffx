@@ -10,6 +10,7 @@
 #include "self_test.h"
 
 #include <stdint.h>
+#include <stddef.h>
 
 #if defined(_WIN32)
 #include <windows.h>

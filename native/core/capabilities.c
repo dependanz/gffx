@@ -2,6 +2,7 @@
 #include <gffx/tensor.h>
 
 #include "internal.h"
+#include "cuda_loader.h"
 
 #include <string.h>
 
@@ -93,16 +94,6 @@ static const gffx_capability_spec gffx_static_capabilities[] = {
      GFFX_CAPABILITY_VALUE_U64, 0u, 0u, 0, NULL}
 };
 
-static const gffx_capability_spec gffx_cuda_absent_capability = {
-    GFFX_CAPABILITY_CATEGORY_BACKEND,
-    GFFX_CAPABILITY_KEY_CUDA_PROVIDER_STATUS,
-    GFFX_CAPABILITY_VALUE_STRING,
-    0u,
-    0u,
-    0,
-    "not built"
-};
-
 #if defined(GFFX_ENABLE_TEST_PROVIDER)
 static const gffx_capability_spec gffx_test_provider_failure_capability = {
     GFFX_CAPABILITY_CATEGORY_BACKEND,
@@ -158,8 +149,11 @@ static gffx_status gffx_capabilities_run(
 #else
     const uint64_t test_provider_count = UINT64_C(0);
 #endif
-    uint64_t required_records =
-        static_count + (full_probe ? UINT64_C(1) : UINT64_C(0)) + test_provider_count;
+    gffx_capability_report cuda_report = {0};
+    uint64_t cuda_record_count = UINT64_C(0);
+    uint64_t cuda_string_bytes = UINT64_C(0);
+    uint32_t cuda_result_flags = UINT32_C(0);
+    uint64_t required_records;
     uint64_t required_strings = UINT64_C(0);
     uint64_t string_cursor = UINT64_C(0);
     uint64_t index;
@@ -203,11 +197,21 @@ static gffx_status gffx_capabilities_run(
             "nonzero string capacity requires a string buffer"
         );
     }
+    if (full_probe) {
+        cuda_report.struct_size = (uint32_t)sizeof(cuda_report);
+        cuda_report.abi_version = GFFX_ABI_VERSION;
+        status = gffx_cuda_loader_probe(probe_flags, &cuda_report, diagnostic);
+        if (status != GFFX_STATUS_INSUFFICIENT_WORKSPACE && status != GFFX_STATUS_OK) return status;
+        cuda_record_count = cuda_report.required_record_count;
+        cuda_string_bytes = cuda_report.required_string_bytes;
+        cuda_result_flags = cuda_report.result_flags;
+    }
+    required_records = static_count + cuda_record_count + test_provider_count;
     for (index = 0u; index < static_count; ++index) {
         required_strings += gffx_capability_string_size(&gffx_static_capabilities[index]);
     }
     if (full_probe) {
-        required_strings += gffx_capability_string_size(&gffx_cuda_absent_capability);
+        required_strings += cuda_string_bytes;
 #if defined(GFFX_ENABLE_TEST_PROVIDER)
         required_strings += gffx_capability_string_size(&gffx_test_provider_failure_capability);
 #endif
@@ -221,7 +225,7 @@ static gffx_status gffx_capabilities_run(
     report->result_flags = GFFX_CAPABILITY_RESULT_STATIC;
     if (full_probe) {
         report->result_flags |= GFFX_CAPABILITY_RESULT_RUNTIME_PROBED;
-        report->result_flags |= GFFX_CAPABILITY_RESULT_OPTIONAL_PROVIDER_ABSENT;
+        report->result_flags |= cuda_result_flags;
 #if defined(GFFX_ENABLE_TEST_PROVIDER)
         report->result_flags |= GFFX_CAPABILITY_RESULT_PARTIAL_FAILURE;
 #endif
@@ -246,23 +250,42 @@ static gffx_status gffx_capabilities_run(
         );
     }
     if (full_probe) {
-        gffx_emit_capability(
-            &gffx_cuda_absent_capability,
-            &report->records[static_count],
-            report->strings,
-            &string_cursor
-        );
+        memset(&cuda_report, 0, sizeof(cuda_report));
+        cuda_report.struct_size = (uint32_t)sizeof(cuda_report);
+        cuda_report.abi_version = GFFX_ABI_VERSION;
+        cuda_report.records = report->records + static_count;
+        cuda_report.record_capacity = report->record_capacity - static_count;
+        cuda_report.strings = report->strings + string_cursor;
+        cuda_report.string_capacity_bytes = report->string_capacity_bytes - string_cursor;
+        status = gffx_cuda_loader_probe(probe_flags, &cuda_report, diagnostic);
+        if (status != GFFX_STATUS_OK) {
+            report->required_record_count = static_count + cuda_report.required_record_count +
+                test_provider_count;
+            report->required_string_bytes = string_cursor + cuda_report.required_string_bytes;
+            return status;
+        }
+        for (index = 0u; index < cuda_report.record_count; ++index) {
+            if (cuda_report.records[index].value_type == GFFX_CAPABILITY_VALUE_STRING) {
+                cuda_report.records[index].string_offset += string_cursor;
+            }
+        }
+        cuda_record_count = cuda_report.record_count;
+        cuda_string_bytes = cuda_report.string_size_bytes;
+        report->result_flags |= cuda_report.result_flags;
+        string_cursor += cuda_string_bytes;
 #if defined(GFFX_ENABLE_TEST_PROVIDER)
         gffx_emit_capability(
             &gffx_test_provider_failure_capability,
-            &report->records[static_count + UINT64_C(1)],
+            &report->records[static_count + cuda_record_count],
             report->strings,
             &string_cursor
         );
 #endif
     }
-    report->record_count = required_records;
+    report->record_count = static_count + cuda_record_count + test_provider_count;
+    report->required_record_count = report->record_count;
     report->string_size_bytes = string_cursor;
+    report->required_string_bytes = string_cursor;
     return GFFX_STATUS_OK;
 }
 

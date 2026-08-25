@@ -20,6 +20,7 @@ set(allowed_includes
     "<math.h>"
     "\"internal.h\""
     "\"self_test.h\""
+    "\"cuda_loader.h\""
 )
 
 # Facilities the scaffold must not reach for: allocation, process-wide I/O, abort paths,
@@ -42,6 +43,10 @@ set(scan_globs
 
 file(GLOB scan_files ${scan_globs})
 list(SORT scan_files)
+# The explicit full-probe loader is setup/diagnostic infrastructure and necessarily uses the
+# platform dynamic-loader and environment APIs. Step 9 gives it a separate isolation inspection;
+# it is not part of the allocation-free geometry/runtime scaffold governed by this Step 5 gate.
+list(FILTER scan_files EXCLUDE REGEX "/cuda_loader[.][ch]$")
 if(scan_files STREQUAL "")
     message(FATAL_ERROR "dependency inspection found no source files to scan")
 endif()

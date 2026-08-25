@@ -23,6 +23,7 @@ endif()
 add_library(gffx_core SHARED
     native/core/abi.c
     native/core/capabilities.c
+    native/core/cuda_loader.c
     native/core/status.c
 )
 
@@ -35,7 +36,12 @@ target_include_directories(gffx_core
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/native/core
+        ${CMAKE_CURRENT_SOURCE_DIR}/native/cuda
 )
+
+target_link_libraries(gffx_core PRIVATE ${CMAKE_DL_LIBS})
 
 set_target_properties(gffx_core PROPERTIES
     C_VISIBILITY_PRESET hidden
@@ -43,12 +49,11 @@ set_target_properties(gffx_core PROPERTIES
 )
 
 # Step 7 packaging: the wheel carries gffx_core beside the Python package, where
-# src/gffx/_capabilities.py looks for it. No CPython extension is installed here.
+# the private CPython loader finds it on demand.
 install(TARGETS gffx_core
     RUNTIME DESTINATION gffx
     LIBRARY DESTINATION gffx
-    # The Windows import library (.lib) is needed only to link against the core at build time and
-    # is deliberately excluded from the runtime wheel, which loads the DLL through ctypes.
+    # The Windows import library (.lib) is build-only and is excluded from the runtime wheel.
     ARCHIVE DESTINATION gffx EXCLUDE_FROM_ALL
 )
 
@@ -58,9 +63,22 @@ if(GFFX_BUILD_PYTHON)
     include(GffxPython)
 endif()
 
+# The adapter is an opt-in build component: ordinary CPU/core builds need no C++ compiler or
+# PyTorch installation, while PyTorch-ready wheels enable it explicitly.
+if(GFFX_BUILD_PYTORCH)
+    enable_language(CXX)
+    include(GffxPyTorch)
+endif()
+
+# CUDA is a separately built plugin. The default core path never enables the CUDA language.
+if(GFFX_ENABLE_CUDA)
+    include(GffxCuda)
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING)
     enable_language(CXX)
     add_subdirectory(tests/abi)
+    add_subdirectory(tests/cuda)
 endif()
