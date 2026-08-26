@@ -30,6 +30,8 @@ EXPECTED_REPAIR_COMMANDS = {
         "-w {dest_dir} {wheel}"
     ),
     "macos": (
+        "env DYLD_LIBRARY_PATH=\"$(python -c 'from pathlib import Path; import torch; "
+        "print(Path(torch.__file__).parent / \"lib\")')\" "
         "delocate-wheel "
         "--exclude libc10.dylib "
         "--exclude libtorch.dylib "
