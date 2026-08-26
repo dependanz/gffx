@@ -112,9 +112,20 @@ archs = ["AMD64"]
 # wheel, so delvewheel must not try to locate and vendor it as an external dependency. Windows has
 # no RPATH; resolution works at runtime because CPython loads extension modules with an altered
 # search path rooted at the module's own directory, which delvewheel's static analysis cannot see.
-repair-wheel-command = "delvewheel repair --exclude gffx_core.dll -w {dest_dir} {wheel}"
+# The adapter is activated only after torch is imported, so its stable LibTorch runtime remains
+# owned by the user-selected PyTorch distribution rather than being duplicated inside GFFX.
+repair-wheel-command = "delvewheel repair --exclude gffx_core.dll --exclude c10.dll --exclude torch.dll --exclude torch_cpu.dll -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.linux]
 # The support matrix advertises glibc 2.28+, which is exactly the manylinux_2_28 policy.
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
+
+# These exact SONAMEs are supplied by the separately installed PyTorch distribution. auditwheel
+# must continue repairing all other non-policy dependencies and must not vendor LibTorch into GFFX.
+repair-wheel-command = "auditwheel repair --exclude libc10.so --exclude libtorch.so --exclude libtorch_cpu.so -w {dest_dir} {wheel}"
+
+[tool.cibuildwheel.macos]
+# delocate supports exact path-substring exclusions, so preserve architecture validation and normal
+# dependency repair while leaving only the known LibTorch runtime owned by PyTorch.
+repair-wheel-command = "delocate-wheel --exclude libc10.dylib --exclude libtorch.dylib --exclude libtorch_cpu.dylib --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
