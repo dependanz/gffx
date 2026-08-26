@@ -191,6 +191,58 @@ def test_native_contracts_request_machine_readable_ctest_results(tmp_path: Path,
     assert "--output-junit" in commands[-1]
 
 
+@pytest.mark.parametrize(
+    ("system_name", "machine_name", "expected_text"),
+    (
+        ("Windows", "AMD64", ("CUDAToolkit",)),
+        ("Linux", "x86_64", ("CUDAToolkit",)),
+        ("Linux", "aarch64", ("requires Windows/Linux x86-64",)),
+        ("Darwin", "arm64", ("supports Windows/Linux x86-64 only",)),
+    ),
+)
+def test_source_prerequisite_cuda_diagnostic_matches_the_host_contract(
+    tmp_path: Path,
+    monkeypatch,
+    system_name: str,
+    machine_name: str,
+    expected_text: tuple[str, ...],
+):
+    verifier = load_verifier()
+    calls = []
+
+    def fake_run(
+        command,
+        *,
+        cwd,
+        expect_success=True,
+        expected_text=(),
+        env=None,
+    ):
+        normalized = tuple(str(value) for value in command)
+        calls.append(
+            {
+                "command": normalized,
+                "cwd": cwd,
+                "expect_success": expect_success,
+                "expected_text": expected_text,
+                "env": env,
+            }
+        )
+        return verifier.CommandResult(normalized, 1, "", "", 0.0)
+
+    monkeypatch.setattr(verifier.shutil, "which", lambda name: "cmake")
+    monkeypatch.setattr(verifier.platform, "system", lambda: system_name)
+    monkeypatch.setattr(verifier.platform, "machine", lambda: machine_name)
+    monkeypatch.setattr(verifier, "run_command", fake_run)
+    result = verifier.verify_source_prerequisite_failures(
+        tmp_path / "source", tmp_path, tmp_path / "python"
+    )
+
+    assert result == {"expected_failures": 3}
+    assert len(calls) == 3
+    assert calls[-1]["expected_text"] == expected_text
+
+
 def test_current_source_inventory_is_clean_and_complete():
     verifier = load_verifier()
     paths = verifier.collect_source_paths(REPO_ROOT)

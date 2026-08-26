@@ -13,6 +13,7 @@ import email.parser
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -722,6 +723,17 @@ def verify_explicit_adapter(adapter_python: Path, work: Path) -> dict[str, Any]:
     return {"pytorch_version": result.stdout.strip().splitlines()[-1]}
 
 
+def _cuda_prerequisite_expected_text() -> tuple[str, ...]:
+    system_name = platform.system().casefold()
+    machine_name = platform.machine().casefold()
+
+    if system_name == "darwin":
+        return ("supports Windows/Linux x86-64 only",)
+    if machine_name not in {"amd64", "x86_64"}:
+        return ("requires Windows/Linux x86-64",)
+    return ("CUDAToolkit",)
+
+
 def verify_source_prerequisite_failures(
     snapshot: Path, work: Path, no_framework_python: Path
 ) -> dict[str, Any]:
@@ -770,7 +782,7 @@ def verify_source_prerequisite_failures(
         ],
         cwd=work,
         expect_success=False,
-        expected_text=("CUDAToolkit",),
+        expected_text=_cuda_prerequisite_expected_text(),
     )
     return {"expected_failures": 3}
 
