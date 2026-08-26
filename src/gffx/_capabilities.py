@@ -1,6 +1,6 @@
 """Base-package capability reporting.
 
-Phase 1 Step 6/7 contract:
+Base capability contract:
 
 * importing this module imports no autodiff framework, array library, or accelerator runtime;
 * nothing here loads a GPU driver, CUDA runtime, or backend provider;
@@ -8,8 +8,8 @@ Phase 1 Step 6/7 contract:
   actually asks for capability or ABI state, and its absence is reported rather than raised.
 
 The report is deliberately a plain dict of built-in types so the base package needs no schema
-dependency. Full runtime probing (which may load drivers and block) is a separate explicit action
-that arrives with the CUDA plugin in a later phase; it is never reachable from `import gffx`.
+dependency. Full runtime probing (which may load drivers and block) is available only through the
+explicit `gffx.cuda.capabilities()` diagnostic; it is never reachable from `import gffx`.
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def capabilities() -> Dict[str, Any]:
         "native_core": native,
         "backends": {
             "cpu": "available" if _core is not None else "native core not present",
-            "cuda": "not built",
+            "cuda": "optional; explicit probe required",
         },
         # Explicit and always false at this level: the base package never enumerates devices.
         "gpu_probed": False,

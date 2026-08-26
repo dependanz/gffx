@@ -1,1 +1,7 @@
-"""Artifact provenance and contents verifier, reserved for a later Phase 1 packaging step."""
+"""Compatibility entry point for the Phase 1 package-foundation verifier."""
+
+from verify_foundation import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

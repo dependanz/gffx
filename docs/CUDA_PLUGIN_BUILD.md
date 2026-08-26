@@ -6,7 +6,7 @@ probe. `import gffx`, ordinary CPU configuration, and CPU wheels do not enable C
 
 Release-candidate artifacts use CUDA Toolkit 12.8. CMake accepts a CUDA 12.x toolkit for local
 scaffold development but embeds its exact version in the plugin build identity and warns unless it
-is 12.8; CUDA 13+ plugin builds are rejected. The Step 9 host plugin is C11, links the CUDA Driver
+is 12.8; CUDA 13+ plugin builds are rejected. The current host provider is C11, links the CUDA Driver
 API only, never enables the CUDA language, and must not acquire the CUDA Runtime, cuBLAS, cuDNN,
 NCCL, framework, allocator, or
 graphics-library dependencies.
@@ -41,10 +41,10 @@ The Linux release build must run inside the selected manylinux 2.28-compatible e
 execution evidence additionally requires the separately approved native Ubuntu 24.04/Tesla T4
 environment; a successful compile alone is not a functional CUDA support claim.
 
-Functional GPU kernels are intentionally absent in Step 9. Phase 3 will compile C+CUDA device
-artifacts for the admitted architecture set and load them through the Driver API; those artifacts
-must preserve the no-CUDA-Runtime dependency boundary. Until then, load/driver/device enumeration
-is infrastructure evidence only.
+Functional GPU kernels are intentionally absent. A later operation phase will compile C+CUDA
+device artifacts for the admitted architecture set and load them through the Driver API; those
+artifacts must preserve the no-CUDA-Runtime dependency boundary. Until then, load/driver/device
+enumeration is infrastructure evidence only.
 
 ## Explicit discovery override
 

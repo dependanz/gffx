@@ -7,23 +7,76 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "gffx"
 version = "0.2.0.dev0"
-description = "Portable differentiable graphics and mesh operations"
+description = "Portable, dependency-light differentiable graphics and mesh operations"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [
     {name = "Danzel Serrano", email = "danzel.serrano@gmail.com"},
 ]
+keywords = [
+    "autodiff",
+    "differentiable-graphics",
+    "geometry",
+    "meshes",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering",
+]
+
+# The base distribution deliberately has no mandatory third-party Python runtime dependency.
 dependencies = []
 
 [project.urls]
+Documentation = "https://github.com/dependanz/gffx#readme"
+Issues = "https://github.com/dependanz/gffx/issues"
 Repository = "https://github.com/dependanz/gffx"
+
+# PEP 735 groups are source-development inputs, not install requirements or public feature extras.
+# Empty groups reserve explicit ownership boundaries without pretending an unimplemented integration
+# has a dependency set. Framework and accelerator prerequisites are selected outside pip because
+# their CPU/CUDA/platform variants must remain user-controlled.
+[dependency-groups]
+test = [
+    "pytest==8.3.4",
+    "tomli==2.2.1; python_version < '3.11'",
+]
+packaging = [
+    "build==1.3.0",
+    "cibuildwheel==4.2.0",
+]
+development = [
+    {include-group = "test"},
+    {include-group = "packaging"},
+]
+framework = []
+accelerator = []
+visualization = []
+format = []
+example = []
+benchmark = []
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 wheel.packages = ["src/gffx"]
 
-# CPU-only is the default configuration; CUDA stays explicitly opt-in (Step 9).
+# CPU-only is the default configuration; CUDA and framework adapters are explicitly opt-in.
 # Tests are a developer/CI concern and are never built while producing a distribution.
 # CMake and the generator are pinned through the backend, which injects them as build-only
 # dependencies; pinning them in build-system.requires instead is rejected by scikit-build-core.
@@ -32,6 +85,7 @@ ninja.version = "==1.13.0"
 
 cmake.define.BUILD_TESTING = "OFF"
 cmake.define.GFFX_BUILD_PYTHON = "ON"
+cmake.define.GFFX_BUILD_PYTORCH = "OFF"
 cmake.define.GFFX_ENABLE_CUDA = "OFF"
 
 # The wheel carries the private gffx._core extension built against the CPython 3.10 stable ABI,

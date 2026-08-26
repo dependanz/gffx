@@ -128,7 +128,7 @@ def test_capabilities_reports_state_without_probing_a_gpu():
     ):
         assert key in report, "capability report is missing " + key
     assert report["gpu_probed"] is False
-    assert report["backends"]["cuda"] == "not built"
+    assert report["backends"]["cuda"] == "optional; explicit probe required"
     assert report["pointer_bits"] in (32, 64)
     assert isinstance(report["native_core"]["available"], bool)
 
