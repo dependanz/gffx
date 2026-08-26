@@ -23,8 +23,8 @@ performance result. No differentiability, rendering correctness, coverage, laten
 sustained-run, edge-device, or operation-export claim has been measured yet.
 
 Public PyPI `0.1.x` artifacts are the inherited prototype and are unsupported by the new contract.
-The current default GitHub branch also remains the inherited prototype until a separately reviewed
-integration decision is made.
+The repository source covered by this document is the `0.2.0.dev0` foundation; it does not change
+the identity or support status of the public `0.1.x` artifacts.
 
 See the devbrain support matrices for the normative planned gates. This repository document is the
 user-facing summary and must remain conservative when evidence and targets differ.

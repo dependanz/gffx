@@ -31,7 +31,8 @@ triangular mesh face—not a talking-face specialization.
 
 Public PyPI releases through `0.1.4` belong to the inherited prototype. Installing `gffx` from
 PyPI today does **not** install this `0.2.0.dev0` foundation. The current foundation is available
-from this branch or from explicitly supplied internal artifacts only.
+only from a repository checkout that contains the `0.2.0.dev0` foundation or from an explicitly
+supplied internal artifact.
 
 ## Install and inspect
 

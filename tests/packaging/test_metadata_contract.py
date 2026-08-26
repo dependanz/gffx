@@ -139,3 +139,26 @@ def test_documented_dependency_categories_match_declared_groups():
 
     for group in sorted(groups):
         assert f"`{group}`" in dependencies
+
+
+def test_merged_documentation_has_no_branch_or_completed_step_staleness():
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    installation = (REPO_ROOT / "docs" / "INSTALLATION.md").read_text(
+        encoding="utf-8"
+    )
+    support = (REPO_ROOT / "docs" / "SUPPORT_STATUS.md").read_text(encoding="utf-8")
+
+    assert "from this branch" not in readme
+    assert (
+        "repository checkout that contains the `0.2.0.dev0` foundation" in readme
+    )
+    assert "default GitHub branch also remains the inherited prototype" not in support
+    assert (
+        "repository source covered by this document is the `0.2.0.dev0` foundation"
+        in support
+    )
+    assert (
+        "Uninstall completeness and clean-install matrices belong to Phase 1 Step 11"
+        not in installation
+    )
+    assert "Uninstall completeness was verified" in installation

@@ -81,5 +81,6 @@ Linux recipes and trusted-device test controls.
 python -m pip uninstall gffx
 ```
 
-Uninstall completeness and clean-install matrices belong to Phase 1 Step 11 and are not yet a
-verified support claim.
+Uninstall completeness was verified by the local Phase 1 package-foundation gates. That evidence
+remains internal until the hosted release-candidate matrix succeeds and the resulting artifacts
+are published under the support policy.
