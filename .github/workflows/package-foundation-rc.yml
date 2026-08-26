@@ -1,0 +1,218 @@
+name: package-foundation-rc
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Exact commit, tag, or branch to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-foundation-rc-${{ inputs.revision }}
+  cancel-in-progress: false
+
+jobs:
+  build-artifacts:
+    name: build / ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+          # BEGIN GFFX GENERATED RC BUILD MATRIX
+          include:
+            - name: "windows-x64"
+              platform: "windows-x64"
+              runner: "windows-2022"
+              python: "3.10"
+              pytorch: "2.10.0"
+              artifact: "win_amd64"
+              cibw_arch: "AMD64"
+              build_sdist: false
+            - name: "linux-x64"
+              platform: "linux-x64"
+              runner: "ubuntu-24.04"
+              python: "3.10"
+              pytorch: "2.10.0"
+              artifact: "manylinux_2_28_x86_64"
+              cibw_arch: "x86_64"
+              build_sdist: true
+            - name: "linux-arm64"
+              platform: "linux-arm64"
+              runner: "ubuntu-24.04-arm"
+              python: "3.10"
+              pytorch: "2.10.0"
+              artifact: "manylinux_2_28_aarch64"
+              cibw_arch: "aarch64"
+              build_sdist: false
+            - name: "macos-arm64"
+              platform: "macos-arm64"
+              runner: "macos-26"
+              python: "3.10"
+              pytorch: "2.10.0"
+              artifact: "macosx_14_0_arm64"
+              cibw_arch: "arm64"
+              build_sdist: false
+          # END GFFX GENERATED RC BUILD MATRIX
+    steps:
+      - name: Check out the exact candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - name: Select build-control CPython
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Build one source archive from the clean candidate checkout
+        if: matrix.build_sdist
+        shell: bash
+        run: |
+          python -m pip install build==1.3.0
+          python -m build --sdist --outdir wheelhouse
+      - name: Build the adapter-enabled ABI3 wheel once
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        env:
+          CIBW_ARCHS: ${{ matrix.cibw_arch }}
+          CIBW_BUILD: cp310-*
+          CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation"
+          CIBW_BEFORE_BUILD: >-
+            python -m pip install scikit-build-core==1.0.3 cmake==4.4.2 ninja==1.13.0 &&
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_BEFORE_TEST: >-
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_CONFIG_SETTINGS: "cmake.define.GFFX_BUILD_PYTORCH=ON"
+          CIBW_TEST_COMMAND: >-
+            python -c "import gffx; c=gffx.capabilities();
+            assert c['native_core']['available'] and c['native_core']['abi_version']=='1.0' and not c['gpu_probed'];
+            gffx.torch; import torch;
+            assert hasattr(torch.ops.gffx_internal, '_foundation_probe');
+            print('adapter wheel ok', c['python_version'], torch.__version__)"
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        with:
+          output-dir: wheelhouse
+      - name: Hash artifacts and capture the build environment
+        shell: bash
+        run: >-
+          python tools/ci_smoke.py artifacts
+          --directory wheelhouse
+          --output wheelhouse/provenance.json
+      - name: Retain the exact candidate artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.artifact }}
+          path: wheelhouse/
+          if-no-files-found: error
+          retention-days: 14
+
+  artifact-tests:
+    name: artifact / ${{ matrix.platform }} / py${{ matrix.python }} / torch${{ matrix.pytorch }}
+    needs: build-artifacts
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+          # BEGIN GFFX GENERATED RC TEST MATRIX
+          platform:
+            - "windows-x64"
+            - "linux-x64"
+            - "linux-arm64"
+            - "macos-arm64"
+          python:
+            - "3.10"
+            - "3.11"
+            - "3.12"
+            - "3.13"
+            - "3.14"
+          pytorch:
+            - "2.10.0"
+            - "2.11.0"
+            - "2.12.1"
+            - "2.13.0"
+          # BEGIN GFFX GENERATED RC TEST PLATFORM METADATA
+          include:
+            - platform: "windows-x64"
+              runner: "windows-2022"
+              artifact: "win_amd64"
+              cibw_arch: "AMD64"
+            - platform: "linux-x64"
+              runner: "ubuntu-24.04"
+              artifact: "manylinux_2_28_x86_64"
+              cibw_arch: "x86_64"
+            - platform: "linux-arm64"
+              runner: "ubuntu-24.04-arm"
+              artifact: "manylinux_2_28_aarch64"
+              cibw_arch: "aarch64"
+            - platform: "macos-arm64"
+              runner: "macos-26"
+              artifact: "macosx_14_0_arm64"
+              cibw_arch: "arm64"
+          # END GFFX GENERATED RC TEST PLATFORM METADATA
+          # END GFFX GENERATED RC TEST MATRIX
+    steps:
+      - name: Check out only the candidate's smoke tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - name: Select CPython ${{ matrix.python }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Download the exact platform wheel
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: wheel-${{ matrix.artifact }}
+          path: ${{ runner.temp }}/wheelhouse
+      - name: Install the selected CPU framework and downloaded wheel
+        shell: bash
+        run: |
+          python -m pip install \
+            --index-url https://download.pytorch.org/whl/cpu \
+            torch==${{ matrix.pytorch }}
+          WHEEL_PATH="$(python -c 'import os; from pathlib import Path; p=list(Path(os.environ["RUNNER_TEMP"]).joinpath("wheelhouse").glob("gffx-*.whl")); assert len(p)==1, p; print(p[0])')"
+          python -m pip install --no-deps "$WHEEL_PATH"
+      - name: Probe the installed exact artifact
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          WHEEL_PATH="$(python -c 'import os; from pathlib import Path; p=list(Path(os.environ["RUNNER_TEMP"]).joinpath("wheelhouse").glob("gffx-*.whl")); assert len(p)==1, p; print(p[0])')"
+          mkdir -p tools
+          cp "$GITHUB_WORKSPACE/tools/ci_smoke.py" tools/ci_smoke.py
+          python tools/ci_smoke.py installed \
+            --wheel "$WHEEL_PATH" \
+            --output "$RUNNER_TEMP/installed-provenance.json"
+      - name: Uninstall and prove complete cleanup
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m pip uninstall --yes gffx
+          python tools/ci_smoke.py uninstalled \
+            --output "$RUNNER_TEMP/uninstalled-provenance.json"
+      - name: Retain per-environment smoke provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-${{ matrix.platform }}-py${{ matrix.python }}-torch${{ matrix.pytorch }}
+          path: |
+            ${{ runner.temp }}/installed-provenance.json
+            ${{ runner.temp }}/uninstalled-provenance.json
+          if-no-files-found: error
+          retention-days: 14
+
+  required:
+    name: package-foundation-rc-required
+    if: ${{ always() }}
+    needs: artifact-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all 80 clean artifact environments
+        shell: bash
+        run: test "${{ needs.artifact-tests.result }}" = "success"

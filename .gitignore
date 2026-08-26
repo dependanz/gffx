@@ -27,6 +27,15 @@ var/
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Local credentials and private keys
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+
 # Unit test / coverage reports
 htmlcov/
 .tox/

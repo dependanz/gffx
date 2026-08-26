@@ -1,24 +1,120 @@
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+# Build-only dependencies, pinned for reproducible source and wheel builds. None of these is a
+# runtime dependency: an installed wheel needs no build backend, CMake, generator, or C compiler.
+requires = ["scikit-build-core==1.0.3"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "gffx"
-description = "A minimal graphics library in PyTorch"
+version = "0.2.0.dev0"
+description = "Portable, dependency-light differentiable graphics and mesh operations"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Danzel Serrano", email = "danzel.serrano@gmail.com"},
+]
+keywords = [
+    "autodiff",
+    "differentiable-graphics",
+    "geometry",
+    "meshes",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering",
+]
+
+# The base distribution deliberately has no mandatory third-party Python runtime dependency.
+dependencies = []
 
 [project.urls]
-repository = "https://github.com/dependanz/gffx"
+Documentation = "https://github.com/dependanz/gffx#readme"
+Issues = "https://github.com/dependanz/gffx/issues"
+Repository = "https://github.com/dependanz/gffx"
 
-[tool.poetry]
-name = "gffx"
-version = "0.1.3"
-authors = ["Danzel Serrano <danzel.serrano@gmail.com>"]
-license = "MIT"
-readme = "README.md"
+# PEP 735 groups are source-development inputs, not install requirements or public feature extras.
+# Empty groups reserve explicit ownership boundaries without pretending an unimplemented integration
+# has a dependency set. Framework and accelerator prerequisites are selected outside pip because
+# their CPU/CUDA/platform variants must remain user-controlled.
+[dependency-groups]
+test = [
+    "pytest==8.3.4",
+    "tomli==2.2.1; python_version < '3.11'",
+]
+packaging = [
+    "build==1.3.0",
+    "cibuildwheel==4.2.0",
+]
+development = [
+    {include-group = "test"},
+    {include-group = "packaging"},
+]
+framework = []
+accelerator = []
+visualization = []
+format = []
+example = []
+benchmark = []
 
-[tool.poetry.dependencies]
-python = "^3.8"
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["src/gffx"]
 
-[tool.poetry.group.dev.dependencies]
-pytest   = "^6.2.5"
-coverage = "^6.2.0"
+# CPU-only is the default configuration; CUDA and framework adapters are explicitly opt-in.
+# Tests are a developer/CI concern and are never built while producing a distribution.
+# CMake and the generator are pinned through the backend, which injects them as build-only
+# dependencies; pinning them in build-system.requires instead is rejected by scikit-build-core.
+cmake.version = "==4.4.2"
+ninja.version = "==1.13.0"
+
+cmake.define.BUILD_TESTING = "OFF"
+cmake.define.GFFX_BUILD_PYTHON = "ON"
+cmake.define.GFFX_BUILD_PYTORCH = "OFF"
+cmake.define.GFFX_ENABLE_CUDA = "OFF"
+
+# The wheel carries the private gffx._core extension built against the CPython 3.10 stable ABI,
+# so one artifact serves 3.10+ and the abi3 tag in PYTORCH_SUPPORT_MATRIX_V0_1.md is accurate.
+wheel.py-api = "cp310"
+
+sdist.exclude = ["build", "dist", "*.egg-info", "__pycache__", ".pytest_cache"]
+
+[tool.cibuildwheel]
+# One abi3 wheel per platform serves CPython 3.10+, so only the 3.10 build is needed.
+build = "cp310-*"
+skip = "*-musllinux_*"
+build-frontend = "build"
+
+# Prove the wheel actually works inside the target container rather than only that it built.
+test-command = "python -c \"import gffx; c = gffx.capabilities(); assert c['native_core']['available'], c; assert c['native_core']['abi_version'] == '1.0', c; assert c['native_core']['limited_api'] == '0x030A0000', c; assert c['gpu_probed'] is False, c; print('wheel ok:', c['python_version'], c['native_core']['abi_version'])\""
+
+[tool.cibuildwheel.windows]
+# ABI v1 requires a 64-bit target and abi.h enforces that with an #error, so 32-bit Windows is not
+# a supported build. Pinning the arch here keeps a bare local run matching CI.
+archs = ["AMD64"]
+
+# gffx_core.dll is built by this project and already installed beside the extension inside the
+# wheel, so delvewheel must not try to locate and vendor it as an external dependency. Windows has
+# no RPATH; resolution works at runtime because CPython loads extension modules with an altered
+# search path rooted at the module's own directory, which delvewheel's static analysis cannot see.
+repair-wheel-command = "delvewheel repair --exclude gffx_core.dll -w {dest_dir} {wheel}"
+
+[tool.cibuildwheel.linux]
+# The support matrix advertises glibc 2.28+, which is exactly the manylinux_2_28 policy.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"

@@ -1,80 +1,83 @@
-### gffx - a minimal library for (differentiable) graphics
+# GFFX
 
-```Python
+GFFX is a portable, general-purpose differentiable graphics, geometry, and mesh toolkit for
+Python 3.10+. Its design centers on stable tensor-level semantics across autodiff frameworks, a
+dependency-light C11 CPU core, isolated accelerator providers, compilation and export, and
+allocation-controlled integration into streaming and edge applications.
+
+The project is pre-alpha foundation work. No public graphics or geometry operation is implemented
+or advertised yet. The first planned operation is `mesh.face_geometry`, where “face” means a
+triangular mesh face—not a talking-face specialization.
+
+## What works today
+
+- `import gffx` is lazy and has zero mandatory third-party Python runtime dependencies.
+- `gffx.capabilities()` reports static package, host, ABI, and CPU state without probing a GPU.
+- Native ABI v1.0 provides checked tensor, execution-context, workspace, diagnostic, and capability
+  structures through six public C11 exports.
+- `gffx.torch` is a lazy PyTorch 2.10+ Stable-ABI loading scaffold. It registers only a private
+  foundation probe and exposes no operation.
+- `gffx.cuda.capabilities()` is an explicit setup-time diagnostic that may load the isolated CUDA
+  provider and NVIDIA driver. It is not a frame-loop call and exposes no CUDA kernel.
+- Internal `cp310-abi3` CPU wheels have been built for Windows x86-64, Linux x86-64, Linux ARM64,
+  and macOS ARM64. This is foundation evidence, not a public support or release claim.
+
+## What does not work yet
+
+- No v0.1 graphics, geometry, mesh, proximity, sampling, rasterization, loss, or blending operation.
+- No public autograd, `torch.compile`, export, serialization, JAX, or streaming operation surface.
+- No functional CUDA kernel or CUDA 12.8 release artifact.
+- No supported migration path for the prototype `gffx` 0.1.x Python APIs.
+
+Public PyPI releases through `0.1.4` belong to the inherited prototype. Installing `gffx` from
+PyPI today does **not** install this `0.2.0.dev0` foundation. The current foundation is available
+only from a repository checkout that contains the `0.2.0.dev0` foundation or from an explicitly
+supplied internal artifact.
+
+## Install and inspect
+
+Use the detailed [installation guide](docs/INSTALLATION.md) before installing. A default source
+build is CPU-only:
+
+```powershell
+python -m pip wheel . --no-deps --wheel-dir dist/local
+python -m pip install --force-reinstall C:/path/to/generated-wheel.whl
+```
+
+The stable entry point is always:
+
+```python
 import gffx
-import torch
-import matplotlib.pyplot as plt
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(gffx.__version__)
+print(gffx.capabilities())       # static; never probes a GPU
 
-# Setup Camera
-camera = gffx.ray.Camera(
-    width   = 512,
-    height  = 512,
-    pos = [0, 0, 3],
-    dir = [0, 0, -1],
-
-    device = device
-)
-
-# Setup list of meshes
-vertices          = torch.load('path/to/vertices.pt').to(device)
-faces             = torch.load('path/to/vertices.pt').to(device)
-
-object_list = [
-    gffx.obj.mesh_from_vertices_and_faces(
-        vertices             = vertices,
-        faces                = faces,
-        init_translation     = [0, 0.0, 2],
-        init_rotation        = [0, 0, 0],
-        init_scale           = [1, 1, 1],
-        
-        ambient_color        = [0.5, 0.5, 0.5],
-        diffuse_color        = [0.5, 0.5, 0.5],
-        specular_color       = [0.5, 0.5, 0.5],
-        specular_coefficient = 1,
-        
-        device           = device
-    )
-]
-
-# Ray Trace Render
-images = gffx.ray.mesh_render(
-    meshes = object_list,
-    camera = camera,
-    light_intensity = 1.0,
-    ambient_intensity = 0.2,
-    light_pos = [5, 5, 5],
-    background_color = [0, 0, 0],
-    ray_chunk_size = 4096,
-    
-    device = device
-)
-
-plt.imshow((images[0].cpu()).permute(1, 0, 2))
-plt.gca().invert_yaxis()
-plt.show()
+# Explicit diagnostic only; may load the optional provider and GPU driver.
+print(gffx.cuda.capabilities())
 ```
 
-### [WIP] CLI
+Do not call the full CUDA capability probe from a real-time frame or audio callback.
 
-```
-python -m gffx --vertices '/path/to/vertices.pt' --faces 'path/to/faces.pt'
-```
+## Documentation
 
-```
-python -m gffx --vertices '/path/to/vertices.pt' --faces 'path/to/faces.pt'\
-    --center_and_scale --camera_width 512 --camera_height 512\
-    --camera_pos "[0,0,1.2]" --camera_dir "[0,0,-1]"\
-    --camera_screen_distance 1.0 --ambient_color "[0.5, 0.5, 0.5]"\
-    --diffuse_color "[0.5, 0.5, 0.5]" --specular_color "[0.5, 0.5, 0.5]"\
-    --specular_coefficient 1.0 --light_intensity 1.0\
-    --ambient_intensity 0.2 --light_pos "[5, 5, 5]"\
-    --background_color "[0, 0, 0]" --ray_chunk_size 4096\
-    --outimg './out.png'
+- [Installation and optional components](docs/INSTALLATION.md)
+- [Source and native builds](docs/BUILDING.md)
+- [Dependency and vendoring policy](docs/DEPENDENCIES.md)
+- [Measured evidence versus support targets](docs/SUPPORT_STATUS.md)
+- [Isolated CUDA provider recipes](docs/CUDA_PLUGIN_BUILD.md)
 
-    python -m gffx --vertices  --faces /mnt/d/_doctorate/cache/vocaset/170725_00137/faces_template.npy --center_and_scale --camera_width 512 --camera_height 512 --camera_pos "[0,0,1.2]" --camera_dir "[0,0,-1]" --camera_screen_distance 1.0 --outimg ./outimg.png
-```
+## Source boundaries
 
-### Motivation
-1. Installing PyTorch3D everytime in colab is a hassle. This library's first aim is to render a mesh using native operations in PyTorch.
+- `include/gffx/`: public framework-neutral C11 ABI.
+- `native/core/`: dependency-light runtime and future independent CPU operations.
+- `native/cuda/`: private optional CUDA provider; no semantics belong here exclusively.
+- `adapters/`: CPython and autodiff-framework loading/registration glue.
+- `src/gffx/`: stable dependency-light Python namespace.
+- `tests/`: ABI, packaging, import, framework-loading, and accelerator-isolation contracts.
+
+The pre-foundation source remains recoverable in Git history and on
+`codex/archive-pre-phase1-20260821`. Prototype behavior is unsupported and receives no
+compatibility credit toward the new operation contracts.
+
+GFFX is licensed under the [MIT License](LICENSE). No third-party source is vendored in the current
+foundation.
