@@ -98,10 +98,97 @@ def test_verifier_declares_every_step_11_gate():
     )
 
 
-def test_ctest_summary_parser_records_the_completed_test_count():
+def write_ctest_junit(
+    path: Path,
+    *,
+    tests: int = 18,
+    failures: int = 0,
+    errors: int = 0,
+    disabled: int = 0,
+    skipped: int = 0,
+) -> None:
+    cases = "\n".join(f'<testcase name="native-{index}" status="run" />' for index in range(tests))
+    path.write_text(
+        (
+            f'<testsuite name="gffx" tests="{tests}" failures="{failures}" '
+            f'errors="{errors}" disabled="{disabled}" skipped="{skipped}">\n'
+            f"{cases}\n"
+            "</testsuite>\n"
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_ctest_junit_parser_records_the_completed_test_count(tmp_path: Path):
     verifier = load_verifier()
-    output = "100% tests passed, 0 tests failed out of 18"
-    assert verifier._parse_ctest_pass_count(output) == 18
+    output = tmp_path / "ctest.xml"
+    write_ctest_junit(output)
+    assert verifier._parse_ctest_junit_pass_count(output) == 18
+
+
+@pytest.mark.parametrize(
+    ("tests", "failures", "errors", "disabled", "skipped"),
+    (
+        (0, 0, 0, 0, 0),
+        (18, 1, 0, 0, 0),
+        (18, 0, 1, 0, 0),
+        (18, 0, 0, 1, 0),
+        (18, 0, 0, 0, 1),
+    ),
+)
+def test_ctest_junit_parser_rejects_empty_or_incomplete_results(
+    tmp_path: Path, tests: int, failures: int, errors: int, disabled: int, skipped: int
+):
+    verifier = load_verifier()
+    output = tmp_path / "ctest.xml"
+    write_ctest_junit(
+        output,
+        tests=tests,
+        failures=failures,
+        errors=errors,
+        disabled=disabled,
+        skipped=skipped,
+    )
+    with pytest.raises(verifier.VerificationError):
+        verifier._parse_ctest_junit_pass_count(output)
+
+
+def test_ctest_junit_parser_rejects_malformed_or_internally_inconsistent_results(
+    tmp_path: Path,
+):
+    verifier = load_verifier()
+    output = tmp_path / "ctest.xml"
+
+    output.write_text("<testsuite", encoding="utf-8")
+    with pytest.raises(verifier.VerificationError):
+        verifier._parse_ctest_junit_pass_count(output)
+
+    output.write_text(
+        '<testsuite tests="2" failures="0"><testcase name="only-one" /></testsuite>',
+        encoding="utf-8",
+    )
+    with pytest.raises(verifier.VerificationError):
+        verifier._parse_ctest_junit_pass_count(output)
+
+
+def test_native_contracts_request_machine_readable_ctest_results(tmp_path: Path, monkeypatch):
+    verifier = load_verifier()
+    commands = []
+
+    def fake_run(command, *, cwd):
+        normalized = tuple(str(value) for value in command)
+        commands.append(normalized)
+        if normalized[0] == "ctest":
+            output = Path(normalized[normalized.index("--output-junit") + 1])
+            write_ctest_junit(output)
+        return verifier.CommandResult(normalized, 0, "", "", 0.0)
+
+    monkeypatch.setattr(verifier, "run_command", fake_run)
+    monkeypatch.setattr(verifier.shutil, "which", lambda name: None)
+    result = verifier.run_native_contracts(tmp_path / "source", tmp_path)
+
+    assert result["tests_passed"] == 18
+    assert "--output-junit" in commands[-1]
 
 
 def test_current_source_inventory_is_clean_and_complete():

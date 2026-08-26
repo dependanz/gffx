@@ -21,6 +21,7 @@ import tarfile
 import textwrap
 import time
 import venv
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, NamedTuple, Sequence
@@ -452,17 +453,57 @@ def run_python_contracts(source_root: Path, python: Path) -> dict[str, Any]:
     return {"summary": summary, "duration_seconds": result.duration_seconds}
 
 
-def _parse_ctest_pass_count(output: str) -> int:
-    if "100% tests passed" not in output:
-        raise VerificationError("native CTest output did not report a complete pass")
-    match = re.search(r"tests failed out of (\d+)", output)
-    if match is None:
-        raise VerificationError("native CTest output did not report the executed test count")
-    return int(match.group(1))
+def _ctest_junit_count(suite: ET.Element, name: str, *, required: bool = False) -> int:
+    value = suite.get(name)
+    if value is None:
+        if required:
+            raise VerificationError(f"native CTest JUnit result is missing {name!r}")
+        return 0
+    try:
+        count = int(value)
+    except ValueError as error:
+        raise VerificationError(
+            f"native CTest JUnit result has a non-integer {name!r} count"
+        ) from error
+    if count < 0:
+        raise VerificationError(f"native CTest JUnit result has a negative {name!r} count")
+    return count
+
+
+def _parse_ctest_junit_pass_count(path: Path) -> int:
+    try:
+        suite = ET.parse(path).getroot()
+    except (OSError, ET.ParseError) as error:
+        raise VerificationError("native CTest JUnit result is missing or malformed") from error
+    if suite.tag != "testsuite":
+        raise VerificationError("native CTest JUnit result does not contain one testsuite root")
+
+    tests = _ctest_junit_count(suite, "tests", required=True)
+    if tests == 0:
+        raise VerificationError("native CTest JUnit result reports zero executed tests")
+
+    incomplete = {
+        name: _ctest_junit_count(suite, name)
+        for name in ("failures", "errors", "disabled", "skipped")
+    }
+    if any(incomplete.values()):
+        raise VerificationError(
+            "native CTest JUnit result did not report a complete pass: " + repr(incomplete)
+        )
+
+    cases = suite.findall("testcase")
+    if len(cases) != tests:
+        raise VerificationError(
+            "native CTest JUnit test count does not match its testcase records"
+        )
+    if any(suite.findall(f".//{name}") for name in ("failure", "error", "skipped")):
+        raise VerificationError("native CTest JUnit testcase records are not a complete pass")
+    return tests
 
 
 def run_native_contracts(snapshot: Path, work: Path) -> dict[str, Any]:
     build = work / "native"
+    junit = work / "native-ctest.xml"
     configure = [
         "cmake",
         "-S",
@@ -479,10 +520,20 @@ def run_native_contracts(snapshot: Path, work: Path) -> dict[str, Any]:
     run_command(configure, cwd=work)
     run_command(["cmake", "--build", build, "--config", "Release", "--parallel"], cwd=work)
     result = run_command(
-        ["ctest", "--test-dir", build, "-C", "Release", "--output-on-failure"], cwd=work
+        [
+            "ctest",
+            "--test-dir",
+            build,
+            "-C",
+            "Release",
+            "--output-on-failure",
+            "--output-junit",
+            junit,
+        ],
+        cwd=work,
     )
     return {
-        "tests_passed": _parse_ctest_pass_count(result.stdout),
+        "tests_passed": _parse_ctest_junit_pass_count(junit),
         "duration_seconds": result.duration_seconds,
     }
 
