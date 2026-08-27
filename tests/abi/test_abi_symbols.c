@@ -46,7 +46,10 @@ static const char *required_symbols[] = {
     "gffx_render_rasterize_workspace",
     "gffx_render_interpolate",
     "gffx_render_interpolate_backward",
-    "gffx_render_interpolate_workspace"
+    "gffx_render_interpolate_workspace",
+    /* The eager survey utility reports rather than differentiates, so no backward. */
+    "gffx_mesh_validate",
+    "gffx_mesh_validate_workspace"
 };
 
 int main(int argc, char **argv) {

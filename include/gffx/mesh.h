@@ -283,6 +283,72 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_sample_surface_backward(
     gffx_diagnostic_buffer *diagnostic
 );
 
+/*
+ * mesh.validate - eager setup-class survey of a mesh.
+ *
+ * This utility reports rather than gates. An operation kernel rejects the first problem it finds
+ * and returns INVALID_ARGUMENT because it must not dereference bad memory; mesh.validate instead
+ * surveys the whole mesh and returns OK with a populated report, so a caller sees everything at
+ * once. It is not a substitute for the mandatory per-call validation: passing it exempts no later
+ * call, and v0.1 offers no flag to skip that checking.
+ *
+ * Findings are established structurally before geometrically, and the survey stops short of work
+ * that would be unsafe given what it already found. Malformed offsets return immediately, since
+ * no element range can then be trusted. An out-of-range or cross-element face index makes vertex
+ * lookup unsafe, so the degenerate-face and unreferenced-vertex surveys are skipped while the
+ * recorded finding bits remain set.
+ *
+ * The non-finite geometry survey is opt-in through GFFX_MESH_VALIDATE_GEOMETRY because it costs
+ * an extra O(V) pass. When it is not requested, nonfinite_vertex_count is -1 rather than 0, so
+ * "not checked" stays distinguishable from "checked and clean". A non-finite vertex is not an
+ * error here; reporting it is the job. Workspace is zero bytes and there is no backward entry
+ * point, the report being a diagnostic rather than a differentiable value.
+ */
+
+#define GFFX_MESH_VALIDATE_GEOMETRY UINT32_C(1)
+
+#define GFFX_MESH_FINDING_OFFSETS UINT32_C(1)
+#define GFFX_MESH_FINDING_FACE_INDEX_RANGE UINT32_C(2)
+#define GFFX_MESH_FINDING_FACE_INDEX_BATCH UINT32_C(4)
+#define GFFX_MESH_FINDING_DEGENERATE_FACE UINT32_C(8)
+#define GFFX_MESH_FINDING_NONFINITE_GEOMETRY UINT32_C(16)
+#define GFFX_MESH_FINDING_UNREFERENCED_VERTEX UINT32_C(32)
+
+typedef struct gffx_mesh_validation_report {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t findings;
+    uint32_t reserved0;
+    int64_t first_bad_face;
+    int64_t first_bad_offset_batch;
+    int64_t degenerate_face_count;
+    int64_t nonfinite_vertex_count;
+    int64_t unreferenced_vertex_count;
+    uint64_t reserved[3];
+} gffx_mesh_validation_report;
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_validate_workspace(
+    int64_t vertex_count,
+    int64_t face_count,
+    const gffx_execution_context *context,
+    uint64_t *required_bytes,
+    uint64_t *required_alignment,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_validate(
+    const gffx_tensor_view *vertices,
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets,
+    const gffx_tensor_view *face_offsets,
+    double eps,
+    uint32_t flags,
+    const gffx_execution_context *context,
+    gffx_mesh_validation_report *report,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
 GFFX_EXTERN_C_END
 
 #endif /* GFFX_MESH_H */
