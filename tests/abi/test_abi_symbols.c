@@ -12,7 +12,11 @@ static const char *required_symbols[] = {
     "gffx_validate_execution_context",
     "gffx_validate_buffer",
     "gffx_capabilities_query",
-    "gffx_capabilities_probe"
+    "gffx_capabilities_probe",
+    /* Phase 2 operation exports: compatible additions per the ABI contract. */
+    "gffx_mesh_face_geometry",
+    "gffx_mesh_face_geometry_backward",
+    "gffx_mesh_face_geometry_workspace"
 };
 
 int main(int argc, char **argv) {
