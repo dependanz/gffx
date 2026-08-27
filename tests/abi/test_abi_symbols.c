@@ -49,7 +49,11 @@ static const char *required_symbols[] = {
     "gffx_render_interpolate_workspace",
     /* The eager survey utility reports rather than differentiates, so no backward. */
     "gffx_mesh_validate",
-    "gffx_mesh_validate_workspace"
+    "gffx_mesh_validate_workspace",
+    /* The optional triangle-template reader produces setup data, so no backward. */
+    "gffx_io_ply_probe",
+    "gffx_io_ply_read",
+    "gffx_io_ply_read_workspace"
 };
 
 int main(int argc, char **argv) {
