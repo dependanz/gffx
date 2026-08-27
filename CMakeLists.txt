@@ -28,6 +28,7 @@ add_library(gffx_core SHARED
     native/core/mesh_face_geometry.c
     native/core/mesh_gather_faces.c
     native/core/mesh_sample_surface.c
+    native/core/mesh_validate.c
     native/core/mesh_vertex_normals.c
     native/core/points_proximity.c
     native/core/render_rasterize.c
@@ -81,6 +82,21 @@ endif()
 # CUDA is a separately built plugin. The default core path never enables the CUDA language.
 if(GFFX_ENABLE_CUDA)
     include(GffxCuda)
+endif()
+
+# Developer demo. Not a test, not installed, and not part of the library surface; it exists so
+# the implemented kernels can be seen producing an image. Build with --target gffx_demo_cube.
+add_executable(gffx_demo_cube EXCLUDE_FROM_ALL examples/render_cube.c)
+target_link_libraries(gffx_demo_cube PRIVATE gffx_core)
+if(UNIX)
+    target_link_libraries(gffx_demo_cube PRIVATE m)
+endif()
+if(WIN32)
+    add_custom_command(TARGET gffx_demo_cube POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:gffx_core> $<TARGET_FILE_DIR:gffx_demo_cube>
+        VERBATIM
+    )
 endif()
 
 include(CTest)
