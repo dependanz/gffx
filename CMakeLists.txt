@@ -28,6 +28,7 @@ add_library(gffx_core SHARED
     native/core/mesh_face_geometry.c
     native/core/mesh_gather_faces.c
     native/core/mesh_vertex_normals.c
+    native/core/points_proximity.c
     native/core/status.c
     native/core/transforms.c
 )

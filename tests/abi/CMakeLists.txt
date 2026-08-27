@@ -27,6 +27,7 @@ add_library(gffx_core_test_provider SHARED
     ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_gather_faces.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
+    ${PROJECT_SOURCE_DIR}/native/core/points_proximity.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
     ${PROJECT_SOURCE_DIR}/native/core/transforms.c
 )
@@ -84,6 +85,7 @@ add_library(gffx_core_self_test SHARED
     ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_gather_faces.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
+    ${PROJECT_SOURCE_DIR}/native/core/points_proximity.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
     ${PROJECT_SOURCE_DIR}/native/core/transforms.c
     ${PROJECT_SOURCE_DIR}/native/core/self_test.c
