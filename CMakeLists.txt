@@ -114,6 +114,21 @@ if(WIN32)
     )
 endif()
 
+# Emits the committed parity oracle that the PyTorch adapter fixtures compare against, so the C
+# kernel stays the single source of truth for their expected values. Regenerate by running it.
+add_executable(gffx_emit_face_geometry_oracle EXCLUDE_FROM_ALL examples/emit_face_geometry_oracle.c)
+target_link_libraries(gffx_emit_face_geometry_oracle PRIVATE gffx_core)
+if(UNIX)
+    target_link_libraries(gffx_emit_face_geometry_oracle PRIVATE m)
+endif()
+if(WIN32)
+    add_custom_command(TARGET gffx_emit_face_geometry_oracle POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:gffx_core> $<TARGET_FILE_DIR:gffx_emit_face_geometry_oracle>
+        VERBATIM
+    )
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING)

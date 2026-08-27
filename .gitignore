@@ -86,3 +86,17 @@ poetry.lock
 archive/
 
 .pytest_cache/
+# Locally staged build artifacts. A development build copies the core library and the private
+# extensions beside the package so the in-tree source is importable without installing. They are
+# outputs, never sources. Listed explicitly because *.py[cod] above catches *.pyd only by
+# coincidence, that pattern being meant for bytecode, and catches nothing for .dll/.so/.dylib.
+src/gffx/*.dll
+src/gffx/*.so
+src/gffx/*.dylib
+src/gffx/*.pyd
+
+# Virtual environments. The PyTorch lanes each need their own, and a stray `git add -A` would
+# otherwise commit a multi-gigabyte torch install.
+.venv/
+venv/
+env/
