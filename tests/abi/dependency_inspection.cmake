@@ -21,6 +21,8 @@ set(allowed_includes
     "\"internal.h\""
     "\"self_test.h\""
     "\"cuda_loader.h\""
+    # Phase 2: shared header-only validation helpers for the mesh operations.
+    "\"mesh_common.h\""
 )
 
 # Facilities the scaffold must not reach for: allocation, process-wide I/O, abort paths,

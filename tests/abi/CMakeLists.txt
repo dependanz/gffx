@@ -24,6 +24,7 @@ add_library(gffx_core_test_provider SHARED
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
 )
 target_compile_features(gffx_core_test_provider PUBLIC c_std_11)
@@ -77,6 +78,7 @@ add_library(gffx_core_self_test SHARED
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
     ${PROJECT_SOURCE_DIR}/native/core/self_test.c
 )
