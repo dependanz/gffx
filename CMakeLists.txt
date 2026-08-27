@@ -99,6 +99,19 @@ if(WIN32)
     )
 endif()
 
+add_executable(gffx_demo_panels EXCLUDE_FROM_ALL examples/render_panels.c)
+target_link_libraries(gffx_demo_panels PRIVATE gffx_core)
+if(UNIX)
+    target_link_libraries(gffx_demo_panels PRIVATE m)
+endif()
+if(WIN32)
+    add_custom_command(TARGET gffx_demo_panels POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:gffx_core> $<TARGET_FILE_DIR:gffx_demo_panels>
+        VERBATIM
+    )
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING)
