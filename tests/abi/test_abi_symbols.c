@@ -37,7 +37,10 @@ static const char *required_symbols[] = {
     "gffx_points_knn_workspace",
     "gffx_points_closest_point_on_mesh",
     "gffx_points_closest_point_on_mesh_backward",
-    "gffx_points_closest_point_on_mesh_workspace"
+    "gffx_points_closest_point_on_mesh_workspace",
+    "gffx_mesh_sample_surface",
+    "gffx_mesh_sample_surface_backward",
+    "gffx_mesh_sample_surface_workspace"
 };
 
 int main(int argc, char **argv) {

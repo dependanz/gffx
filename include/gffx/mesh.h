@@ -211,6 +211,78 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_build_edge_topology(
     gffx_diagnostic_buffer *diagnostic
 );
 
+/*
+ * mesh.sample_surface - area-weighted uniform sampling of triangle surfaces.
+ *
+ * Randomness is Philox4x32-10, counter-based and stateless; GFFX owns no random state and never
+ * touches a framework global generator. For batch element b and sample s the 128-bit counter is
+ * (rng_counter[0], rng_counter[1], (uint32)b, (uint32)s) under key (rng_key[0], rng_key[1]).
+ * Embedding (b, s) in the counter rather than iterating a stream makes each sample independent
+ * of evaluation order, so results are reproducible under any future parallelization. The four
+ * output words are used as: u0 selects the face, u1 and u2 form the barycentric coordinates, and
+ * u3 is reserved. A uniform in [0, 1) is word * 2^-32.
+ *
+ * A face is eligible when its doubled area exceeds eps, the same rule mesh.face_geometry uses.
+ * Eligible faces are selected proportionally to true area through a cumulative table located by
+ * binary search; that table is accumulated in double precision regardless of operand dtype,
+ * because a float32 running sum loses monotonicity over many faces and would bias selection.
+ * Requesting S > 0 samples from an element with no eligible face is INVALID_ARGUMENT; S = 0 is
+ * always valid. Barycentrics use the square-root map b0 = 1 - sqrt(r1), b1 = sqrt(r1)*(1 - r2),
+ * b2 = sqrt(r1)*r2, which is uniform over the triangle.
+ *
+ * next_counter is rng_counter incremented by one as a 64-bit little-endian value, low word
+ * first, wrapping to zero past the maximum.
+ *
+ * Backward is a pure scatter needing neither the vertices nor the generator, points being linear
+ * in the vertices once face and weights are fixed:
+ * grad_vertices[faces[k][i]] += b_i * grad_points[b][s], overwritten then accumulated in
+ * ascending (b, s, corner) order. Selection, probabilities, face_index, barycentric, S, the key,
+ * and the counter are all nondifferentiable.
+ *
+ * The forward workspace query reports F * sizeof(double) bytes at alignment 8; the backward
+ * requires zero.
+ */
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_sample_surface_workspace(
+    int64_t vertex_count,
+    int64_t face_count,
+    int64_t sample_count,
+    gffx_dtype dtype,
+    const gffx_execution_context *context,
+    uint64_t *required_bytes,
+    uint64_t *required_alignment,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_sample_surface(
+    const gffx_tensor_view *vertices,
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets,
+    const gffx_tensor_view *face_offsets,
+    int64_t sample_count,
+    const gffx_tensor_view *rng_key,
+    const gffx_tensor_view *rng_counter,
+    double eps,
+    const gffx_execution_context *context,
+    gffx_tensor_view *points,
+    gffx_tensor_view *face_index,
+    gffx_tensor_view *barycentric,
+    gffx_tensor_view *next_counter,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_sample_surface_backward(
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *face_index,
+    const gffx_tensor_view *barycentric,
+    const gffx_tensor_view *grad_points,
+    const gffx_execution_context *context,
+    gffx_tensor_view *grad_vertices,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
 GFFX_EXTERN_C_END
 
 #endif /* GFFX_MESH_H */
