@@ -130,3 +130,9 @@ add_test(NAME runtime.dependency_inspection
         -DGFFX_SOURCE_DIR=${PROJECT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/dependency_inspection.cmake
 )
+
+add_test(NAME runtime.io_isolation
+    COMMAND ${CMAKE_COMMAND}
+        -DGFFX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/io_isolation.cmake
+)
