@@ -24,6 +24,7 @@ add_library(gffx_core SHARED
     native/core/abi.c
     native/core/capabilities.c
     native/core/cuda_loader.c
+    native/core/mesh_edge_topology.c
     native/core/mesh_face_geometry.c
     native/core/mesh_gather_faces.c
     native/core/mesh_vertex_normals.c

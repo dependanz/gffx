@@ -23,6 +23,7 @@ add_library(gffx_core_test_provider SHARED
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_edge_topology.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_gather_faces.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
@@ -79,6 +80,7 @@ add_library(gffx_core_self_test SHARED
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_edge_topology.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_gather_faces.c
     ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
