@@ -47,6 +47,13 @@ if(UNIX)
 endif()
 add_test(NAME geometry.sample_surface COMMAND gffx_test_sample_surface)
 
+add_executable(gffx_test_render test_render.c)
+target_link_libraries(gffx_test_render PRIVATE gffx_core)
+if(UNIX)
+    target_link_libraries(gffx_test_render PRIVATE m)
+endif()
+add_test(NAME geometry.render COMMAND gffx_test_render)
+
 if(WIN32)
     foreach(test_target IN ITEMS
         gffx_test_face_geometry
@@ -56,6 +63,7 @@ if(WIN32)
         gffx_test_edge_topology
         gffx_test_proximity
         gffx_test_sample_surface
+        gffx_test_render
     )
         add_custom_command(TARGET ${test_target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different

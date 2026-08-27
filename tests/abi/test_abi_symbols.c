@@ -40,7 +40,13 @@ static const char *required_symbols[] = {
     "gffx_points_closest_point_on_mesh_workspace",
     "gffx_mesh_sample_surface",
     "gffx_mesh_sample_surface_backward",
-    "gffx_mesh_sample_surface_workspace"
+    "gffx_mesh_sample_surface_workspace",
+    "gffx_render_rasterize",
+    "gffx_render_rasterize_backward",
+    "gffx_render_rasterize_workspace",
+    "gffx_render_interpolate",
+    "gffx_render_interpolate_backward",
+    "gffx_render_interpolate_workspace"
 };
 
 int main(int argc, char **argv) {
