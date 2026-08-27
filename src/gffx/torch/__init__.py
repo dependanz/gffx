@@ -56,4 +56,6 @@ if not hasattr(_torch_framework.ops.gffx_internal, "_foundation_probe"):
         "Reinstall gffx; the base package remains usable with `import gffx`."
     )
 
-__all__: list[str] = []
+from . import mesh, stream  # noqa: E402  (the adapter gate above must run first)
+
+__all__: list[str] = ["mesh", "stream"]

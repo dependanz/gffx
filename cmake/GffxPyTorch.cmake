@@ -67,7 +67,8 @@ if(TORCH_CXX_FLAGS)
     target_compile_options(gffx_pytorch_adapter PRIVATE ${GFFX_TORCH_CXX_FLAGS})
 endif()
 
-target_link_libraries(gffx_pytorch_adapter PRIVATE ${TORCH_LIBRARIES})
+# The adapter calls the shared core directly; the kernels are not duplicated across the boundary.
+target_link_libraries(gffx_pytorch_adapter PRIVATE gffx_core ${TORCH_LIBRARIES})
 
 # The adapter is imported only after Python has imported torch, so the framework's own runtime
 # libraries are already loaded and remain owned by the framework distribution.
