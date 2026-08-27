@@ -56,6 +56,6 @@ if not hasattr(_torch_framework.ops.gffx_internal, "_foundation_probe"):
         "Reinstall gffx; the base package remains usable with `import gffx`."
     )
 
-from . import mesh, points, render, stream, transforms  # noqa: E402
+from . import io, mesh, points, render, stream, transforms  # noqa: E402
 
-__all__: list[str] = ["mesh", "points", "render", "stream", "transforms"]
+__all__: list[str] = ["io", "mesh", "points", "render", "stream", "transforms"]

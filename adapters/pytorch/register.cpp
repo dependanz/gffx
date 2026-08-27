@@ -29,6 +29,7 @@
 #include <torch/csrc/stable/tensor.h>
 
 #include <gffx/execution.h>
+#include <gffx/io.h>
 #include <gffx/mesh.h>
 #include <gffx/points.h>
 #include <gffx/render.h>
@@ -977,6 +978,357 @@ std::tuple<Tensor, Tensor> interpolate_backward(
     return std::make_tuple(grad_barycentric, grad_face_attributes);
 }
 
+
+/* --------------------------------------------------------------------------------- io.ply
+ *
+ * The reader takes bytes, not a path. That is the core's boundary and it is kept here rather than
+ * flattened: Python opens the file, this parses the buffer. The same op therefore serves a file, a
+ * memory-mapped region, an archive member, or a network download with no second entry point, and
+ * the adapter needs no string in its schema.
+ */
+
+std::tuple<int64_t, int64_t, int64_t> ply_probe(const Tensor &data) {
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    gffx_ply_header header{};
+    header.struct_size = static_cast<uint32_t>(sizeof(header));
+    header.abi_version = GFFX_ABI_VERSION;
+
+    GFFX_CHECK(gffx_io_ply_probe(data.const_data_ptr(), data.numel(), &context, &header,
+                                 &diagnostic.buffer),
+               diagnostic.text());
+    return std::make_tuple(static_cast<int64_t>(header.format), header.vertex_count,
+                           header.face_count);
+}
+
+std::tuple<Tensor, Tensor> ply_read(const Tensor &data, bool double_precision) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    gffx_ply_header header{};
+    header.struct_size = static_cast<uint32_t>(sizeof(header));
+    header.abi_version = GFFX_ABI_VERSION;
+
+    /* Probed here rather than trusting a count passed down from Python, so the buffer that is
+     * parsed is the buffer that was measured. */
+    GFFX_CHECK(gffx_io_ply_probe(data.const_data_ptr(), data.numel(), &context, &header,
+                                 &diagnostic.buffer),
+               diagnostic.text());
+
+    const std::vector<int64_t> vertex_size{header.vertex_count, 3};
+    const std::vector<int64_t> face_size{header.face_count, 3};
+    Tensor vertices = torch::stable::new_empty(
+        data, vertex_size, double_precision ? ScalarType::Double : ScalarType::Float);
+    Tensor faces = torch::stable::new_empty(data, face_size, ScalarType::Int);
+
+    gffx_tensor_view vertices_view = arena.write(vertices);
+    gffx_tensor_view faces_view = arena.write(faces);
+    GFFX_CHECK(gffx_io_ply_read(data.const_data_ptr(), data.numel(), &header, &context,
+                                &vertices_view, &faces_view, nullptr, &diagnostic.buffer),
+               diagnostic.text());
+    return std::make_tuple(vertices, faces);
+}
+
+/* ------------------------------------------------------------------------- mesh.validate */
+
+/* Returned as a tensor of counts rather than a struct, because the Stable ABI schema has no
+ * struct type. The Python layer names the fields, so a caller never indexes this by hand. */
+Tensor mesh_validate(
+    const Tensor &vertices, const Tensor &faces, const Tensor &vertex_offsets,
+    const Tensor &face_offsets, double eps, int64_t flags
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    gffx_mesh_validation_report report{};
+    report.struct_size = static_cast<uint32_t>(sizeof(report));
+    report.abi_version = GFFX_ABI_VERSION;
+
+    gffx_tensor_view vertices_view = arena.read(vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view vertex_offsets_view = arena.read(vertex_offsets);
+    gffx_tensor_view face_offsets_view = arena.read(face_offsets);
+    GFFX_CHECK(gffx_mesh_validate(&vertices_view, &faces_view, &vertex_offsets_view,
+                                  &face_offsets_view, eps, static_cast<uint32_t>(flags),
+                                  &context, &report, nullptr, &diagnostic.buffer),
+               diagnostic.text());
+
+    const std::vector<int64_t> size{7};
+    Tensor out = torch::stable::new_empty(faces, size, ScalarType::Long);
+    int64_t *values = out.mutable_data_ptr<int64_t>();
+    values[0] = static_cast<int64_t>(report.findings);
+    values[1] = report.first_bad_face;
+    values[2] = report.first_bad_offset_batch;
+    values[3] = report.degenerate_face_count;
+    values[4] = report.nonfinite_vertex_count;
+    values[5] = report.unreferenced_vertex_count;
+    values[6] = 0;
+    return out;
+}
+
+
+/* -------------------------------------------------------------------------------------------
+ * The inference-only preallocated surface.
+ *
+ * API_CONTRACT_V0_1.md section 11 fixes what these are: the same kernels with the allocation
+ * removed. Each takes the outputs and the workspace the caller already owns and performs no
+ * allocation of its own, which is what makes the no-allocation-after-warm-up rule reachable for a
+ * frame loop.
+ *
+ * mesh.build_edge_topology has no _out variant, and that is a scoping decision rather than an
+ * omission: its own contract classifies it as setup-class work that is not permitted inside a
+ * claimed real-time frame path, so a preallocated variant would advertise a capability the record
+ * withholds. The same reasoning excludes mesh.validate and the PLY reader.
+ * ------------------------------------------------------------------------------------------- */
+
+void vertex_normals_out(
+    const Tensor &vertices, const Tensor &faces, double eps, int64_t weighting,
+    Tensor &normals, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view vertices_view = arena.read(vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view normals_view = arena.write(normals);
+    GFFX_CHECK(gffx_mesh_vertex_normals(
+                   &vertices_view, &faces_view, eps, static_cast<uint32_t>(weighting), &context,
+                   &normals_view, workspace.numel() > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void gather_faces_out(
+    const Tensor &vertices, const Tensor &faces, Tensor &gathered, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view vertices_view = arena.read(vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view gathered_view = arena.write(gathered);
+    GFFX_CHECK(gffx_mesh_gather_faces(&vertices_view, &faces_view, &context, &gathered_view,
+                                      workspace.numel() > 0 ? &buffer : nullptr,
+                                      &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void transform_points_out(
+    const Tensor &points, const Tensor &matrices, const Tensor &point_offsets,
+    Tensor &homogeneous, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view points_view = arena.read(points);
+    gffx_tensor_view matrices_view = arena.read(matrices);
+    gffx_tensor_view offsets_view = arena.read(point_offsets);
+    gffx_tensor_view homogeneous_view = arena.write(homogeneous);
+    GFFX_CHECK(gffx_transforms_transform_points(
+                   &points_view, &matrices_view, &offsets_view, &context, &homogeneous_view,
+                   workspace.numel() > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void perspective_divide_out(
+    const Tensor &homogeneous, double eps, Tensor &ndc, Tensor &valid, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view homogeneous_view = arena.read(homogeneous);
+    gffx_tensor_view ndc_view = arena.write(ndc);
+    gffx_tensor_view valid_view = arena.write(valid);
+    GFFX_CHECK(gffx_transforms_perspective_divide(
+                   &homogeneous_view, eps, &context, &ndc_view, &valid_view,
+                   workspace.numel() > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void knn_out(
+    const Tensor &query, const Tensor &reference, const Tensor &query_offsets,
+    const Tensor &reference_offsets, int64_t neighbor_count, Tensor &distance_squared,
+    Tensor &reference_index, Tensor &valid, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view query_view = arena.read(query);
+    gffx_tensor_view reference_view = arena.read(reference);
+    gffx_tensor_view query_offsets_view = arena.read(query_offsets);
+    gffx_tensor_view reference_offsets_view = arena.read(reference_offsets);
+    gffx_tensor_view distance_view = arena.write(distance_squared);
+    gffx_tensor_view index_view = arena.write(reference_index);
+    gffx_tensor_view valid_view = arena.write(valid);
+    GFFX_CHECK(gffx_points_knn(&query_view, &reference_view, &query_offsets_view,
+                               &reference_offsets_view, neighbor_count, &context, &distance_view,
+                               &index_view, &valid_view,
+                               workspace.numel() > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void closest_point_on_mesh_out(
+    const Tensor &points, const Tensor &vertices, const Tensor &faces,
+    const Tensor &point_offsets, const Tensor &vertex_offsets, const Tensor &face_offsets,
+    double eps, Tensor &distance_squared, Tensor &face_index, Tensor &barycentric,
+    Tensor &closest, Tensor &valid, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view points_view = arena.read(points);
+    gffx_tensor_view vertices_view = arena.read(vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view point_offsets_view = arena.read(point_offsets);
+    gffx_tensor_view vertex_offsets_view = arena.read(vertex_offsets);
+    gffx_tensor_view face_offsets_view = arena.read(face_offsets);
+    gffx_tensor_view distance_view = arena.write(distance_squared);
+    gffx_tensor_view face_index_view = arena.write(face_index);
+    gffx_tensor_view barycentric_view = arena.write(barycentric);
+    gffx_tensor_view closest_view = arena.write(closest);
+    gffx_tensor_view valid_view = arena.write(valid);
+    GFFX_CHECK(gffx_points_closest_point_on_mesh(
+                   &points_view, &vertices_view, &faces_view, &point_offsets_view,
+                   &vertex_offsets_view, &face_offsets_view, eps, &context, &distance_view,
+                   &face_index_view, &barycentric_view, &closest_view, &valid_view,
+                   workspace.numel() > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void sample_surface_out(
+    const Tensor &vertices, const Tensor &faces, const Tensor &vertex_offsets,
+    const Tensor &face_offsets, int64_t sample_count, const Tensor &rng_key,
+    const Tensor &rng_counter, double eps, Tensor &points, Tensor &face_index,
+    Tensor &barycentric, Tensor &next_counter, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view vertices_view = arena.read(vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view vertex_offsets_view = arena.read(vertex_offsets);
+    gffx_tensor_view face_offsets_view = arena.read(face_offsets);
+    gffx_tensor_view key_view = arena.read(rng_key);
+    gffx_tensor_view counter_view = arena.read(rng_counter);
+    gffx_tensor_view points_view = arena.write(points);
+    gffx_tensor_view face_index_view = arena.write(face_index);
+    gffx_tensor_view barycentric_view = arena.write(barycentric);
+    gffx_tensor_view next_counter_view = arena.write(next_counter);
+    GFFX_CHECK(gffx_mesh_sample_surface(
+                   &vertices_view, &faces_view, &vertex_offsets_view, &face_offsets_view,
+                   sample_count, &key_view, &counter_view, eps, &context, &points_view,
+                   &face_index_view, &barycentric_view, &next_counter_view,
+                   workspace.numel() > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void rasterize_out(
+    const Tensor &ndc_vertices, const Tensor &faces, const Tensor &vertex_offsets,
+    const Tensor &face_offsets, int64_t image_height, int64_t image_width,
+    int64_t faces_per_pixel, double blur_radius_px, int64_t cull_mode, double eps,
+    Tensor &face_index, Tensor &barycentric, Tensor &depth, Tensor &signed_distance,
+    Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view ndc_view = arena.read(ndc_vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view vertex_offsets_view = arena.read(vertex_offsets);
+    gffx_tensor_view face_offsets_view = arena.read(face_offsets);
+    gffx_tensor_view face_index_view = arena.write(face_index);
+    gffx_tensor_view barycentric_view = arena.write(barycentric);
+    gffx_tensor_view depth_view = arena.write(depth);
+    gffx_tensor_view signed_distance_view = arena.write(signed_distance);
+    GFFX_CHECK(gffx_render_rasterize(
+                   &ndc_view, &faces_view, &vertex_offsets_view, &face_offsets_view,
+                   image_height, image_width, faces_per_pixel, blur_radius_px,
+                   static_cast<uint32_t>(cull_mode), eps, &context, &face_index_view,
+                   &barycentric_view, &depth_view, &signed_distance_view,
+                   workspace.numel() > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+}
+
+void interpolate_out(
+    const Tensor &face_index, const Tensor &barycentric, const Tensor &face_attributes,
+    Tensor &attributes, Tensor &workspace
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_buffer buffer =
+        workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
+    gffx_tensor_view face_index_view = arena.read(face_index);
+    gffx_tensor_view barycentric_view = arena.read(barycentric);
+    gffx_tensor_view face_attributes_view = arena.read(face_attributes);
+    gffx_tensor_view attributes_view = arena.write(attributes);
+    GFFX_CHECK(gffx_render_interpolate(&face_index_view, &barycentric_view,
+                                       &face_attributes_view, &context, &attributes_view,
+                                       workspace.numel() > 0 ? &buffer : nullptr,
+                                       &diagnostic.buffer),
+               diagnostic.text());
+}
+
+/* Workspace byte requirements, so a streaming host can size its scratch once at setup. Returned
+ * as int64 because the Stable ABI schema has no unsigned integer type; the values are small. */
+std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t> workspace_sizes(
+    int64_t vertex_count, int64_t face_count, int64_t point_count, int64_t neighbor_count,
+    int64_t sample_count, int64_t batch_count, int64_t image_height, int64_t image_width,
+    int64_t faces_per_pixel, bool double_precision
+) {
+    Diagnostic diagnostic;
+    gffx_execution_context context = cpu_context();
+    const gffx_dtype dtype = double_precision ? GFFX_DTYPE_FLOAT64 : GFFX_DTYPE_FLOAT32;
+    uint64_t bytes = 0, alignment = 0;
+    int64_t normals = 0, transform = 0, divide = 0, nearest = 0, sample = 0, raster = 0;
+
+    GFFX_CHECK(gffx_mesh_vertex_normals_workspace(vertex_count, face_count, dtype, &context,
+                                                  &bytes, &alignment, &diagnostic.buffer),
+               diagnostic.text());
+    normals = static_cast<int64_t>(bytes);
+    GFFX_CHECK(gffx_transforms_transform_points_workspace(point_count, batch_count, dtype,
+                                                          &context, &bytes, &alignment,
+                                                          &diagnostic.buffer),
+               diagnostic.text());
+    transform = static_cast<int64_t>(bytes);
+    GFFX_CHECK(gffx_transforms_perspective_divide_workspace(point_count, dtype, &context, &bytes,
+                                                            &alignment, &diagnostic.buffer),
+               diagnostic.text());
+    divide = static_cast<int64_t>(bytes);
+    GFFX_CHECK(gffx_points_closest_point_on_mesh_workspace(point_count, vertex_count, face_count,
+                                                           dtype, &context, &bytes, &alignment,
+                                                           &diagnostic.buffer),
+               diagnostic.text());
+    nearest = static_cast<int64_t>(bytes);
+    GFFX_CHECK(gffx_mesh_sample_surface_workspace(vertex_count, face_count, sample_count, dtype,
+                                                  &context, &bytes, &alignment,
+                                                  &diagnostic.buffer),
+               diagnostic.text());
+    sample = static_cast<int64_t>(bytes);
+    GFFX_CHECK(gffx_render_rasterize_workspace(vertex_count, face_count, image_height,
+                                               image_width, faces_per_pixel, dtype, &context,
+                                               &bytes, &alignment, &diagnostic.buffer),
+               diagnostic.text());
+    raster = static_cast<int64_t>(bytes);
+    (void)neighbor_count;
+    return std::make_tuple(normals, transform, divide, nearest, sample, raster);
+}
+
 }  // namespace
 
 STABLE_TORCH_LIBRARY(gffx_internal, m) {
@@ -1043,6 +1395,56 @@ STABLE_TORCH_LIBRARY(gffx, m) {
     m.def(
         "interpolate_backward(Tensor face_index, Tensor barycentric, Tensor face_attributes, "
         "Tensor grad_attributes) -> (Tensor, Tensor)");
+    m.def("ply_probe(Tensor data) -> (int, int, int)");
+    m.def("ply_read(Tensor data, bool double_precision) -> (Tensor, Tensor)");
+    m.def(
+        "mesh_validate(Tensor vertices, Tensor faces, Tensor vertex_offsets, "
+        "Tensor face_offsets, float eps, int flags) -> Tensor");
+    m.def(
+        "vertex_normals_out(Tensor vertices, Tensor faces, float eps, int weighting, "
+        "Tensor(a!) normals, Tensor(b!) workspace) -> ()");
+    m.def(
+        "gather_faces_out(Tensor vertices, Tensor faces, Tensor(a!) gathered, "
+        "Tensor(b!) workspace) -> ()");
+    m.def(
+        "transform_points_out(Tensor points, Tensor matrices, Tensor point_offsets, "
+        "Tensor(a!) homogeneous, Tensor(b!) workspace) -> ()");
+    m.def(
+        "perspective_divide_out(Tensor homogeneous, float eps, Tensor(a!) ndc, "
+        "Tensor(b!) valid, Tensor(c!) workspace) -> ()");
+    m.def(
+        "knn_out(Tensor query, Tensor reference, Tensor query_offsets, "
+        "Tensor reference_offsets, int neighbor_count, Tensor(a!) distance_squared, "
+        "Tensor(b!) reference_index, Tensor(c!) valid, Tensor(d!) workspace) -> ()");
+    m.def(
+        "closest_point_on_mesh_out(Tensor points, Tensor vertices, Tensor faces, "
+        "Tensor point_offsets, Tensor vertex_offsets, Tensor face_offsets, float eps, "
+        "Tensor(a!) distance_squared, Tensor(b!) face_index, Tensor(c!) barycentric, "
+        "Tensor(d!) closest, Tensor(e!) valid, Tensor(f!) workspace) -> ()");
+    m.def(
+        "sample_surface_out(Tensor vertices, Tensor faces, Tensor vertex_offsets, "
+        "Tensor face_offsets, int sample_count, Tensor rng_key, Tensor rng_counter, float eps, "
+        "Tensor(a!) points, Tensor(b!) face_index, Tensor(c!) barycentric, "
+        "Tensor(d!) next_counter, Tensor(e!) workspace) -> ()");
+    m.def(
+        "rasterize_out(Tensor ndc_vertices, Tensor faces, Tensor vertex_offsets, "
+        "Tensor face_offsets, int image_height, int image_width, int faces_per_pixel, "
+        "float blur_radius_px, int cull_mode, float eps, Tensor(a!) face_index, "
+        "Tensor(b!) barycentric, Tensor(c!) depth, Tensor(d!) signed_distance, "
+        "Tensor(e!) workspace) -> ()");
+    m.def(
+        "interpolate_out(Tensor face_index, Tensor barycentric, Tensor face_attributes, "
+        "Tensor(a!) attributes, Tensor(b!) workspace) -> ()");
+    m.def(
+        "workspace_sizes(int vertex_count, int face_count, int point_count, int neighbor_count, "
+        "int sample_count, int batch_count, int image_height, int image_width, "
+        "int faces_per_pixel, bool double_precision) -> (int, int, int, int, int, int)");
+}
+
+/* workspace_sizes takes no tensor, so the dispatcher has no device to route on and the CPU key
+ * would never be reached. It is a pure function of integers and is registered device-agnostically. */
+STABLE_TORCH_LIBRARY_IMPL(gffx, CompositeExplicitAutograd, m) {
+    m.impl("workspace_sizes", TORCH_BOX(&workspace_sizes));
 }
 
 STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {
@@ -1068,6 +1470,18 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {
     m.impl("rasterize_backward", TORCH_BOX(&rasterize_backward));
     m.impl("interpolate", TORCH_BOX(&interpolate));
     m.impl("interpolate_backward", TORCH_BOX(&interpolate_backward));
+    m.impl("ply_probe", TORCH_BOX(&ply_probe));
+    m.impl("ply_read", TORCH_BOX(&ply_read));
+    m.impl("mesh_validate", TORCH_BOX(&mesh_validate));
+    m.impl("vertex_normals_out", TORCH_BOX(&vertex_normals_out));
+    m.impl("gather_faces_out", TORCH_BOX(&gather_faces_out));
+    m.impl("transform_points_out", TORCH_BOX(&transform_points_out));
+    m.impl("perspective_divide_out", TORCH_BOX(&perspective_divide_out));
+    m.impl("knn_out", TORCH_BOX(&knn_out));
+    m.impl("closest_point_on_mesh_out", TORCH_BOX(&closest_point_on_mesh_out));
+    m.impl("sample_surface_out", TORCH_BOX(&sample_surface_out));
+    m.impl("rasterize_out", TORCH_BOX(&rasterize_out));
+    m.impl("interpolate_out", TORCH_BOX(&interpolate_out));
 }
 
 static struct PyModuleDef gffx_torch_module = {

@@ -264,3 +264,144 @@ def test_tb10_interpolate(gffx_torch):
 
     attributes.sum().backward()
     assert attributes_in.grad is not None and torch.isfinite(attributes_in.grad).all()
+
+
+# ------------------------------------------------------------------------- TB-11, TB-12
+
+ASCII_PLY = b"""ply
+format ascii 1.0
+comment a hand-written tetrahedron
+element vertex 4
+property float x
+property float y
+property float z
+element face 4
+property list uchar int vertex_indices
+end_header
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+3 0 2 1
+3 0 1 3
+3 0 3 2
+3 1 2 3
+"""
+
+
+def test_tb11_ply_reader(gffx_torch, tmp_path):
+    """A PLY loads from bytes and from a file, and feeds an operation directly."""
+    header = gffx_torch.io.probe(ASCII_PLY)
+    assert header.format_name == "ascii"
+    assert header.vertex_count == 4 and header.face_count == 4
+
+    vertices, faces = gffx_torch.io.read(ASCII_PLY, dtype=torch.float64)
+    assert vertices.shape == (4, 3) and faces.shape == (4, 3)
+    assert vertices.dtype == torch.float64
+    assert faces.dtype == torch.int32, "faces are always int32, the packed index dtype"
+    expected, expected_faces = tetra()
+    assert torch.equal(vertices, expected)
+    assert torch.equal(faces, expected_faces)
+
+    # float32 is a single rounding of the same values, not a second conversion.
+    narrow, _ = gffx_torch.io.read(ASCII_PLY, dtype=torch.float32)
+    assert narrow.dtype == torch.float32
+    assert torch.equal(narrow, expected.to(torch.float32))
+
+    # The same bytes through the file path, which is the call a user actually writes.
+    path = tmp_path / "tetra.ply"
+    path.write_bytes(ASCII_PLY)
+    from_file, faces_from_file = gffx_torch.io.read_file(path, dtype=torch.float64)
+    assert torch.equal(from_file, vertices)
+    assert torch.equal(faces_from_file, faces)
+
+    # And it feeds an operation with no conversion step in between, which is the point.
+    _, areas, _ = gffx_torch.mesh.face_geometry(from_file, faces_from_file)
+    assert torch.allclose(areas[:3], torch.full((3,), 0.5, dtype=torch.float64))
+
+    with pytest.raises(ValueError):
+        gffx_torch.io.read(b"not a ply file at all")
+    with pytest.raises(TypeError):
+        gffx_torch.io.read(ASCII_PLY, dtype=torch.float16)
+
+
+def test_tb12_validate(gffx_torch):
+    """The survey reports counts for a whole mesh rather than failing on the first defect."""
+    vertices, faces = tetra()
+
+    clean = gffx_torch.mesh.validate(vertices, faces)
+    assert clean.is_clean and clean.describe() == "clean"
+    # Not checked is distinguishable from checked and clean.
+    assert clean.nonfinite_vertex_count == -1
+    checked = gffx_torch.mesh.validate(vertices, faces, check_geometry=True)
+    assert checked.nonfinite_vertex_count == 0
+
+    out_of_range = faces.clone()
+    out_of_range[0, 0] = 99
+    report = gffx_torch.mesh.validate(vertices, out_of_range)
+    assert not report.is_clean
+    assert report.findings & gffx_torch.mesh.FINDING_FACE_INDEX_RANGE
+    assert report.first_bad_face == 0
+    assert "out of range" in report.describe()
+
+    # A degenerate face is counted, not merely flagged, which is the reason for counts.
+    collinear = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        dtype=torch.float64)
+    flat_faces = torch.tensor([[0, 1, 2], [1, 2, 3]], dtype=torch.int32)
+    degenerate = gffx_torch.mesh.validate(collinear, flat_faces)
+    assert degenerate.degenerate_face_count == 2
+
+
+# ------------------------------------------------------------------------------- TB-13
+
+def test_tb13_streaming_surface(gffx_torch):
+    """Every preallocated entry point matches its functional twin and refuses tracked inputs."""
+    stream = gffx_torch.stream
+    vertices, faces = tetra()
+
+    sizes = stream.workspace_sizes(
+        vertex_count=4, face_count=4, point_count=4, batch_count=1,
+        image_height=8, image_width=8, sample_count=16, dtype=torch.float64,
+    )
+    # A caller must ask rather than assume: some are zero here and may not be on another backend.
+    assert sizes.maximum == max(sizes)
+    workspace = torch.empty(max(sizes.maximum, 1), dtype=torch.uint8)
+
+    normals = torch.empty((4, 3), dtype=torch.float64)
+    stream.vertex_normals_out(vertices, faces, out=normals, workspace=workspace)
+    assert torch.equal(normals, gffx_torch.mesh.vertex_normals(vertices, faces))
+
+    gathered = torch.empty((4, 3, 3), dtype=torch.float64)
+    stream.gather_faces_out(vertices, faces, out=gathered, workspace=workspace)
+    assert torch.equal(gathered, gffx_torch.mesh.gather_faces(vertices, faces))
+
+    offsets = torch.tensor([0, 4], dtype=torch.int32)
+    matrices = torch.eye(4, dtype=torch.float64).unsqueeze(0)
+    homogeneous = torch.empty((4, 4), dtype=torch.float64)
+    stream.transform_points_out(
+        vertices, matrices, offsets, out=homogeneous, workspace=workspace)
+    assert torch.equal(
+        homogeneous, gffx_torch.transforms.transform_points(vertices, matrices))
+
+    ndc = torch.empty((4, 3), dtype=torch.float64)
+    valid = torch.empty((4,), dtype=torch.bool)
+    stream.perspective_divide_out(homogeneous, ndc=ndc, valid=valid, workspace=workspace)
+    ref_ndc, ref_valid = gffx_torch.transforms.perspective_divide(homogeneous)
+    assert torch.equal(ndc, ref_ndc) and torch.equal(valid, ref_valid)
+
+    # Writing into the caller's buffer twice must give the same answer, since the surface exists
+    # to be called every frame against reused memory.
+    normals.fill_(float("nan"))
+    stream.vertex_normals_out(vertices, faces, out=normals, workspace=workspace)
+    stream.vertex_normals_out(vertices, faces, out=normals, workspace=workspace)
+    assert torch.equal(normals, gffx_torch.mesh.vertex_normals(vertices, faces))
+
+    tracked = vertices.clone().requires_grad_(True)
+    with pytest.raises(ValueError):
+        stream.vertex_normals_out(tracked, faces, out=normals, workspace=workspace)
+
+    # An output of the wrong shape is refused rather than partially written.
+    with pytest.raises(ValueError):
+        stream.vertex_normals_out(
+            vertices, faces, out=torch.empty((3, 3), dtype=torch.float64), workspace=workspace)

@@ -6,7 +6,7 @@ converts, validates, and attaches the gradient.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import NamedTuple, Tuple
 
 import torch
 
@@ -17,7 +17,11 @@ from ._common import (
 
 __all__ = [
     "face_geometry", "vertex_normals", "gather_faces", "build_edge_topology",
-    "sample_surface", "WEIGHTING_AREA", "WEIGHTING_UNIFORM",
+    "sample_surface", "validate", "ValidationReport",
+    "WEIGHTING_AREA", "WEIGHTING_UNIFORM",
+    "VALIDATE_GEOMETRY", "FINDING_OFFSETS", "FINDING_FACE_INDEX_RANGE",
+    "FINDING_FACE_INDEX_BATCH", "FINDING_DEGENERATE_FACE", "FINDING_NONFINITE_GEOMETRY",
+    "FINDING_UNREFERENCED_VERTEX",
 ]
 
 WEIGHTING_AREA = 1
@@ -264,3 +268,98 @@ def sample_surface(
         vertices, faces, vertex_offsets, face_offsets, sample_count, rng_key, rng_counter,
         check_eps(eps),
     )
+
+
+VALIDATE_GEOMETRY = 1
+
+FINDING_OFFSETS = 1
+FINDING_FACE_INDEX_RANGE = 2
+FINDING_FACE_INDEX_BATCH = 4
+FINDING_DEGENERATE_FACE = 8
+FINDING_NONFINITE_GEOMETRY = 16
+FINDING_UNREFERENCED_VERTEX = 32
+
+_FINDING_NAMES = (
+    (FINDING_OFFSETS, "malformed offsets"),
+    (FINDING_FACE_INDEX_RANGE, "face index out of range"),
+    (FINDING_FACE_INDEX_BATCH, "face index crossing a batch element"),
+    (FINDING_DEGENERATE_FACE, "degenerate face"),
+    (FINDING_NONFINITE_GEOMETRY, "non-finite geometry"),
+    (FINDING_UNREFERENCED_VERTEX, "unreferenced vertex"),
+)
+
+
+class ValidationReport(NamedTuple):
+    """What `validate` found, as counts rather than a single boolean.
+
+    The difference between one degenerate face and forty thousand is what a person debugging an
+    import actually needs, which is why this reports counts and why the utility surveys the whole
+    mesh instead of failing on the first problem.
+
+    ``nonfinite_vertex_count`` is ``-1`` when the geometry survey was not requested, which is
+    deliberately distinguishable from ``0`` meaning checked and clean.
+    """
+
+    findings: int
+    first_bad_face: int
+    first_bad_offset_batch: int
+    degenerate_face_count: int
+    nonfinite_vertex_count: int
+    unreferenced_vertex_count: int
+
+    @property
+    def is_clean(self) -> bool:
+        return self.findings == 0
+
+    def describe(self) -> str:
+        """A one-line human summary, or a statement that nothing was found."""
+        if self.findings == 0:
+            return "clean"
+        found = [name for bit, name in _FINDING_NAMES if self.findings & bit]
+        details = []
+        if self.findings & FINDING_DEGENERATE_FACE:
+            details.append("%d degenerate" % (self.degenerate_face_count,))
+        if self.findings & FINDING_UNREFERENCED_VERTEX:
+            details.append("%d unreferenced" % (self.unreferenced_vertex_count,))
+        if self.findings & FINDING_NONFINITE_GEOMETRY:
+            details.append("%d non-finite" % (self.nonfinite_vertex_count,))
+        if self.findings & (FINDING_FACE_INDEX_RANGE | FINDING_FACE_INDEX_BATCH):
+            details.append("first bad face %d" % (self.first_bad_face,))
+        summary = ", ".join(found)
+        return summary + (" (" + "; ".join(details) + ")" if details else "")
+
+
+def validate(
+    vertices: torch.Tensor,
+    faces: torch.Tensor,
+    eps: float = DEFAULT_EPS,
+    check_geometry: bool = False,
+    vertex_offsets=None,
+    face_offsets=None,
+) -> ValidationReport:
+    """Survey a mesh and report everything wrong with it.
+
+    This **reports**; it does not gate. An operation kernel rejects the first problem it finds,
+    because it must not dereference bad memory; this surveys the whole mesh and returns a populated
+    report so a caller sees every defect at once. Passing it exempts no later call from the
+    mandatory per-call validation.
+
+    Findings are established structurally before geometrically, and the survey stops short of work
+    that would be unsafe given what it already found: malformed offsets end it immediately, since
+    no element range can then be trusted.
+
+    ``check_geometry`` is opt-in because the non-finite survey costs an extra pass over the
+    vertices; when it is not requested the report says ``-1`` rather than ``0``.
+    """
+    check_vertices(vertices)
+    check_faces(faces)
+    vertex_offsets = resolve_offsets(vertex_offsets, vertices.shape[0], "vertex_offsets")
+    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets")
+    flags = VALIDATE_GEOMETRY if check_geometry else 0
+    try:
+        values = torch.ops.gffx.mesh_validate(
+            vertices, faces, vertex_offsets, face_offsets, check_eps(eps), flags
+        )
+    except RuntimeError as error:
+        raise translate_native_error(error) from None
+    return ValidationReport(*(int(value) for value in values[:6]))
