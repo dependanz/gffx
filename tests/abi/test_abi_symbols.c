@@ -16,7 +16,10 @@ static const char *required_symbols[] = {
     /* Phase 2 operation exports: compatible additions per the ABI contract. */
     "gffx_mesh_face_geometry",
     "gffx_mesh_face_geometry_backward",
-    "gffx_mesh_face_geometry_workspace"
+    "gffx_mesh_face_geometry_workspace",
+    "gffx_mesh_vertex_normals",
+    "gffx_mesh_vertex_normals_backward",
+    "gffx_mesh_vertex_normals_workspace"
 };
 
 int main(int argc, char **argv) {

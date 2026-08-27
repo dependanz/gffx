@@ -73,6 +73,60 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_face_geometry_backward(
     gffx_diagnostic_buffer *diagnostic
 );
 
+/*
+ * mesh.vertex_normals - accumulated, normalized per-vertex normals.
+ *
+ * Using the face quantities of mesh.face_geometry with the same eps: valid faces contribute
+ * (d/2)*n (area mode) or n (uniform mode) to each of their three vertices; invalid faces
+ * contribute nothing. Each accumulated sum s is normalized when ||s|| > eps (strict, compared
+ * in double precision) and is otherwise the exact zero vector, which also covers isolated
+ * vertices. Accumulation is per-face ascending, then per-vertex ascending; repeated calls are
+ * bitwise identical.
+ *
+ * The workspace query reports the backward requirement: vertex_count * 3 * sizeof(dtype)
+ * bytes at dtype alignment. The forward pass requires zero bytes and accepts a null workspace;
+ * the backward pass with a nonzero vertex count requires at least the reported capacity and
+ * fails with GFFX_STATUS_INSUFFICIENT_WORKSPACE otherwise. The backward cotangent
+ * grad_unit_normals [V,3] is required, grad_vertices [V,3] is overwritten, and invalid faces
+ * and zero-branch vertices contribute exactly zero gradient.
+ */
+
+#define GFFX_MESH_WEIGHTING_AREA UINT32_C(1)
+#define GFFX_MESH_WEIGHTING_UNIFORM UINT32_C(2)
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals_workspace(
+    int64_t vertex_count,
+    int64_t face_count,
+    gffx_dtype dtype,
+    const gffx_execution_context *context,
+    uint64_t *required_bytes,
+    uint64_t *required_alignment,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals(
+    const gffx_tensor_view *vertices,
+    const gffx_tensor_view *faces,
+    double eps,
+    uint32_t weighting,
+    const gffx_execution_context *context,
+    gffx_tensor_view *unit_normals,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals_backward(
+    const gffx_tensor_view *vertices,
+    const gffx_tensor_view *faces,
+    double eps,
+    uint32_t weighting,
+    const gffx_tensor_view *grad_unit_normals,
+    const gffx_execution_context *context,
+    gffx_tensor_view *grad_vertices,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
 GFFX_EXTERN_C_END
 
 #endif /* GFFX_MESH_H */

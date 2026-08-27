@@ -8,11 +8,20 @@ if(UNIX)
 endif()
 add_test(NAME geometry.face_geometry COMMAND gffx_test_face_geometry)
 
+add_executable(gffx_test_vertex_normals test_vertex_normals.c)
+target_link_libraries(gffx_test_vertex_normals PRIVATE gffx_core)
+if(UNIX)
+    target_link_libraries(gffx_test_vertex_normals PRIVATE m)
+endif()
+add_test(NAME geometry.vertex_normals COMMAND gffx_test_vertex_normals)
+
 if(WIN32)
-    add_custom_command(TARGET gffx_test_face_geometry POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:gffx_core>
-            $<TARGET_FILE_DIR:gffx_test_face_geometry>
-        VERBATIM
-    )
+    foreach(test_target IN ITEMS gffx_test_face_geometry gffx_test_vertex_normals)
+        add_custom_command(TARGET ${test_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gffx_core>
+                $<TARGET_FILE_DIR:${test_target}>
+            VERBATIM
+        )
+    endforeach()
 endif()
