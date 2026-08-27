@@ -27,6 +27,7 @@ add_library(gffx_core SHARED
     native/core/mesh_edge_topology.c
     native/core/mesh_face_geometry.c
     native/core/mesh_gather_faces.c
+    native/core/mesh_sample_surface.c
     native/core/mesh_vertex_normals.c
     native/core/points_proximity.c
     native/core/status.c
