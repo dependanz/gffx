@@ -64,6 +64,26 @@ def translate_native_error(error: Exception) -> Exception:
     return exception_type("gffx %s: %s" % (name, diagnostic))
 
 
+def materialize(tensor: torch.Tensor) -> torch.Tensor:
+    """Return a densely strided copy when the tensor has a non-positive stride.
+
+    An incoming cotangent is often an expanded view with stride 0: `loss.sum().backward()`
+    broadcasts a scalar one across the output, and broadcasting is expressed as a zero stride
+    rather than as a copy. `.contiguous()` alone does not fix this, because torch treats a
+    size-1 dimension as contiguous whatever its stride, so a single-element cotangent keeps
+    stride 0 and reaches the ABI, which requires positive strides. That is why this check is on
+    the stride rather than on `is_contiguous()`.
+
+    The copy happens only when needed, so the ordinary multi-face path still passes the caller's
+    memory through untouched.
+    """
+    if any(stride <= 0 for stride in tensor.stride()):
+        dense = torch.empty(tensor.shape, dtype=tensor.dtype, device=tensor.device)
+        dense.copy_(tensor)
+        return dense
+    return tensor.contiguous()
+
+
 def check_vertices(vertices: torch.Tensor, name: str = "vertices") -> None:
     """Reject anything the conversion boundary does not accept, with the documented type."""
     if not isinstance(vertices, torch.Tensor):
@@ -80,6 +100,14 @@ def check_vertices(vertices: torch.Tensor, name: str = "vertices") -> None:
         )
     if vertices.dim() != 2 or vertices.shape[1] != 3:
         raise ValueError("%s must have shape [V, 3]; received %s" % (name, tuple(vertices.shape)))
+    if any(stride <= 0 for stride in vertices.stride()):
+        # A broadcast or expanded view. Caught separately because torch reports a size-1
+        # dimension as contiguous whatever its stride, so the check below would miss it.
+        raise ValueError(
+            "%s has a non-positive stride, which means it is a broadcast or expanded view rather "
+            "than real storage; gffx requires densely strided input. Call .contiguous() or "
+            ".clone() explicitly if a copy is acceptable." % (name,)
+        )
     if not vertices.is_contiguous():
         # Deliberately not repaired with .contiguous(): that is a hidden allocation and a hidden
         # copy, which the streaming surface forbids and which a caller tuning a frame loop must be

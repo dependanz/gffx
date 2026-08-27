@@ -10,7 +10,7 @@ from typing import Tuple
 
 import torch
 
-from ._common import check_pair, translate_native_error
+from ._common import check_pair, materialize, translate_native_error
 
 __all__ = ["face_geometry"]
 
@@ -56,7 +56,7 @@ class _FaceGeometry(torch.autograd.Function):
         try:
             grad_vertices = torch.ops.gffx.face_geometry_backward(
                 vertices, faces, ctx.eps,
-                grad_normals.contiguous(), grad_areas.contiguous(),
+                materialize(grad_normals), materialize(grad_areas),
                 has_grad_normals, has_grad_areas,
             )
         except RuntimeError as error:

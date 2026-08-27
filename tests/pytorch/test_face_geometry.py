@@ -269,3 +269,32 @@ def test_ta12_out_surface(oracle):
             tracked, faces, eps=EPS,
             outputs=(normals, areas, valid), workspace=workspace,
         )
+
+
+# ------------------------------------------------------------------------------ TA-13
+
+def test_ta13_single_face_gradient():
+    """A one-face mesh differentiates.
+
+    Regression fixture for a defect the other twelve missed. `loss.sum().backward()` hands back an
+    expanded cotangent with stride 0, and torch reports a size-1 dimension as contiguous whatever
+    its stride, so `.contiguous()` left the zero stride in place and the ABI refused it. Every
+    oracle case has more than one face, so nothing exercised the size-1 path.
+    """
+    operation = _adapter()
+    vertices = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64,
+        requires_grad=True,
+    )
+    faces = torch.tensor([[0, 1, 2]], dtype=torch.int32)
+
+    _, areas, _ = operation(vertices, faces, eps=EPS)
+    areas.sum().backward()
+    assert vertices.grad is not None
+    assert torch.isfinite(vertices.grad).all()
+
+    # The same path through the normals cotangent, which is [1, 3] rather than [1].
+    vertices2 = vertices.detach().clone().requires_grad_(True)
+    normals, _, _ = operation(vertices2, faces, eps=EPS)
+    normals.sum().backward()
+    assert torch.isfinite(vertices2.grad).all()
