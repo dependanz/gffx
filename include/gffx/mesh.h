@@ -94,6 +94,45 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_face_geometry_backward(
 #define GFFX_MESH_WEIGHTING_AREA UINT32_C(1)
 #define GFFX_MESH_WEIGHTING_UNIFORM UINT32_C(2)
 
+/*
+ * mesh.gather_faces - per-face corner vertex positions.
+ *
+ * face_vertices[k][j][:] = vertices[faces[k][j]][:], preserving face and corner order exactly.
+ * A pure gather: no arithmetic, no eps, no validity output, and values including NaN and
+ * infinity are copied bit-for-bit. Backward scatter-adds the cotangent into grad_vertices [V,3]
+ * in ascending face then corner order, overwriting it first. Both directions require zero
+ * workspace bytes.
+ */
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_gather_faces_workspace(
+    int64_t vertex_count,
+    int64_t face_count,
+    gffx_dtype dtype,
+    const gffx_execution_context *context,
+    uint64_t *required_bytes,
+    uint64_t *required_alignment,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_gather_faces(
+    const gffx_tensor_view *vertices,
+    const gffx_tensor_view *faces,
+    const gffx_execution_context *context,
+    gffx_tensor_view *face_vertices,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_gather_faces_backward(
+    const gffx_tensor_view *vertices,
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *grad_face_vertices,
+    const gffx_execution_context *context,
+    gffx_tensor_view *grad_vertices,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
 GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals_workspace(
     int64_t vertex_count,
     int64_t face_count,

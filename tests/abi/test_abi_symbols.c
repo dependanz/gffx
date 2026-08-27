@@ -19,7 +19,16 @@ static const char *required_symbols[] = {
     "gffx_mesh_face_geometry_workspace",
     "gffx_mesh_vertex_normals",
     "gffx_mesh_vertex_normals_backward",
-    "gffx_mesh_vertex_normals_workspace"
+    "gffx_mesh_vertex_normals_workspace",
+    "gffx_mesh_gather_faces",
+    "gffx_mesh_gather_faces_backward",
+    "gffx_mesh_gather_faces_workspace",
+    "gffx_transforms_transform_points",
+    "gffx_transforms_transform_points_backward",
+    "gffx_transforms_transform_points_workspace",
+    "gffx_transforms_perspective_divide",
+    "gffx_transforms_perspective_divide_backward",
+    "gffx_transforms_perspective_divide_workspace"
 };
 
 int main(int argc, char **argv) {
