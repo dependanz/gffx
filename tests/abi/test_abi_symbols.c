@@ -31,7 +31,13 @@ static const char *required_symbols[] = {
     "gffx_transforms_perspective_divide_workspace",
     /* Topology construction is nondifferentiable, so it exports no backward symbol. */
     "gffx_mesh_build_edge_topology",
-    "gffx_mesh_build_edge_topology_workspace"
+    "gffx_mesh_build_edge_topology_workspace",
+    "gffx_points_knn",
+    "gffx_points_knn_backward",
+    "gffx_points_knn_workspace",
+    "gffx_points_closest_point_on_mesh",
+    "gffx_points_closest_point_on_mesh_backward",
+    "gffx_points_closest_point_on_mesh_workspace"
 };
 
 int main(int argc, char **argv) {
