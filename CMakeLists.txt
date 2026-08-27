@@ -24,12 +24,14 @@ add_library(gffx_core SHARED
     native/core/abi.c
     native/core/capabilities.c
     native/core/cuda_loader.c
+    native/core/io_ply.c
     native/core/mesh_edge_topology.c
     native/core/mesh_face_geometry.c
     native/core/mesh_gather_faces.c
     native/core/mesh_sample_surface.c
     native/core/mesh_validate.c
     native/core/mesh_vertex_normals.c
+    native/io/ply_file.c
     native/core/points_proximity.c
     native/core/render_rasterize.c
     native/core/status.c

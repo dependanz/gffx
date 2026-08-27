@@ -7,3 +7,12 @@ if(UNIX)
     target_link_libraries(gffx_test_ply PRIVATE m)
 endif()
 add_test(NAME io.ply COMMAND gffx_test_ply)
+
+if(WIN32)
+    add_custom_command(TARGET gffx_test_ply POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:gffx_core>
+            $<TARGET_FILE_DIR:gffx_test_ply>
+        VERBATIM
+    )
+endif()

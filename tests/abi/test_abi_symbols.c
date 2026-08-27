@@ -53,7 +53,12 @@ static const char *required_symbols[] = {
     /* The optional triangle-template reader produces setup data, so no backward. */
     "gffx_io_ply_probe",
     "gffx_io_ply_read",
-    "gffx_io_ply_read_workspace"
+    "gffx_io_ply_read_workspace",
+    /* Setup-class file layer, outside the allocation-free geometry scaffold. */
+    "gffx_io_file_read_all",
+    "gffx_io_file_release",
+    "gffx_io_ply_probe_file",
+    "gffx_io_ply_read_file"
 };
 
 int main(int argc, char **argv) {

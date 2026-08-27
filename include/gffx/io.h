@@ -92,6 +92,55 @@ GFFX_API gffx_status GFFX_CALL gffx_io_ply_read(
     gffx_diagnostic_buffer *diagnostic
 );
 
+/*
+ * Native file entry points.
+ *
+ * These live in native/io rather than native/core. The geometry scaffold is deliberately
+ * allocation-free and free of process-wide I/O, and the runtime dependency gate enforces that
+ * over native/core; file access necessarily uses the platform C library, exactly as the CUDA
+ * probe loader does. It is therefore excluded from that gate and inspected separately under its
+ * own narrower rules, rather than being either forbidden or left unpoliced.
+ *
+ * The buffer entry points above remain the primitives. These are the convenience layer over
+ * them, and the split is what lets the same parser serve a memory-mapped file, an archive
+ * member, or a network buffer without a second implementation.
+ *
+ * gffx_io_file_read_all is the one place gffx allocates on the caller's behalf. The allocation
+ * is explicit, the matching release is published beside it, and the buffer it fills is an
+ * ordinary gffx_buffer that the buffer-based entry points already accept.
+ *
+ * gffx_io_ply_probe_file and gffx_io_ply_read_file each open, read and close the file. Reading a
+ * template twice is the cost of keeping allocation in the caller's hands; a caller that minds
+ * can use gffx_io_file_read_all once and call the buffer entry points itself.
+ */
+
+GFFX_API gffx_status GFFX_CALL gffx_io_file_read_all(
+    const char *path,
+    const gffx_execution_context *context,
+    gffx_buffer *buffer,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_io_file_release(
+    gffx_buffer *buffer
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_io_ply_probe_file(
+    const char *path,
+    const gffx_execution_context *context,
+    gffx_ply_header *header,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_io_ply_read_file(
+    const char *path,
+    const gffx_execution_context *context,
+    gffx_ply_header *header,
+    gffx_tensor_view *vertices,
+    gffx_tensor_view *faces,
+    gffx_diagnostic_buffer *diagnostic
+);
+
 GFFX_EXTERN_C_END
 
 #endif /* GFFX_IO_H */
