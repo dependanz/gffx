@@ -25,8 +25,10 @@ add_library(gffx_core SHARED
     native/core/capabilities.c
     native/core/cuda_loader.c
     native/core/mesh_face_geometry.c
+    native/core/mesh_gather_faces.c
     native/core/mesh_vertex_normals.c
     native/core/status.c
+    native/core/transforms.c
 )
 
 target_compile_features(gffx_core PUBLIC c_std_11)
