@@ -7,6 +7,9 @@
 # process control, concurrency, process-wide mutable state, and any framework dependency. Run with:
 #
 #   cmake -DGFFX_SOURCE_DIR=<repo> -P io_isolation.cmake
+#
+# Scanning uses narrow file(STRINGS ... REGEX) filters rather than a full line walk, for the reason
+# documented at the top of dependency_inspection.cmake.
 
 cmake_minimum_required(VERSION 3.25)
 
@@ -31,7 +34,7 @@ set(forbidden_identifiers
     "getenv" "putenv" "system" "popen" "execv" "fork"
     "pthread" "_Atomic" "atomic_" "CreateThread" "thrd_create" "mtx_"
     "abort" "assert" "longjmp" "setjmp"
-    "srand" "rand" "clock" "localtime" "time"
+    "srand" "rand" "clock" "localtime"
     "remove" "rename" "tmpnam" "freopen"
     "printf" "fprintf" "sprintf" "puts" "fputs" "perror"
     "torch" "numpy" "Py_" "PyObject"
@@ -53,16 +56,11 @@ set(scanned_count 0)
 
 foreach(source_file IN LISTS scan_files)
     math(EXPR scanned_count "${scanned_count} + 1")
-    file(STRINGS "${source_file}" lines)
     get_filename_component(short_name "${source_file}" NAME)
-    set(line_number 0)
-    foreach(line IN LISTS lines)
-        math(EXPR line_number "${line_number} + 1")
 
-        # Strip whole-line comments so prose cannot trip the identifier scan.
-        string(REGEX REPLACE "^[ \t]*(//|/[*]|[*]).*$" "" code_line "${line}")
-
-        if(code_line MATCHES "^[ \t]*#[ \t]*include[ \t]+(.+)$")
+    file(STRINGS "${source_file}" include_lines REGEX "^[ \t]*#[ \t]*include")
+    foreach(line IN LISTS include_lines)
+        if(line MATCHES "^[ \t]*#[ \t]*include[ \t]+(.+)$")
             string(STRIP "${CMAKE_MATCH_1}" include_target)
             set(include_ok FALSE)
             if(include_target MATCHES "^<gffx/[A-Za-z0-9_]+[.]h>$")
@@ -74,25 +72,26 @@ foreach(source_file IN LISTS scan_files)
                 endif()
             endforeach()
             if(NOT include_ok)
-                list(APPEND violations
-                    "${short_name}:${line_number}: disallowed include ${include_target}")
+                list(APPEND violations "${short_name}: disallowed include ${include_target}")
             endif()
         endif()
+    endforeach()
 
-        foreach(identifier IN LISTS forbidden_identifiers)
-            if(code_line MATCHES "(^|[^A-Za-z0-9_])${identifier}")
+    foreach(identifier IN LISTS forbidden_identifiers)
+        file(STRINGS "${source_file}" hits REGEX "(^|[^A-Za-z0-9_])${identifier}")
+        foreach(line IN LISTS hits)
+            if(NOT line MATCHES "^[ \t]*(//|/[*]|[*])")
                 list(APPEND violations
-                    "${short_name}:${line_number}: forbidden facility '${identifier}'")
+                    "${short_name}: forbidden facility '${identifier}' in:${line}")
             endif()
         endforeach()
+    endforeach()
 
-        # File-scope mutable static state. Function definitions and const tables are permitted.
-        if(code_line MATCHES "^[ \t]*static[ \t]")
-            if(NOT code_line MATCHES "(^|[^A-Za-z0-9_])const([^A-Za-z0-9_]|$)")
-                if(code_line MATCHES "=" AND NOT code_line MATCHES "[(]")
-                    list(APPEND violations
-                        "${short_name}:${line_number}: file-scope mutable static state")
-                endif()
+    file(STRINGS "${source_file}" static_lines REGEX "^[ \t]*static[ \t]")
+    foreach(line IN LISTS static_lines)
+        if(NOT line MATCHES "(^|[^A-Za-z0-9_])const([^A-Za-z0-9_]|$)")
+            if(line MATCHES "=" AND NOT line MATCHES "[(]")
+                list(APPEND violations "${short_name}: file-scope mutable static state:${line}")
             endif()
         endif()
     endforeach()

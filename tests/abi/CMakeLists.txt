@@ -136,3 +136,11 @@ add_test(NAME runtime.io_isolation
         -DGFFX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/io_isolation.cmake
 )
+
+# Phase 2 Step 5: the committed public surface and its classification must agree with the headers
+# in both directions, so a symbol cannot join the compatibility surface by accident.
+add_test(NAME runtime.public_surface
+    COMMAND ${CMAKE_COMMAND}
+        -DGFFX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/public_surface.cmake
+)
