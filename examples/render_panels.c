@@ -480,14 +480,25 @@ int main(void) {
                             pixel_normals) != GFFX_STATUS_OK) return 1;
     shade_normals(1, face_index, pixel_normals, 0.80, 0.90, 1.0);
 
-    /* Panel 3: soft silhouette from the blur radius and signed distance. */
+    /* Panel 3: blur radius and signed distance, shown on a single triangle.
+     *
+     * A closed mesh is the wrong subject for this feature. With one fragment per pixel the
+     * winner is the depth-nearest face, which is not the boundary-nearest face, so a sphere
+     * produces per-triangle noise rather than a silhouette. Aggregating coverage across faces is
+     * render.soft_silhouette, a Phase 4 composite that does not exist yet. One triangle shows
+     * exactly what blur_radius_px and signed_distance do and claims nothing more.
+     */
     {
+        static const double tri_ndc[9] = {
+            -0.58, -0.52, 0.5,    0.62, -0.46, 0.5,    0.02, 0.64, 0.5
+        };
+        static const int32_t tri_faces[3] = {0, 1, 2};
+        const double blur = 26.0;
         int32_t *soft_index;
         double *soft_bary;
         double *soft_distance;
-        if (rasterize_panel(ndc, mesh.vertex_count, mesh.faces, mesh.face_count, 14.0,
-                            GFFX_CULL_BACK, &soft_index, &soft_bary,
-                            &soft_distance) != GFFX_STATUS_OK) return 1;
+        if (rasterize_panel(tri_ndc, 3, tri_faces, 1, blur, GFFX_CULL_NONE, &soft_index,
+                            &soft_bary, &soft_distance) != GFFX_STATUS_OK) return 1;
         for (row = 0; row < PANEL; ++row) {
             for (column = 0; column < PANEL; ++column) {
                 int64_t entry = row * PANEL + column;
@@ -497,11 +508,12 @@ int main(void) {
                     continue;
                 }
                 sd = soft_distance[entry];
-                /* Negative inside, positive outside; map to an alpha ramp over the blur band. */
-                alpha = sd <= 0.0 ? 1.0 : 1.0 - sqrt(sd) / 14.0;
+                /* Negative inside, positive outside, both in squared pixel units. Outside
+                 * fragments exist at all only because the blur radius admitted them. */
+                alpha = sd <= 0.0 ? 1.0 : 1.0 - sqrt(sd) / blur;
                 if (alpha < 0.0) alpha = 0.0;
                 put_pixel(2, row, column,
-                          0.09 + alpha * 0.85, 0.10 + alpha * 0.45, 0.13 + alpha * 0.75);
+                          0.09 + alpha * 0.88, 0.10 + alpha * 0.42, 0.13 + alpha * 0.72);
             }
         }
         free(soft_index); free(soft_bary); free(soft_distance);
@@ -618,10 +630,19 @@ int main(void) {
         free(points); free(sample_bary); free(sample_ndc); free(sample_face); free(workspace);
     }
 
-    /* Panel 6: distance field over a slice plane through the sphere. */
+    /* Panel 6: unsigned distance to two overlapping spheres, on a plane through their centres.
+     *
+     * points.closest_point_on_mesh returns an unsigned distance, so this is a distance field and
+     * not a signed one: there is no inside/outside sign to display. The two bright rings are the
+     * zero set, where the slice plane meets each sphere surface, and the faint rings are
+     * iso-contours every 0.25 world units. Two spheres rather than one so the section reads as a
+     * recognisable shape instead of a single anonymous circle.
+     */
     {
-        enum { GRID = 100 };
+        enum { GRID = 200 };
         int64_t query_count = GRID * GRID;
+        double *pair_world = (double *)malloc((size_t)mesh.vertex_count * 6 * sizeof(double));
+        int32_t *pair_faces = (int32_t *)malloc((size_t)mesh.face_count * 6 * sizeof(int32_t));
         double *queries = (double *)malloc((size_t)query_count * 3 * sizeof(double));
         double *dist2 = (double *)malloc((size_t)query_count * sizeof(double));
         double *closest = (double *)malloc((size_t)query_count * 3 * sizeof(double));
@@ -633,27 +654,36 @@ int main(void) {
         int64_t offset_shape[1] = {2}; int64_t scalar_shape[1];
         gffx_tensor_view q_view, v_view, f_view, po_view, vo_view, fo_view, d_view, fi_view,
             b_view, c_view, valid_view;
-        int64_t gx, gy;
+        int64_t gx, gy, k;
+
+        /* Both spheres share the slice plane, so the section is two overlapping circles. */
+        rotate_translate(mesh.positions, mesh.vertex_count, 0.0, 0.0, -0.5, -3.2, pair_world);
+        rotate_translate(mesh.positions, mesh.vertex_count, 0.0, 0.0, 0.5, -3.2,
+                         pair_world + mesh.vertex_count * 3);
+        memcpy(pair_faces, mesh.faces, (size_t)mesh.face_count * 3 * sizeof(int32_t));
+        for (k = 0; k < mesh.face_count * 3; ++k) {
+            pair_faces[mesh.face_count * 3 + k] = mesh.faces[k] + (int32_t)mesh.vertex_count;
+        }
         for (gy = 0; gy < GRID; ++gy) {
             for (gx = 0; gx < GRID; ++gx) {
                 int64_t entry = gy * GRID + gx;
-                queries[entry * 3 + 0] = -2.0 + 4.0 * ((double)gx + 0.5) / (double)GRID;
-                queries[entry * 3 + 1] = -2.0 + 4.0 * ((double)gy + 0.5) / (double)GRID;
-                queries[entry * 3 + 2] = -3.2;   /* slice through the sphere centre */
+                queries[entry * 3 + 0] = -2.4 + 4.8 * ((double)gx + 0.5) / (double)GRID;
+                queries[entry * 3 + 1] = -2.4 + 4.8 * ((double)gy + 0.5) / (double)GRID;
+                queries[entry * 3 + 2] = -3.2;
             }
         }
         point_offsets[0] = 0; point_offsets[1] = (int32_t)query_count;
-        vertex_offsets[0] = 0; vertex_offsets[1] = (int32_t)mesh.vertex_count;
-        face_offsets[0] = 0; face_offsets[1] = (int32_t)mesh.face_count;
+        vertex_offsets[0] = 0; vertex_offsets[1] = (int32_t)(mesh.vertex_count * 2);
+        face_offsets[0] = 0; face_offsets[1] = (int32_t)(mesh.face_count * 2);
         query_shape[0] = query_count; query_shape[1] = 3;
-        vertex_shape[0] = mesh.vertex_count; vertex_shape[1] = 3;
-        face_shape[0] = mesh.face_count; face_shape[1] = 3;
+        vertex_shape[0] = mesh.vertex_count * 2; vertex_shape[1] = 3;
+        face_shape[0] = mesh.face_count * 2; face_shape[1] = 3;
         scalar_shape[0] = query_count;
         q_view = view_of(queries, GFFX_DTYPE_FLOAT64, 2u, query_shape, pair_strides,
                          GFFX_TENSOR_READ_ONLY);
-        v_view = view_of(world, GFFX_DTYPE_FLOAT64, 2u, vertex_shape, pair_strides,
+        v_view = view_of(pair_world, GFFX_DTYPE_FLOAT64, 2u, vertex_shape, pair_strides,
                          GFFX_TENSOR_READ_ONLY);
-        f_view = view_of(mesh.faces, GFFX_DTYPE_INT32, 2u, face_shape, pair_strides,
+        f_view = view_of(pair_faces, GFFX_DTYPE_INT32, 2u, face_shape, pair_strides,
                          GFFX_TENSOR_READ_ONLY);
         po_view = view_of(point_offsets, GFFX_DTYPE_INT32, 1u, offset_shape, scalar_strides,
                           GFFX_TENSOR_READ_ONLY);
@@ -681,14 +711,16 @@ int main(void) {
                 int64_t sx = column * GRID / PANEL;
                 int64_t sy = row * GRID / PANEL;
                 double d = sqrt(dist2[sy * GRID + sx]);
-                /* Banded colour ramp so the iso-contours of the distance field are visible. */
-                double band = fmod(d * 9.0, 1.0);
-                double base = 1.0 / (1.0 + d * 1.6);
+                double falloff = 1.0 / (1.0 + 2.4 * d);
+                double ring = fmod(d, 0.25) < 0.018 ? 0.16 : 0.0;
+                double surface = d < 0.030 ? 1.0 : 0.0;
                 put_pixel(5, row, column,
-                          0.10 + base * 0.9, 0.12 + base * 0.35 + band * 0.18,
-                          0.16 + band * 0.55);
+                          0.09 + falloff * 0.50 + ring + surface * 0.80,
+                          0.11 + falloff * 0.26 + ring * 0.6 + surface * 0.52,
+                          0.17 + falloff * 0.70 + ring * 0.3 + surface * 0.18);
             }
         }
+        free(pair_world); free(pair_faces);
         free(queries); free(dist2); free(closest); free(cp_bary); free(cp_face); free(cp_valid);
     }
 
