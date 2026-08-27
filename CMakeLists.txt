@@ -30,6 +30,7 @@ add_library(gffx_core SHARED
     native/core/mesh_sample_surface.c
     native/core/mesh_vertex_normals.c
     native/core/points_proximity.c
+    native/core/render_rasterize.c
     native/core/status.c
     native/core/transforms.c
 )
