@@ -29,12 +29,17 @@ if(UNIX)
 endif()
 add_test(NAME geometry.transforms COMMAND gffx_test_transforms)
 
+add_executable(gffx_test_edge_topology test_edge_topology.c)
+target_link_libraries(gffx_test_edge_topology PRIVATE gffx_core)
+add_test(NAME geometry.edge_topology COMMAND gffx_test_edge_topology)
+
 if(WIN32)
     foreach(test_target IN ITEMS
         gffx_test_face_geometry
         gffx_test_vertex_normals
         gffx_test_gather_faces
         gffx_test_transforms
+        gffx_test_edge_topology
     )
         add_custom_command(TARGET ${test_target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different

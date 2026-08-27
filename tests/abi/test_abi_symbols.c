@@ -28,7 +28,10 @@ static const char *required_symbols[] = {
     "gffx_transforms_transform_points_workspace",
     "gffx_transforms_perspective_divide",
     "gffx_transforms_perspective_divide_backward",
-    "gffx_transforms_perspective_divide_workspace"
+    "gffx_transforms_perspective_divide_workspace",
+    /* Topology construction is nondifferentiable, so it exports no backward symbol. */
+    "gffx_mesh_build_edge_topology",
+    "gffx_mesh_build_edge_topology_workspace"
 };
 
 int main(int argc, char **argv) {

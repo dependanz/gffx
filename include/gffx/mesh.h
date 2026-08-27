@@ -166,6 +166,51 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals_backward(
     gffx_diagnostic_buffer *diagnostic
 );
 
+/*
+ * mesh.build_edge_topology - canonical undirected edges and their incident faces.
+ *
+ * Each face contributes three half-edges, canonicalized to (min, max), so the half-edge count is
+ * exactly 3F and every output capacity is exact. Within a batch element, half-edges are ordered
+ * by (min_vertex, max_vertex, face_index); equal canonical edges form one group that becomes one
+ * row of edges, with its member faces written to edge_faces in ascending face order. Non-manifold
+ * edges keep every incident face, degenerate self-edges (v, v) are retained like any other edge,
+ * and batch elements never merge.
+ *
+ * With E the total unique edge count: rows [0, E) of edges are valid and every trailing row is
+ * (-1, -1); edge_faces is fully written with exactly 3F incidences; entries [0, E] of
+ * edge_face_offsets index edge_faces and trailing entries repeat the final value 3F so the array
+ * stays nondecreasing; mesh_edge_offsets starts at 0 and ends at E.
+ *
+ * face_offsets is int32 [B+1] following the packed-offset rules. Face indices must be
+ * nonnegative but are not range-checked, this operation receiving no vertices. Every output is
+ * integer topology and therefore nondifferentiable, so there is no backward entry point. This is
+ * setup-class work and is not permitted inside a claimed real-time frame path.
+ *
+ * The workspace query reports 3 * F * 3 * sizeof(int32) bytes at alignment 4, one
+ * (min, max, face) triple per half-edge; sorting is an in-place heapsort over those triples.
+ */
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_build_edge_topology_workspace(
+    int64_t face_count,
+    int64_t batch_count,
+    const gffx_execution_context *context,
+    uint64_t *required_bytes,
+    uint64_t *required_alignment,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_mesh_build_edge_topology(
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *face_offsets,
+    const gffx_execution_context *context,
+    gffx_tensor_view *edges,
+    gffx_tensor_view *edge_face_offsets,
+    gffx_tensor_view *edge_faces,
+    gffx_tensor_view *mesh_edge_offsets,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
 GFFX_EXTERN_C_END
 
 #endif /* GFFX_MESH_H */
