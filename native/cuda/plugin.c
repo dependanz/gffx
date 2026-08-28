@@ -1,4 +1,5 @@
 #include "plugin_api.h"
+#include "gffx_cuda_ptx.h"
 
 #include <cuda.h>
 
@@ -332,6 +333,255 @@ static gffx_status GFFX_CALL gffx_cuda_capabilities(
     return GFFX_STATUS_OK;
 }
 
+/* Writes the diagnostic and returns the status in one expression, so an error path stays a single
+ * line and cannot report a message without also returning the failure it describes. */
+static gffx_status gffx_cuda_fail(
+    gffx_diagnostic_buffer *diagnostic, gffx_status status, const char *message
+) {
+    gffx_cuda_diagnostic(diagnostic, message);
+    return status;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Kernel module loading and dispatch.
+ *
+ * The embedded PTX is JIT-compiled by the driver on first use and the resulting module is cached,
+ * because compiling it per call would pay the JIT cost on every launch. That cache is process-wide
+ * mutable state inside the plugin, which the core scaffold forbids of itself and which is tolerable
+ * here only because the plugin is separately loaded and separately inspected. It is the same
+ * lifetime question the host faces in deciding whether to keep the plugin mapped, and it is
+ * recorded as one unresolved decision rather than two.
+ *
+ * Loading is per CUDA context, not global: a module handle belongs to the context that created it,
+ * so a caller using two contexts must not be handed the first context's module. The cache
+ * therefore records which context it was built for and reloads when it changes.
+ * --------------------------------------------------------------------------------------------- */
+
+static CUcontext gffx_cuda_module_context = NULL;
+static CUmodule gffx_cuda_module = NULL;
+static CUfunction gffx_cuda_face_geometry_f32 = NULL;
+static CUfunction gffx_cuda_face_geometry_f64 = NULL;
+static CUfunction gffx_cuda_validate_faces = NULL;
+
+static gffx_status gffx_cuda_ensure_module(gffx_diagnostic_buffer *diagnostic) {
+    CUcontext current = NULL;
+    if (cuCtxGetCurrent(&current) != CUDA_SUCCESS || current == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
+                              "no current CUDA context; the caller must establish one");
+    }
+    if (gffx_cuda_module != NULL && gffx_cuda_module_context == current) {
+        return GFFX_STATUS_OK;
+    }
+    if (cuModuleLoadData(&gffx_cuda_module, gffx_cuda_embedded_ptx) != CUDA_SUCCESS) {
+        gffx_cuda_module = NULL;
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
+                              "the driver could not load the embedded PTX module; it is likely "
+                              "older than the ISA this plugin was built with");
+    }
+    if (cuModuleGetFunction(&gffx_cuda_face_geometry_f32, gffx_cuda_module,
+                            "gffx_cuda_face_geometry_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_face_geometry_f64, gffx_cuda_module,
+                            "gffx_cuda_face_geometry_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_validate_faces, gffx_cuda_module,
+                            "gffx_cuda_validate_faces") != CUDA_SUCCESS) {
+        cuModuleUnload(gffx_cuda_module);
+        gffx_cuda_module = NULL;
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INTERNAL_ERROR,
+                              "the embedded PTX module is missing an expected kernel");
+    }
+    gffx_cuda_module_context = current;
+    return GFFX_STATUS_OK;
+}
+
+/* Structural validation only.
+ *
+ * Shapes, dtypes, ranks and null checks are properties of the view and are checked here. Index
+ * range is not: those values live in device memory and this is host code. The non-skippable
+ * per-call check that EXECUTION_STATE_CONTRACT_V0_1.md requires therefore has no implementation on
+ * this path yet, which is an open contract question rather than an oversight, and the kernel does
+ * not quietly tolerate a bad index in the meantime.
+ */
+static gffx_status gffx_cuda_check_device_view(
+    const gffx_tensor_view *view, uint32_t rank, gffx_dtype dtype, const char *what,
+    gffx_diagnostic_buffer *diagnostic
+) {
+    if (view == NULL || view->struct_size < sizeof(*view) ||
+        view->abi_version != GFFX_ABI_VERSION) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT, what);
+    }
+    if (view->device_type != GFFX_DEVICE_CUDA || view->data == NULL ||
+        view->rank != rank || view->dtype != dtype) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT, what);
+    }
+    return GFFX_STATUS_OK;
+}
+
+/*
+ * Device workspace requirements.
+ *
+ * Four bytes, for the index-validation status word. The CPU reference for the same operation
+ * requires zero, which is precisely why the plugin publishes its own query rather than the host
+ * reusing the CPU figure: a device implementation's scratch is its own business, and here the
+ * difference is the cost of enforcing a contract the host cannot enforce for device memory.
+ */
+static gffx_status GFFX_CALL gffx_cuda_op_workspace(
+    uint32_t operation, const int64_t *shape, uint32_t shape_count, gffx_dtype dtype,
+    const gffx_execution_context *context, uint64_t *required_bytes,
+    uint64_t *required_alignment, gffx_diagnostic_buffer *diagnostic
+) {
+    (void)shape;
+    (void)shape_count;
+    (void)dtype;
+    (void)context;
+    if (required_bytes == NULL || required_alignment == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "workspace query result pointers must not be null");
+    }
+    switch (operation) {
+        case GFFX_CUDA_OP_MESH_FACE_GEOMETRY:
+            *required_bytes = sizeof(int);
+            *required_alignment = sizeof(int);
+            return GFFX_STATUS_OK;
+        default:
+            return gffx_cuda_fail(diagnostic, GFFX_STATUS_UNSUPPORTED,
+                                  "this plugin implements no such operation");
+    }
+}
+
+static gffx_status GFFX_CALL gffx_cuda_op_face_geometry(
+    const gffx_tensor_view *vertices, const gffx_tensor_view *faces, double eps,
+    const gffx_execution_context *context, gffx_tensor_view *unit_normals,
+    gffx_tensor_view *areas, gffx_tensor_view *valid, const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    CUfunction kernel;
+    CUstream stream;
+    long long face_count;
+    void *arguments[7];
+    unsigned int blocks;
+    const unsigned int threads = 256u;
+    gffx_dtype dtype;
+
+    if (context == NULL || context->struct_size < sizeof(*context) ||
+        context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "face_geometry on this backend requires a CUDA execution context");
+    }
+    if (vertices == NULL || vertices->struct_size < sizeof(*vertices)) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "vertices must be a [V,3] tensor view");
+    }
+    dtype = vertices->dtype;
+    if (dtype != GFFX_DTYPE_FLOAT32 && dtype != GFFX_DTYPE_FLOAT64) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "vertices must use float32 or float64");
+    }
+    if (!(eps >= 0.0) || eps != eps) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "eps must be finite and non-negative");
+    }
+
+    status = gffx_cuda_check_device_view(vertices, 2u, dtype, "vertices must be a [V,3] device view",
+                                         diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_check_device_view(faces, 2u, GFFX_DTYPE_INT32,
+                                         "faces must be an int32 [F,3] device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_check_device_view(unit_normals, 2u, dtype,
+                                         "unit_normals must be a [F,3] device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_check_device_view(areas, 1u, dtype, "areas must be an [F] device view",
+                                         diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_check_device_view(valid, 1u, GFFX_DTYPE_BOOL,
+                                         "valid must be a bool [F] device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    face_count = (long long)faces->shape[0];
+    if (unit_normals->shape[0] != faces->shape[0] || areas->shape[0] != faces->shape[0] ||
+        valid->shape[0] != faces->shape[0]) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "outputs must be sized from the face count");
+    }
+    if (face_count == 0) return GFFX_STATUS_OK;
+
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    /* The contract's non-skippable index check, moved to the device because the host cannot read
+     * device memory. It runs on the caller's stream before the operation, and the host reads the
+     * result, which costs a synchronisation this backend cannot avoid: reporting an error through
+     * a synchronous return value requires knowing the answer before returning. That cost is the
+     * honest price of the guarantee rather than a reason to drop it. */
+    {
+        int host_status = 0;
+        long long index_count = face_count * 3;
+        long long vertex_count = (long long)vertices->shape[0];
+        int vertex_count_arg = (int)vertex_count;
+        CUdeviceptr status_word;
+        void *validate_arguments[4];
+        unsigned int validate_blocks;
+
+        if (workspace == NULL || workspace->data == NULL ||
+            workspace->capacity_bytes < sizeof(int)) {
+            return gffx_cuda_fail(diagnostic, GFFX_STATUS_INSUFFICIENT_WORKSPACE,
+                                  "the CUDA backend requires the workspace its query reports, "
+                                  "which holds the index-validation status word");
+        }
+        if (vertex_count > 2147483647LL) {
+            return gffx_cuda_fail(diagnostic, GFFX_STATUS_OVERFLOW,
+                                  "vertex count exceeds the int32 index range");
+        }
+        status_word = (CUdeviceptr)(uintptr_t)workspace->data;
+        if (cuMemsetD32Async(status_word, 0u, 1u, (CUstream)context->stream) != CUDA_SUCCESS) {
+            return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
+                                  "could not clear the validation status word");
+        }
+        validate_arguments[0] = (void *)&faces->data;
+        validate_arguments[1] = (void *)&index_count;
+        validate_arguments[2] = (void *)&vertex_count_arg;
+        validate_arguments[3] = (void *)&workspace->data;
+        validate_blocks = (unsigned int)((index_count + 255) / 256);
+        if (cuLaunchKernel(gffx_cuda_validate_faces, validate_blocks, 1u, 1u, 256u, 1u, 1u, 0u,
+                           (CUstream)context->stream, validate_arguments, NULL) != CUDA_SUCCESS) {
+            return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
+                                  "the index validation kernel failed to launch");
+        }
+        if (cuMemcpyDtoHAsync(&host_status, status_word, sizeof(int),
+                              (CUstream)context->stream) != CUDA_SUCCESS ||
+            cuStreamSynchronize((CUstream)context->stream) != CUDA_SUCCESS) {
+            return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
+                                  "could not read the validation status word");
+        }
+        if (host_status != 0) {
+            /* No output is written: the operation kernel is never launched. */
+            return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                                  "every face index must lie in [0, V)");
+        }
+    }
+
+    kernel = (dtype == GFFX_DTYPE_FLOAT64) ? gffx_cuda_face_geometry_f64
+                                           : gffx_cuda_face_geometry_f32;
+    /* The caller's stream, taken from the execution context. The plugin creates no stream of its
+     * own and inserts no synchronisation, so ordering stays the caller's to control. */
+    stream = (CUstream)context->stream;
+    arguments[0] = (void *)&vertices->data;
+    arguments[1] = (void *)&faces->data;
+    arguments[2] = (void *)&eps;
+    arguments[3] = (void *)&face_count;
+    arguments[4] = (void *)&unit_normals->data;
+    arguments[5] = (void *)&areas->data;
+    arguments[6] = (void *)&valid->data;
+    blocks = (unsigned int)((face_count + (long long)threads - 1) / (long long)threads);
+    if (cuLaunchKernel(kernel, blocks, 1u, 1u, threads, 1u, 1u, 0u, stream, arguments, NULL)
+        != CUDA_SUCCESS) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
+                              "the face_geometry kernel failed to launch");
+    }
+    return GFFX_STATUS_OK;
+}
+
 /*
  * The published operation table.
  *
@@ -346,8 +596,8 @@ static gffx_status GFFX_CALL gffx_cuda_capabilities(
 static const gffx_cuda_operations gffx_cuda_operation_table = {
     (uint32_t)sizeof(gffx_cuda_operations),
     0u,
-    NULL,   /* workspace_query */
-    NULL, NULL,   /* mesh.face_geometry, backward */
+    gffx_cuda_op_workspace,
+    gffx_cuda_op_face_geometry, NULL,   /* mesh.face_geometry; backward not yet implemented */
     NULL, NULL,   /* mesh.vertex_normals, backward */
     NULL, NULL,   /* mesh.gather_faces, backward */
     NULL, NULL,   /* transforms.transform_points, backward */

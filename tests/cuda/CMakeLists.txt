@@ -68,6 +68,21 @@ gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_must_not_load 3)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_null_operations 4)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_operations 5)
 
+# Calls a CUDA operation through the negotiated table. Needs the real plugin and a device, so it
+# is registered only when the CUDA build is enabled and skips itself when no device is present.
+if(TARGET gffx_cuda12)
+    add_executable(gffx_test_cuda_operation_dispatch test_operation_dispatch.c)
+    target_compile_features(gffx_test_cuda_operation_dispatch PRIVATE c_std_11)
+    target_include_directories(gffx_test_cuda_operation_dispatch PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/native/cuda
+    )
+    target_link_libraries(gffx_test_cuda_operation_dispatch PRIVATE CUDA::cuda_driver)
+    add_test(NAME cuda.operation_dispatch
+        COMMAND gffx_test_cuda_operation_dispatch $<TARGET_FILE:gffx_cuda12>
+    )
+endif()
+
 add_executable(gffx_test_cuda_plugin_probe test_plugin_probe.c)
 target_compile_features(gffx_test_cuda_plugin_probe PRIVATE c_std_11)
 target_link_libraries(gffx_test_cuda_plugin_probe PRIVATE gffx_core)
