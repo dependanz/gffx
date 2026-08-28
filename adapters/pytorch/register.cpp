@@ -148,6 +148,14 @@ gffx_execution_context cuda_context(int32_t device_index) {
     return context;
 }
 
+/* Selects the context for whichever device the caller's tensors live on.
+ *
+ * The CPU and CUDA paths of every operation differ in exactly one thing, the execution context, so
+ * the implementations take the device from their inputs rather than existing twice. Duplicating
+ * seven function bodies to change one line would have been seven places for them to drift apart.
+ */
+gffx_execution_context context_for(const Tensor &reference);
+
 gffx_execution_context cpu_context() {
     gffx_execution_context context{};
     context.struct_size = static_cast<uint32_t>(sizeof(context));
@@ -240,7 +248,10 @@ Tensor make_workspace(
     const Tensor &reference, int64_t vertex_count, int64_t face_count, gffx_dtype dtype,
     uint64_t *out_bytes
 ) {
-    gffx_execution_context context = cpu_context();
+    /* The context follows the reference tensor. Asking with a CPU context while running on the
+     * GPU would return the host requirement, which is zero for this operation, and the device
+     * path would then fail its own workspace check for a reason that looks unrelated. */
+    gffx_execution_context context = context_for(reference);
     gffx_diagnostic_buffer diagnostic{};
     uint64_t required_bytes = 0;
     uint64_t required_alignment = 0;
@@ -276,7 +287,7 @@ void run_forward(
     const Tensor &vertices, const Tensor &faces, double eps,
     Tensor &normals, Tensor &areas, Tensor &valid, const gffx_buffer *workspace
 ) {
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     gffx_diagnostic_buffer diagnostic{};
     std::string message(512, '\0');
     int64_t vertex_shape[2], vertex_strides[2];
@@ -341,7 +352,7 @@ Tensor face_geometry_backward(
     const Tensor &grad_normals, const Tensor &grad_areas,
     bool has_grad_normals, bool has_grad_areas
 ) {
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     gffx_diagnostic_buffer diagnostic{};
     std::string message(512, '\0');
     int64_t vertex_shape[2], vertex_strides[2];
@@ -450,7 +461,7 @@ Tensor vertex_normals(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_mesh_vertex_normals_workspace(
@@ -479,7 +490,7 @@ Tensor vertex_normals_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_mesh_vertex_normals_workspace(
@@ -509,7 +520,19 @@ Tensor vertex_normals_backward(
 Tensor gather_faces(const Tensor &vertices, const Tensor &faces) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
+    uint64_t bytes = 0, alignment = 0;
+
+    /* The workspace is queried rather than assumed absent. This operation needs none on the CPU,
+     * but the CUDA backend needs a device word to report whether the index-validation kernel found
+     * an out-of-range face, since host code cannot read device-resident indices. Passing null
+     * unconditionally is what made the CUDA path fail its own workspace check. */
+    GFFX_CHECK(gffx_mesh_gather_faces_workspace(vertices.size(0), faces.size(0),
+                                                dtype_of(vertices), &context, &bytes, &alignment,
+                                                &diagnostic.buffer),
+               diagnostic.text());
+    Tensor workspace = workspace_of(vertices, bytes);
+    const gffx_buffer buffer = workspace_buffer(workspace, bytes);
 
     const std::vector<int64_t> size{faces.size(0), 3, 3};
     Tensor gathered = torch::stable::new_empty(vertices, size);
@@ -518,7 +541,7 @@ Tensor gather_faces(const Tensor &vertices, const Tensor &faces) {
     gffx_tensor_view faces_view = arena.read(faces);
     gffx_tensor_view gathered_view = arena.write(gathered);
     GFFX_CHECK(gffx_mesh_gather_faces(&vertices_view, &faces_view, &context, &gathered_view,
-                                      nullptr, &diagnostic.buffer),
+                                      &buffer, &diagnostic.buffer),
                diagnostic.text());
     return gathered;
 }
@@ -528,7 +551,7 @@ Tensor gather_faces_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
 
     const std::vector<int64_t> size{vertices.size(0), 3};
     Tensor grad_vertices = torch::stable::new_empty(vertices, size);
@@ -551,7 +574,7 @@ Tensor transform_points(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(points);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_transforms_transform_points_workspace(
@@ -582,7 +605,7 @@ std::tuple<Tensor, Tensor> transform_points_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(points);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_transforms_transform_points_workspace(
@@ -616,7 +639,7 @@ std::tuple<Tensor, Tensor> transform_points_backward(
 std::tuple<Tensor, Tensor> perspective_divide(const Tensor &homogeneous, double eps) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(homogeneous);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_transforms_perspective_divide_workspace(
@@ -646,7 +669,7 @@ Tensor perspective_divide_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(homogeneous);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_transforms_perspective_divide_workspace(
@@ -676,7 +699,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> build_edge_topology(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(faces);
     uint64_t bytes = 0, alignment = 0;
     const int64_t face_count = faces.size(0);
     const int64_t batch_count = face_offsets.size(0) - 1;
@@ -719,7 +742,7 @@ std::tuple<Tensor, Tensor, Tensor> knn(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(query);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_points_knn_workspace(
@@ -755,7 +778,7 @@ std::tuple<Tensor, Tensor> knn_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(query);
 
     const std::vector<int64_t> query_size{query.size(0), 3};
     const std::vector<int64_t> reference_size{reference.size(0), 3};
@@ -785,7 +808,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, Tensor> closest_point_on_mesh(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(points);
     uint64_t bytes = 0, alignment = 0;
 
     GFFX_CHECK(gffx_points_closest_point_on_mesh_workspace(
@@ -830,7 +853,7 @@ std::tuple<Tensor, Tensor> closest_point_on_mesh_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(points);
 
     const std::vector<int64_t> point_size{points.size(0), 3};
     const std::vector<int64_t> vertex_size{vertices.size(0), 3};
@@ -864,7 +887,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> sample_surface(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     uint64_t bytes = 0, alignment = 0;
     const int64_t batch_count = face_offsets.size(0) - 1;
 
@@ -908,7 +931,7 @@ Tensor sample_surface_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
 
     const std::vector<int64_t> size{vertices.size(0), 3};
     Tensor grad_vertices = torch::stable::new_empty(vertices, size);
@@ -934,7 +957,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> rasterize(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(ndc_vertices);
     uint64_t bytes = 0, alignment = 0;
     const int64_t batch_count = face_offsets.size(0) - 1;
 
@@ -980,7 +1003,7 @@ Tensor rasterize_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(ndc_vertices);
 
     const std::vector<int64_t> size{ndc_vertices.size(0), 3};
     Tensor grad_ndc = torch::stable::new_empty(ndc_vertices, size);
@@ -1007,7 +1030,7 @@ Tensor interpolate(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(face_attributes);
 
     std::vector<int64_t> size;
     for (int64_t index = 0; index < face_index.dim(); ++index) {
@@ -1033,7 +1056,7 @@ std::tuple<Tensor, Tensor> interpolate_backward(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(face_attributes);
 
     std::vector<int64_t> bary_size;
     for (int64_t index = 0; index < barycentric.dim(); ++index) {
@@ -1069,6 +1092,7 @@ std::tuple<Tensor, Tensor> interpolate_backward(
 
 std::tuple<int64_t, int64_t, int64_t> ply_probe(const Tensor &data) {
     Diagnostic diagnostic;
+    /* The reader is CPU-only: it parses a host byte buffer, and there is no device variant. */
     gffx_execution_context context = cpu_context();
     gffx_ply_header header{};
     header.struct_size = static_cast<uint32_t>(sizeof(header));
@@ -1119,7 +1143,7 @@ Tensor mesh_validate(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     gffx_mesh_validation_report report{};
     report.struct_size = static_cast<uint32_t>(sizeof(report));
     report.abi_version = GFFX_ABI_VERSION;
@@ -1167,7 +1191,7 @@ void vertex_normals_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view vertices_view = arena.read(vertices);
@@ -1184,7 +1208,7 @@ void gather_faces_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view vertices_view = arena.read(vertices);
@@ -1202,7 +1226,7 @@ void transform_points_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(points);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view points_view = arena.read(points);
@@ -1220,7 +1244,7 @@ void perspective_divide_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(homogeneous);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view homogeneous_view = arena.read(homogeneous);
@@ -1239,7 +1263,7 @@ void knn_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(query);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view query_view = arena.read(query);
@@ -1264,7 +1288,7 @@ void closest_point_on_mesh_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(points);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view points_view = arena.read(points);
@@ -1294,7 +1318,7 @@ void sample_surface_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(vertices);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view vertices_view = arena.read(vertices);
@@ -1324,7 +1348,7 @@ void rasterize_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(ndc_vertices);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view ndc_view = arena.read(ndc_vertices);
@@ -1350,7 +1374,7 @@ void interpolate_out(
 ) {
     ViewArena arena;
     Diagnostic diagnostic;
-    gffx_execution_context context = cpu_context();
+    gffx_execution_context context = context_for(face_index);
     const gffx_buffer buffer =
         workspace_buffer(workspace, static_cast<uint64_t>(workspace.numel()));
     gffx_tensor_view face_index_view = arena.read(face_index);
@@ -1409,48 +1433,8 @@ std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t> workspace_sizes
     return std::make_tuple(normals, transform, divide, nearest, sample, raster);
 }
 
-/* ------------------------------------------------------------------- CUDA: mesh.face_geometry
- *
- * The same function with a CUDA context. Outputs and workspace are allocated with new_empty
- * against the input, which follows its device, so nothing here needs a second allocation path and
- * the memory stays on the caller's allocator exactly as on CPU.
- *
- * Only this operation is registered for CUDA. The other ten have no CUDA kernel yet, and
- * registering them would make torch dispatch to a function that would fail deeper down; leaving
- * them unregistered means torch itself reports that no CUDA kernel exists, which is both earlier
- * and more accurate.
- */
-std::tuple<Tensor, Tensor, Tensor> face_geometry_cuda(
-    const Tensor &vertices, const Tensor &faces, double eps
-) {
-    ViewArena arena;
-    Diagnostic diagnostic;
-    gffx_execution_context context = cuda_context(vertices.get_device_index());
-    uint64_t bytes = 0, alignment = 0;
-
-    GFFX_CHECK(gffx_mesh_face_geometry_workspace(
-                   vertices.size(0), faces.size(0), dtype_of(vertices), &context, &bytes,
-                   &alignment, &diagnostic.buffer),
-               diagnostic.text());
-    Tensor workspace = workspace_of(vertices, bytes);
-    const gffx_buffer buffer = workspace_buffer(workspace, bytes);
-
-    const std::vector<int64_t> normal_size{faces.size(0), 3};
-    const std::vector<int64_t> scalar_size{faces.size(0)};
-    Tensor normals = torch::stable::new_empty(vertices, normal_size);
-    Tensor areas = torch::stable::new_empty(vertices, scalar_size);
-    Tensor valid = torch::stable::new_empty(vertices, scalar_size, ScalarType::Bool);
-
-    gffx_tensor_view vertices_view = arena.read(vertices);
-    gffx_tensor_view faces_view = arena.read(faces);
-    gffx_tensor_view normals_view = arena.write(normals);
-    gffx_tensor_view areas_view = arena.write(areas);
-    gffx_tensor_view valid_view = arena.write(valid);
-    GFFX_CHECK(gffx_mesh_face_geometry(&vertices_view, &faces_view, eps, &context, &normals_view,
-                                       &areas_view, &valid_view, bytes > 0 ? &buffer : nullptr,
-                                       &diagnostic.buffer),
-               diagnostic.text());
-    return std::make_tuple(normals, areas, valid);
+gffx_execution_context context_for(const Tensor &reference) {
+    return reference.is_cuda() ? cuda_context(reference.get_device_index()) : cpu_context();
 }
 
 }  // namespace
@@ -1574,8 +1558,27 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CompositeExplicitAutograd, m) {
 /* Only operations with a CUDA kernel are registered here. An unregistered operation makes torch
  * report that no CUDA implementation exists, which is earlier and clearer than dispatching into a
  * function that would fail on a NULL table entry. */
+/*
+ * The CUDA key registers the same functions as the CPU key.
+ *
+ * Each body takes its execution context from its own inputs, so one implementation serves both
+ * devices and there is no second copy to drift. What differs between backends is decided inside
+ * the core, which forwards to the plugin when the context is CUDA and runs the reference kernel
+ * otherwise.
+ *
+ * Only operations with a CUDA kernel appear here. An unregistered operation makes torch itself
+ * report that no CUDA implementation exists, which is earlier and clearer than dispatching into a
+ * function that would fail on a NULL table entry deeper down.
+ */
 STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
-    m.impl("face_geometry", TORCH_BOX(&face_geometry_cuda));
+    m.impl("face_geometry", TORCH_BOX(&face_geometry));
+    m.impl("gather_faces", TORCH_BOX(&gather_faces));
+    m.impl("transform_points", TORCH_BOX(&transform_points));
+    m.impl("perspective_divide", TORCH_BOX(&perspective_divide));
+    m.impl("knn", TORCH_BOX(&knn));
+    m.impl("closest_point_on_mesh", TORCH_BOX(&closest_point_on_mesh));
+    m.impl("rasterize", TORCH_BOX(&rasterize));
+    m.impl("interpolate", TORCH_BOX(&interpolate));
 }
 
 STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {

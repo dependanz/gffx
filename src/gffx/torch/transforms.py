@@ -10,7 +10,7 @@ from typing import Optional, Tuple
 import torch
 
 from ._batching import resolve_offsets
-from ._common import check_eps, materialize, translate_native_error
+from ._common import check_eps, check_same_device, materialize, translate_native_error
 
 __all__ = ["transform_points", "perspective_divide"]
 
@@ -20,8 +20,10 @@ DEFAULT_EPS = 2.0 ** -20
 def _check_points(points: torch.Tensor, name: str, width: int) -> None:
     if not isinstance(points, torch.Tensor):
         raise TypeError("%s must be a torch.Tensor, not %s" % (name, type(points).__name__))
-    if points.device.type != "cpu":
-        raise ValueError("%s must be on the cpu device; received %s" % (name, points.device))
+    if points.device.type not in ("cpu", "cuda"):
+        raise ValueError(
+            "%s must be on the cpu or cuda device; received %s"
+            % (name, points.device))
     if points.dtype not in (torch.float32, torch.float64):
         raise TypeError("%s must be float32 or float64; received %s" % (name, points.dtype))
     if points.dim() != 2 or points.shape[1] != width:
@@ -95,8 +97,9 @@ def transform_points(
     _check_points(points, "points", 3)
     if not isinstance(matrices, torch.Tensor):
         raise TypeError("matrices must be a torch.Tensor")
-    if matrices.device.type != "cpu":
-        raise ValueError("matrices must be on the cpu device; received %s" % (matrices.device,))
+    if matrices.device.type not in ("cpu", "cuda"):
+        raise ValueError(
+            "matrices must be on the cpu or cuda device; received %s" % (matrices.device,))
     if matrices.dtype != points.dtype:
         raise TypeError(
             "matrices must match the points dtype %s; received %s" % (points.dtype, matrices.dtype)
@@ -106,7 +109,8 @@ def transform_points(
                          % (tuple(matrices.shape),))
     if not matrices.is_contiguous():
         raise ValueError("matrices must be dense and C-contiguous")
-    point_offsets = resolve_offsets(point_offsets, points.shape[0], "point_offsets")
+    check_same_device(points, matrices)
+    point_offsets = resolve_offsets(point_offsets, points.shape[0], "point_offsets", points.device)
     if point_offsets.numel() - 1 != matrices.shape[0]:
         raise ValueError(
             "point_offsets declares %d batch elements but matrices supplies %d"

@@ -409,35 +409,143 @@ def test_tb13_streaming_surface(gffx_torch):
 
 # ------------------------------------------------------------------------------- TB-14
 
-def test_tb14_cuda_conformance(gffx_torch):
+# The eight operations with a CUDA kernel, each as a callable taking a device and returning the
+# tuple of outputs. Written as a table rather than eight near-identical test bodies so that adding
+# the ninth kernel is one entry, and so a kernel that is written but never routed cannot quietly
+# escape the comparison.
+def _cuda_cases():
+    def to(device, *tensors):
+        return tuple(t.to(device) for t in tensors)
+
+    def face_geometry(adapter, device):
+        v, f = to(device, *tetra())
+        return adapter.mesh.face_geometry(v, f, eps=EPS)
+
+    def gather_faces(adapter, device):
+        v, f = to(device, *tetra())
+        return (adapter.mesh.gather_faces(v, f),)
+
+    def transform_points(adapter, device):
+        v, _ = tetra()
+        matrices = torch.tensor(
+            [[[2.0, 0.0, 0.0, 1.0], [0.0, 3.0, 0.0, -1.0], [0.0, 0.0, 4.0, 0.5],
+              [0.0, 0.0, 0.0, 1.0]]], dtype=torch.float64)
+        v, matrices = to(device, v, matrices)
+        return (adapter.transforms.transform_points(v, matrices),)
+
+    def perspective_divide(adapter, device):
+        homogeneous = torch.tensor(
+            [[1.0, 2.0, 3.0, 2.0], [-1.0, 0.5, 0.25, 4.0], [1.0, 1.0, 1.0, 0.0]],
+            dtype=torch.float64)
+        (homogeneous,) = to(device, homogeneous)
+        return adapter.transforms.perspective_divide(homogeneous, eps=EPS)
+
+    def knn(adapter, device):
+        query = torch.tensor([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=torch.float64)
+        reference = torch.tensor(
+            [[0.5, 0.0, 0.0], [0.0, 0.5, 0.0], [2.0, 2.0, 2.0], [1.0, 1.0, 0.0]],
+            dtype=torch.float64)
+        query, reference = to(device, query, reference)
+        return adapter.points.knn(query, reference, neighbor_count=2)
+
+    def closest_point_on_mesh(adapter, device):
+        v, f = tetra()
+        points = torch.tensor(
+            [[0.25, 0.25, -1.0], [2.0, 2.0, 2.0], [0.1, 0.1, 0.1]], dtype=torch.float64)
+        points, v, f = to(device, points, v, f)
+        return adapter.points.closest_point_on_mesh(points, v, f, eps=EPS)
+
+    def rasterize(adapter, device):
+        ndc, faces = _raster_scene()
+        ndc, faces = to(device, ndc, faces)
+        return adapter.render.rasterize(
+            ndc, faces, image_height=8, image_width=8, faces_per_pixel=2, eps=EPS)
+
+    def interpolate(adapter, device):
+        ndc, faces = _raster_scene()
+        ndc, faces = to(device, ndc, faces)
+        face_index, barycentric, _, _ = adapter.render.rasterize(
+            ndc, faces, image_height=8, image_width=8, faces_per_pixel=2, eps=EPS)
+        attributes = torch.arange(
+            faces.shape[0] * 3 * 2, dtype=torch.float64, device=faces.device
+        ).reshape(faces.shape[0], 3, 2)
+        return (adapter.render.interpolate(face_index, barycentric, attributes),)
+
+    return [
+        ("mesh.face_geometry", face_geometry),
+        ("mesh.gather_faces", gather_faces),
+        ("transforms.transform_points", transform_points),
+        ("transforms.perspective_divide", perspective_divide),
+        ("points.knn", knn),
+        ("points.closest_point_on_mesh", closest_point_on_mesh),
+        ("render.rasterize", rasterize),
+        ("render.interpolate", interpolate),
+    ]
+
+
+def _raster_scene():
+    """Two overlapping triangles in NDC, so depth ordering and the K list are both exercised."""
+    ndc = torch.tensor(
+        [[-0.8, -0.8, 0.5], [0.8, -0.8, 0.5], [0.0, 0.8, 0.5],
+         [-0.5, -0.5, 0.2], [0.9, -0.2, 0.2], [0.2, 0.9, 0.2]], dtype=torch.float64)
+    faces = torch.tensor([[0, 1, 2], [3, 4, 5]], dtype=torch.int32)
+    return ndc, faces
+
+
+@pytest.mark.parametrize("name,case", _cuda_cases(), ids=[n for n, _ in _cuda_cases()])
+def test_tb14_cuda_conformance(gffx_torch, name, case):
     """The GPU result is bit-identical to the CPU result, not merely close.
 
-    This is the first fixture comparing the two backends against each other rather than against
-    the oracle, and equality is exact by design: the CUDA build passes -fmad=false so the device
-    cannot contract a multiply-add that the CPU evaluates separately. A tolerance here would hide
-    exactly the divergence the conformance contract exists to catch.
+    This is the fixture comparing the two backends against each other rather than against the
+    oracle, and equality is exact by design: the CUDA build passes -fmad=false so the device
+    cannot contract a multiply-add that the CPU evaluates separately, and every kernel in this
+    group mirrors the CPU operation for operation rather than reassociating for speed. A tolerance
+    here would hide exactly the divergence the conformance contract exists to catch.
+
+    Exactness is claimed only for this group. These eight are order-independent: each output
+    element is produced by one thread from one input, so there is no accumulation whose order
+    could differ between backends. The operations that do accumulate are not here, and will not
+    make this promise unconditionally.
     """
     if not torch.cuda.is_available():
         pytest.skip("no CUDA device present")
-    try:
-        import gffx.torch as adapter  # noqa: F401
-    except ImportError:  # pragma: no cover
-        pytest.skip("adapter unavailable")
 
-    vertices, faces = tetra()
-    cpu = gffx_torch.mesh.face_geometry(vertices, faces)
+    device = torch.device("cuda")
+    cpu = case(gffx_torch, torch.device("cpu"))
     try:
-        gpu = gffx_torch.mesh.face_geometry(vertices.cuda(), faces.cuda())
+        gpu = case(gffx_torch, device)
     except NotImplementedError as error:
-        pytest.skip("no CUDA provider available: %s" % (error,))
+        pytest.skip("no CUDA provider for %s: %s" % (name, error))
 
-    normals, areas, valid = gpu
-    assert normals.device.type == "cuda", "outputs stay on the caller's device"
-    assert torch.equal(cpu[0], normals.cpu())
-    assert torch.equal(cpu[1], areas.cpu())
-    assert torch.equal(cpu[2], valid.cpu())
+    assert len(cpu) == len(gpu), "%s returned a different number of outputs per backend" % (name,)
+    for index, (expected, actual) in enumerate(zip(cpu, gpu)):
+        assert actual.device.type == "cuda", (
+            "%s output %d left the caller's device" % (name, index))
+        assert actual.dtype == expected.dtype, (
+            "%s output %d changed dtype between backends" % (name, index))
+        assert actual.shape == expected.shape, (
+            "%s output %d changed shape between backends" % (name, index))
+        assert torch.equal(expected, actual.cpu()), (
+            "%s output %d differs between the CPU and CUDA backends" % (name, index))
 
-    # An operation with no CUDA kernel must say so rather than quietly running on the CPU, which
-    # would hide a device-to-host copy inside what looks like a GPU call.
+
+def test_tb14_unimplemented_operation_is_refused(gffx_torch):
+    """An operation with no CUDA kernel says so rather than quietly running on the CPU.
+
+    A silent fallback would hide a device-to-host copy and a host-to-device copy inside what looks
+    like a GPU call, which is the kind of cost that only shows up as an unexplained stall.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA device present")
+    vertices, faces = tetra()
     with pytest.raises((NotImplementedError, RuntimeError)):
         gffx_torch.mesh.vertex_normals(vertices.cuda(), faces.cuda())
+
+
+def test_tb14_mixed_devices_are_refused(gffx_torch):
+    """A call mixing devices names the mismatch rather than failing inside a kernel."""
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA device present")
+    vertices, faces = tetra()
+    with pytest.raises(ValueError, match="same device"):
+        gffx_torch.mesh.face_geometry(vertices.cuda(), faces)

@@ -12,6 +12,7 @@
 #include <gffx/tensor.h>
 
 #include "internal.h"
+#include "cuda_loader.h"
 #include "mesh_common.h"
 
 #include <math.h>
@@ -112,6 +113,21 @@ GFFX_API gffx_status GFFX_CALL gffx_points_knn_workspace(
     uint64_t *required_alignment,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* The device answer is the plugin's: a CUDA implementation may need scratch
+     * where the scalar CPU reference needs none, so the query routes too. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL || operations->workspace_query == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available to report a device workspace "
+                "requirement");
+        }
+        return operations->workspace_query(
+            GFFX_CUDA_OP_POINTS_KNN, NULL, 0u, dtype, context, required_bytes,
+            required_alignment, diagnostic);
+    }
     if (query_count < INT64_C(0) || reference_count < INT64_C(0)) {
         gffx_status prepared = gffx_internal_prepare_diagnostic(diagnostic);
         if (prepared != GFFX_STATUS_OK) return prepared;
@@ -199,6 +215,29 @@ GFFX_API gffx_status GFFX_CALL gffx_points_knn(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /*
+     * Device dispatch before any CPU validation. The shared validators dereference tensor data,
+     * which must not happen for device memory, so the forward has to precede them rather than
+     * follow. A backend that publishes no such operation returns UNSUPPORTED rather than falling
+     * back to the CPU, keeping a missing kernel visible instead of an unannounced copy.
+     */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or "
+                "run on the CPU");
+        }
+        if (operations->points_knn == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->points_knn(
+            query, reference, query_offsets, reference_offsets, neighbor_count, context, distance_squared, reference_index, valid, workspace, diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t query_count = 0;
     int64_t reference_count = 0;
@@ -627,6 +666,21 @@ GFFX_API gffx_status GFFX_CALL gffx_points_closest_point_on_mesh_workspace(
     uint64_t *required_alignment,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* The device answer is the plugin's: a CUDA implementation may need scratch
+     * where the scalar CPU reference needs none, so the query routes too. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL || operations->workspace_query == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available to report a device workspace "
+                "requirement");
+        }
+        return operations->workspace_query(
+            GFFX_CUDA_OP_POINTS_CLOSEST_POINT_ON_MESH, NULL, 0u, dtype, context, required_bytes,
+            required_alignment, diagnostic);
+    }
     if (point_count < INT64_C(0) || vertex_count < INT64_C(0) || face_count < INT64_C(0)) {
         gffx_status prepared = gffx_internal_prepare_diagnostic(diagnostic);
         if (prepared != GFFX_STATUS_OK) return prepared;
@@ -657,6 +711,29 @@ GFFX_API gffx_status GFFX_CALL gffx_points_closest_point_on_mesh(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /*
+     * Device dispatch before any CPU validation. The shared validators dereference tensor data,
+     * which must not happen for device memory, so the forward has to precede them rather than
+     * follow. A backend that publishes no such operation returns UNSUPPORTED rather than falling
+     * back to the CPU, keeping a missing kernel visible instead of an unannounced copy.
+     */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or "
+                "run on the CPU");
+        }
+        if (operations->points_closest_point_on_mesh == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->points_closest_point_on_mesh(
+            points, vertices, faces, point_offsets, vertex_offsets, face_offsets, eps, context, distance_squared, face_index, barycentric, closest, valid, workspace, diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t point_count;
     int64_t vertex_count;

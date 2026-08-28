@@ -14,7 +14,9 @@ from typing import Optional, Tuple
 import torch
 
 from ._batching import resolve_offsets
-from ._common import check_eps, check_faces, check_vertices, materialize, translate_native_error
+from ._common import (
+    check_eps, check_faces, check_same_device, check_vertices, materialize, translate_native_error,
+)
 
 __all__ = ["knn", "closest_point_on_mesh"]
 
@@ -110,9 +112,10 @@ def knn(
     if not isinstance(neighbor_count, int) or neighbor_count <= 0:
         raise ValueError("neighbor_count must be a positive integer; received %r"
                          % (neighbor_count,))
-    query_offsets = resolve_offsets(query_offsets, query.shape[0], "query_offsets")
+    check_same_device(query, reference)
+    query_offsets = resolve_offsets(query_offsets, query.shape[0], "query_offsets", query.device)
     reference_offsets = resolve_offsets(
-        reference_offsets, reference.shape[0], "reference_offsets")
+        reference_offsets, reference.shape[0], "reference_offsets", reference.device)
     if query_offsets.numel() != reference_offsets.numel():
         raise ValueError("query_offsets and reference_offsets must declare the same batch count")
     return _Knn.apply(query, reference, query_offsets, reference_offsets, neighbor_count)
@@ -141,9 +144,11 @@ def closest_point_on_mesh(
             "points and vertices must share a dtype; received %s and %s"
             % (points.dtype, vertices.dtype)
         )
-    point_offsets = resolve_offsets(point_offsets, points.shape[0], "point_offsets")
-    vertex_offsets = resolve_offsets(vertex_offsets, vertices.shape[0], "vertex_offsets")
-    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets")
+    check_same_device(points, vertices, faces)
+    point_offsets = resolve_offsets(point_offsets, points.shape[0], "point_offsets", points.device)
+    vertex_offsets = resolve_offsets(
+        vertex_offsets, vertices.shape[0], "vertex_offsets", vertices.device)
+    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets", faces.device)
     return _ClosestPointOnMesh.apply(
         points, vertices, faces, point_offsets, vertex_offsets, face_offsets, check_eps(eps)
     )

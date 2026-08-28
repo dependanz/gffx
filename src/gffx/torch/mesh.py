@@ -225,7 +225,7 @@ def build_edge_topology(faces, face_offsets=None):
     topology alone.
     """
     check_faces(faces)
-    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets")
+    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets", faces.device)
     try:
         return torch.ops.gffx.build_edge_topology(faces, face_offsets)
     except RuntimeError as error:
@@ -262,8 +262,9 @@ def sample_surface(
             raise TypeError("%s must be a uint32 torch.Tensor of shape [2]" % (name,))
         if tensor.dim() != 1 or tensor.numel() != 2:
             raise ValueError("%s must have shape [2]; received %s" % (name, tuple(tensor.shape)))
-    vertex_offsets = resolve_offsets(vertex_offsets, vertices.shape[0], "vertex_offsets")
-    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets")
+    vertex_offsets = resolve_offsets(
+        vertex_offsets, vertices.shape[0], "vertex_offsets", vertices.device)
+    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets", faces.device)
     return _SampleSurface.apply(
         vertices, faces, vertex_offsets, face_offsets, sample_count, rng_key, rng_counter,
         check_eps(eps),
@@ -353,8 +354,9 @@ def validate(
     """
     check_vertices(vertices)
     check_faces(faces)
-    vertex_offsets = resolve_offsets(vertex_offsets, vertices.shape[0], "vertex_offsets")
-    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets")
+    vertex_offsets = resolve_offsets(
+        vertex_offsets, vertices.shape[0], "vertex_offsets", vertices.device)
+    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets", faces.device)
     flags = VALIDATE_GEOMETRY if check_geometry else 0
     try:
         values = torch.ops.gffx.mesh_validate(

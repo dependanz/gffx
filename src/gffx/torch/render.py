@@ -14,7 +14,9 @@ from typing import Optional, Tuple
 import torch
 
 from ._batching import resolve_offsets
-from ._common import check_eps, check_faces, check_vertices, materialize, translate_native_error
+from ._common import (
+    check_eps, check_faces, check_same_device, check_vertices, materialize, translate_native_error,
+)
 
 __all__ = ["rasterize", "interpolate", "CULL_NONE", "CULL_BACK", "CULL_FRONT"]
 
@@ -129,8 +131,10 @@ def rasterize(
     if not (blur >= 0.0) or blur != blur:
         raise ValueError("blur_radius_px must be finite and non-negative; received %r"
                          % (blur_radius_px,))
-    vertex_offsets = resolve_offsets(vertex_offsets, ndc_vertices.shape[0], "vertex_offsets")
-    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets")
+    check_same_device(ndc_vertices, faces)
+    vertex_offsets = resolve_offsets(
+        vertex_offsets, ndc_vertices.shape[0], "vertex_offsets", ndc_vertices.device)
+    face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets", faces.device)
     return _Rasterize.apply(
         ndc_vertices, faces, vertex_offsets, face_offsets, image_height, image_width,
         faces_per_pixel, blur, cull_mode, check_eps(eps),
@@ -148,10 +152,11 @@ def interpolate(
     """
     if not isinstance(face_index, torch.Tensor) or face_index.dtype != torch.int32:
         raise TypeError("face_index must be an int32 torch.Tensor from rasterize")
+    check_same_device(face_index, barycentric, face_attributes)
     for name, tensor in (("barycentric", barycentric), ("face_attributes", face_attributes)):
         if not isinstance(tensor, torch.Tensor):
             raise TypeError("%s must be a torch.Tensor" % (name,))
-        if tensor.device.type != "cpu":
+        if tensor.device.type not in ("cpu", "cuda"):
             raise ValueError("%s must be on the cpu device" % (name,))
         if tensor.dtype not in (torch.float32, torch.float64):
             raise TypeError("%s must be float32 or float64; received %s" % (name, tensor.dtype))
