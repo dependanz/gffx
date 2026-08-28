@@ -405,3 +405,39 @@ def test_tb13_streaming_surface(gffx_torch):
     with pytest.raises(ValueError):
         stream.vertex_normals_out(
             vertices, faces, out=torch.empty((3, 3), dtype=torch.float64), workspace=workspace)
+
+
+# ------------------------------------------------------------------------------- TB-14
+
+def test_tb14_cuda_conformance(gffx_torch):
+    """The GPU result is bit-identical to the CPU result, not merely close.
+
+    This is the first fixture comparing the two backends against each other rather than against
+    the oracle, and equality is exact by design: the CUDA build passes -fmad=false so the device
+    cannot contract a multiply-add that the CPU evaluates separately. A tolerance here would hide
+    exactly the divergence the conformance contract exists to catch.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA device present")
+    try:
+        import gffx.torch as adapter  # noqa: F401
+    except ImportError:  # pragma: no cover
+        pytest.skip("adapter unavailable")
+
+    vertices, faces = tetra()
+    cpu = gffx_torch.mesh.face_geometry(vertices, faces)
+    try:
+        gpu = gffx_torch.mesh.face_geometry(vertices.cuda(), faces.cuda())
+    except NotImplementedError as error:
+        pytest.skip("no CUDA provider available: %s" % (error,))
+
+    normals, areas, valid = gpu
+    assert normals.device.type == "cuda", "outputs stay on the caller's device"
+    assert torch.equal(cpu[0], normals.cpu())
+    assert torch.equal(cpu[1], areas.cpu())
+    assert torch.equal(cpu[2], valid.cpu())
+
+    # An operation with no CUDA kernel must say so rather than quietly running on the CPU, which
+    # would hide a device-to-host copy inside what looks like a GPU call.
+    with pytest.raises((NotImplementedError, RuntimeError)):
+        gffx_torch.mesh.vertex_normals(vertices.cuda(), faces.cuda())

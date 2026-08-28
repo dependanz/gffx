@@ -24,6 +24,15 @@
 
 #include <Python.h>
 
+#if defined(_WIN32)
+/* Declared rather than included. <windows.h> defines macros that collide with the standard
+ * library headers torch pulls in, and this needs exactly two functions. */
+extern "C" __declspec(dllimport) void *__stdcall GetModuleHandleA(const char *name);
+extern "C" __declspec(dllimport) void *__stdcall GetProcAddress(void *module, const char *name);
+#else
+#include <dlfcn.h>
+#endif
+
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 #include <torch/csrc/stable/tensor.h>
@@ -70,6 +79,75 @@ namespace {
     throw std::runtime_error(message);
 }
 
+/*
+ * The caller's CUDA stream.
+ *
+ * `API_CONTRACT_V0_1.md` requires a CUDA adapter to enqueue on the stream the framework is using,
+ * not on a stream of its own, so the raw handle is needed rather than an identifier. The Stable
+ * ABI does not offer one: `torch::stable::accelerator::getCurrentStream` returns a `StreamId`, an
+ * integer whose conversion back to a `cudaStream_t` lives in ATen internals that the stable surface
+ * deliberately excludes. The only C entry point that returns the handle,
+ * `aoti_torch_get_current_cuda_stream`, is declared behind `#ifdef USE_CUDA` and lives in the
+ * framework's CUDA library.
+ *
+ * Linking it is not an option. This extension is built once and must load against both CPU-only
+ * and CUDA builds of PyTorch, a portability property already verified by running the whole suite
+ * against `2.10.0+cpu` and `2.10.0+cu128` with the same binary; a link-time reference to a
+ * CUDA-only symbol would break that for every CPU user.
+ *
+ * So the symbol is resolved at run time from whatever is already loaded in the process, and its
+ * absence is reported rather than worked around. Falling back to the default stream would enqueue
+ * a caller's work on a stream they did not choose, which reorders against their other work
+ * silently; that is precisely the class of hidden behaviour this project refuses, so an
+ * unavailable stream accessor is a refusal rather than a guess.
+ */
+using gffx_current_cuda_stream_fn = int (*)(int32_t, void **);
+
+gffx_current_cuda_stream_fn resolve_current_cuda_stream() {
+    static gffx_current_cuda_stream_fn resolved = nullptr;
+    static bool attempted = false;
+    if (attempted) return resolved;
+    attempted = true;
+#if defined(_WIN32)
+    /* Already-loaded modules only: importing torch is the caller's business, and this must never
+     * cause a library to load as a side effect of asking a question. */
+    static const char *const modules[] = {"torch_cuda.dll", "torch_cpu.dll", "torch.dll"};
+    for (const char *name : modules) {
+        void *handle = GetModuleHandleA(name);
+        if (handle == nullptr) continue;
+        auto symbol = reinterpret_cast<gffx_current_cuda_stream_fn>(
+            GetProcAddress(handle, "aoti_torch_get_current_cuda_stream"));
+        if (symbol != nullptr) { resolved = symbol; break; }
+    }
+#else
+    resolved = reinterpret_cast<gffx_current_cuda_stream_fn>(
+        dlsym(RTLD_DEFAULT, "aoti_torch_get_current_cuda_stream"));
+#endif
+    return resolved;
+}
+
+gffx_execution_context cuda_context(int32_t device_index) {
+    gffx_execution_context context{};
+    context.struct_size = static_cast<uint32_t>(sizeof(context));
+    context.abi_version = GFFX_ABI_VERSION;
+    context.device_type = GFFX_DEVICE_CUDA;
+    context.device_index = device_index;
+
+    gffx_current_cuda_stream_fn accessor = resolve_current_cuda_stream();
+    if (accessor == nullptr) {
+        raise_internal(
+            "this PyTorch build does not expose aoti_torch_get_current_cuda_stream, so the "
+            "caller's CUDA stream cannot be honoured. Running on a stream the caller did not "
+            "choose would silently reorder their work, so the call is refused instead");
+    }
+    void *stream = nullptr;
+    if (accessor(device_index, &stream) != 0) {
+        raise_internal("could not read the current CUDA stream from the framework");
+    }
+    context.stream = stream;
+    return context;
+}
+
 gffx_execution_context cpu_context() {
     gffx_execution_context context{};
     context.struct_size = static_cast<uint32_t>(sizeof(context));
@@ -112,8 +190,10 @@ gffx_tensor_view borrow(
     view.shape = shape;
     view.strides = strides;
     view.dtype = dtype_of(tensor);
-    view.device_type = GFFX_DEVICE_CPU;
-    view.device_index = 0;
+    /* The view follows the tensor rather than assuming a device, which is what lets one borrow
+     * helper serve both backends. */
+    view.device_type = tensor.is_cuda() ? GFFX_DEVICE_CUDA : GFFX_DEVICE_CPU;
+    view.device_index = tensor.is_cuda() ? tensor.get_device_index() : 0;
     view.flags = flags;
     return view;
 }
@@ -185,8 +265,8 @@ gffx_buffer workspace_buffer(const Tensor &workspace, uint64_t bytes) {
     buffer.data = bytes > 0 ? workspace.mutable_data_ptr() : nullptr;
     buffer.capacity_bytes = bytes;
     buffer.alignment = 8;
-    buffer.device_type = GFFX_DEVICE_CPU;
-    buffer.device_index = 0;
+    buffer.device_type = workspace.is_cuda() ? GFFX_DEVICE_CUDA : GFFX_DEVICE_CPU;
+    buffer.device_index = workspace.is_cuda() ? workspace.get_device_index() : 0;
     return buffer;
 }
 
@@ -1329,6 +1409,50 @@ std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t> workspace_sizes
     return std::make_tuple(normals, transform, divide, nearest, sample, raster);
 }
 
+/* ------------------------------------------------------------------- CUDA: mesh.face_geometry
+ *
+ * The same function with a CUDA context. Outputs and workspace are allocated with new_empty
+ * against the input, which follows its device, so nothing here needs a second allocation path and
+ * the memory stays on the caller's allocator exactly as on CPU.
+ *
+ * Only this operation is registered for CUDA. The other ten have no CUDA kernel yet, and
+ * registering them would make torch dispatch to a function that would fail deeper down; leaving
+ * them unregistered means torch itself reports that no CUDA kernel exists, which is both earlier
+ * and more accurate.
+ */
+std::tuple<Tensor, Tensor, Tensor> face_geometry_cuda(
+    const Tensor &vertices, const Tensor &faces, double eps
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = cuda_context(vertices.get_device_index());
+    uint64_t bytes = 0, alignment = 0;
+
+    GFFX_CHECK(gffx_mesh_face_geometry_workspace(
+                   vertices.size(0), faces.size(0), dtype_of(vertices), &context, &bytes,
+                   &alignment, &diagnostic.buffer),
+               diagnostic.text());
+    Tensor workspace = workspace_of(vertices, bytes);
+    const gffx_buffer buffer = workspace_buffer(workspace, bytes);
+
+    const std::vector<int64_t> normal_size{faces.size(0), 3};
+    const std::vector<int64_t> scalar_size{faces.size(0)};
+    Tensor normals = torch::stable::new_empty(vertices, normal_size);
+    Tensor areas = torch::stable::new_empty(vertices, scalar_size);
+    Tensor valid = torch::stable::new_empty(vertices, scalar_size, ScalarType::Bool);
+
+    gffx_tensor_view vertices_view = arena.read(vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view normals_view = arena.write(normals);
+    gffx_tensor_view areas_view = arena.write(areas);
+    gffx_tensor_view valid_view = arena.write(valid);
+    GFFX_CHECK(gffx_mesh_face_geometry(&vertices_view, &faces_view, eps, &context, &normals_view,
+                                       &areas_view, &valid_view, bytes > 0 ? &buffer : nullptr,
+                                       &diagnostic.buffer),
+               diagnostic.text());
+    return std::make_tuple(normals, areas, valid);
+}
+
 }  // namespace
 
 STABLE_TORCH_LIBRARY(gffx_internal, m) {
@@ -1445,6 +1569,13 @@ STABLE_TORCH_LIBRARY(gffx, m) {
  * would never be reached. It is a pure function of integers and is registered device-agnostically. */
 STABLE_TORCH_LIBRARY_IMPL(gffx, CompositeExplicitAutograd, m) {
     m.impl("workspace_sizes", TORCH_BOX(&workspace_sizes));
+}
+
+/* Only operations with a CUDA kernel are registered here. An unregistered operation makes torch
+ * report that no CUDA implementation exists, which is earlier and clearer than dispatching into a
+ * function that would fail on a NULL table entry. */
+STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
+    m.impl("face_geometry", TORCH_BOX(&face_geometry_cuda));
 }
 
 STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {

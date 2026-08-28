@@ -88,10 +88,10 @@ def check_vertices(vertices: torch.Tensor, name: str = "vertices") -> None:
     """Reject anything the conversion boundary does not accept, with the documented type."""
     if not isinstance(vertices, torch.Tensor):
         raise TypeError("%s must be a torch.Tensor, not %s" % (name, type(vertices).__name__))
-    if vertices.device.type != "cpu":
+    if vertices.device.type not in ("cpu", "cuda"):
         raise ValueError(
-            "%s must be on the cpu device; this build supports CPU only and received a tensor "
-            "on %s. CUDA support is a later phase." % (name, vertices.device)
+            "%s must be on the cpu or cuda device; received a tensor on %s"
+            % (name, vertices.device)
         )
     if vertices.dtype not in VERTEX_DTYPES:
         raise TypeError(
@@ -121,9 +121,9 @@ def check_vertices(vertices: torch.Tensor, name: str = "vertices") -> None:
 def check_faces(faces: torch.Tensor, name: str = "faces") -> None:
     if not isinstance(faces, torch.Tensor):
         raise TypeError("%s must be a torch.Tensor, not %s" % (name, type(faces).__name__))
-    if faces.device.type != "cpu":
+    if faces.device.type not in ("cpu", "cuda"):
         raise ValueError(
-            "%s must be on the cpu device; received a tensor on %s" % (name, faces.device)
+            "%s must be on the cpu or cuda device; received a tensor on %s" % (name, faces.device)
         )
     if faces.dtype != torch.int32:
         # int64 is what a caller most often has, and a narrowing conversion can drop indices with
@@ -146,9 +146,28 @@ def check_eps(eps: float) -> float:
     return value
 
 
+def check_same_device(*tensors: torch.Tensor) -> None:
+    """Every tensor in one call must live on one device.
+
+    Checked here rather than left to the backend because the backend can only report the symptom.
+    A CUDA kernel handed a CPU tensor says the view is not a device view, which is true and
+    unhelpful; naming the mismatch points at what the caller actually did. GFFX never moves data
+    between devices on a caller's behalf, so a mismatch is always a caller error rather than
+    something to repair silently.
+    """
+    devices = {tensor.device for tensor in tensors if isinstance(tensor, torch.Tensor)}
+    if len(devices) > 1:
+        raise ValueError(
+            "every tensor in one call must be on the same device; received %s. gffx never moves "
+            "data between devices for you, so move them yourself with .to(device)."
+            % (", ".join(str(device) for device in sorted(devices, key=str)),)
+        )
+
+
 def check_pair(vertices: torch.Tensor, faces: torch.Tensor, eps: float) -> Tuple[
     torch.Tensor, torch.Tensor, float
 ]:
     check_vertices(vertices)
     check_faces(faces)
+    check_same_device(vertices, faces)
     return vertices, faces, check_eps(eps)

@@ -127,15 +127,26 @@ def test_ta04_int64_faces_are_refused(oracle):
     assert "int32" in message, "the message must name the required dtype"
 
 
-def test_ta05_non_cpu_device_is_refused(oracle):
-    """A non-CPU tensor raises a clear error rather than crashing."""
+def test_ta05_device_policy(oracle):
+    """Device handling: a mixed pair is refused, and the message names the mismatch.
+
+    This fixture originally asserted that a CUDA tensor was refused outright, which was true while
+    the adapter was CPU-only. Routing made that premise obsolete, so it was rewritten rather than
+    deleted: what survives is the policy that still holds, namely that gffx never moves data
+    between devices on a caller's behalf. CPU/CUDA conformance itself is TB-14's job.
+    """
     operation = _adapter()
-    if not torch.cuda.is_available():
-        pytest.skip("no CUDA device present; this fixture needs one to be meaningful")
     case = oracle["cases"][0]
     vertices, faces = _case_tensors(case)
+
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA device present; a device policy needs a second device to test")
+
+    with pytest.raises(ValueError) as caught:
+        operation(vertices.cuda(), faces, eps=EPS)
+    assert "same device" in str(caught.value), "the message must name the mismatch, not a symptom"
     with pytest.raises(ValueError):
-        operation(vertices.cuda(), faces.cuda(), eps=EPS)
+        operation(vertices, faces.cuda(), eps=EPS)
 
 
 # ------------------------------------------------------------------------------ TA-06..TA-08
