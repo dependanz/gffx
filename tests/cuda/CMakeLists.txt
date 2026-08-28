@@ -77,7 +77,7 @@ if(TARGET gffx_cuda12)
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/native/cuda
     )
-    target_link_libraries(gffx_test_cuda_operation_dispatch PRIVATE CUDA::cuda_driver)
+    target_link_libraries(gffx_test_cuda_operation_dispatch PRIVATE gffx_core CUDA::cuda_driver)
     add_test(NAME cuda.operation_dispatch
         COMMAND gffx_test_cuda_operation_dispatch $<TARGET_FILE:gffx_cuda12>
     )

@@ -121,3 +121,97 @@ extern "C" __global__ void gffx_cuda_validate_faces(
         *status = 1;
     }
 }
+
+/* =============================================================================================
+ * Order-independent operations.
+ *
+ * Each of these writes one output element per thread and accumulates nothing, so the result does
+ * not depend on the order threads happen to run in. That is what makes them bit-identical to the
+ * CPU reference rather than merely close, and it is also why they were implemented first: the
+ * operations that accumulate into shared vertices cannot be done this way without breaking the
+ * ordered-accumulation guarantee their contracts state, which is recorded as an open item.
+ * ============================================================================================= */
+
+/* Locates a point's batch element. Offsets are B+1 packed boundaries and B is small in practice,
+ * so a linear scan costs less than the divergence a binary search would introduce. */
+__device__ __forceinline__ int gffx_cuda_batch_of(
+    const int *__restrict__ offsets, int batch_count, long long index
+) {
+    for (int batch = 0; batch < batch_count; ++batch) {
+        if (index >= (long long)offsets[batch] && index < (long long)offsets[batch + 1]) {
+            return batch;
+        }
+    }
+    return -1;
+}
+
+#define GFFX_CUDA_TRANSFORM_POINTS(SUFFIX, SCALAR)                                             \
+extern "C" __global__ void gffx_cuda_transform_points_##SUFFIX(                                \
+    const SCALAR *__restrict__ points, const SCALAR *__restrict__ matrices,                    \
+    const int *__restrict__ offsets, int batch_count, long long point_count,                   \
+    SCALAR *__restrict__ homogeneous                                                           \
+) {                                                                                            \
+    long long point = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (point >= point_count) return;                                                          \
+    int batch = gffx_cuda_batch_of(offsets, batch_count, point);                               \
+    if (batch < 0) return;                                                                     \
+    const SCALAR *m = matrices + (long long)batch * 16;                                        \
+    SCALAR x = points[point * 3 + 0];                                                          \
+    SCALAR y = points[point * 3 + 1];                                                          \
+    SCALAR z = points[point * 3 + 2];                                                          \
+    for (int row = 0; row < 4; ++row) {                                                        \
+        homogeneous[point * 4 + row] =                                                         \
+            m[row * 4 + 0] * x + m[row * 4 + 1] * y + m[row * 4 + 2] * z + m[row * 4 + 3];     \
+    }                                                                                          \
+}
+
+GFFX_CUDA_TRANSFORM_POINTS(f32, float)
+GFFX_CUDA_TRANSFORM_POINTS(f64, double)
+
+/* A point whose |w| does not exceed eps is invalid, and its ndc is exactly zero rather than an
+ * infinity, matching TRANSFORMS_ACCEPTANCE_V0_1.md. The comparison is in double for both dtypes,
+ * as on the CPU, so a float32 batch classifies identically. */
+#define GFFX_CUDA_PERSPECTIVE_DIVIDE(SUFFIX, SCALAR)                                           \
+extern "C" __global__ void gffx_cuda_perspective_divide_##SUFFIX(                              \
+    const SCALAR *__restrict__ homogeneous, double eps, long long point_count,                 \
+    SCALAR *__restrict__ ndc, unsigned char *__restrict__ valid                                \
+) {                                                                                            \
+    long long point = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (point >= point_count) return;                                                          \
+    SCALAR w = homogeneous[point * 4 + 3];                                                      \
+    double magnitude = (double)w < 0.0 ? -(double)w : (double)w;                                \
+    if (magnitude > eps) {                                                                      \
+        ndc[point * 3 + 0] = homogeneous[point * 4 + 0] / w;                                    \
+        ndc[point * 3 + 1] = homogeneous[point * 4 + 1] / w;                                    \
+        ndc[point * 3 + 2] = homogeneous[point * 4 + 2] / w;                                    \
+        valid[point] = 1u;                                                                      \
+    } else {                                                                                    \
+        ndc[point * 3 + 0] = (SCALAR)0;                                                          \
+        ndc[point * 3 + 1] = (SCALAR)0;                                                          \
+        ndc[point * 3 + 2] = (SCALAR)0;                                                          \
+        valid[point] = 0u;                                                                      \
+    }                                                                                            \
+}
+
+GFFX_CUDA_PERSPECTIVE_DIVIDE(f32, float)
+GFFX_CUDA_PERSPECTIVE_DIVIDE(f64, double)
+
+/* A pure gather: no arithmetic, so values including NaN and infinity are copied bit for bit. */
+#define GFFX_CUDA_GATHER_FACES(SUFFIX, SCALAR)                                                 \
+extern "C" __global__ void gffx_cuda_gather_faces_##SUFFIX(                                    \
+    const SCALAR *__restrict__ vertices, const int *__restrict__ faces,                        \
+    long long face_count, SCALAR *__restrict__ face_vertices                                   \
+) {                                                                                            \
+    long long entry = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (entry >= face_count * 3) return;                                                        \
+    long long face = entry / 3;                                                                 \
+    long long corner = entry % 3;                                                               \
+    long long source = (long long)faces[face * 3 + corner] * 3;                                 \
+    long long target = (face * 3 + corner) * 3;                                                 \
+    face_vertices[target + 0] = vertices[source + 0];                                           \
+    face_vertices[target + 1] = vertices[source + 1];                                           \
+    face_vertices[target + 2] = vertices[source + 2];                                           \
+}
+
+GFFX_CUDA_GATHER_FACES(f32, float)
+GFFX_CUDA_GATHER_FACES(f64, double)

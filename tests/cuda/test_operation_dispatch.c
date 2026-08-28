@@ -19,6 +19,8 @@
 
 #include "plugin_api.h"
 
+#include <gffx/mesh.h>
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -229,6 +231,35 @@ int main(int argc, char **argv) {
               &vertices_view, &faces_view, 9.5367431640625e-7, &context, &normals_view,
               &areas_view, &valid_view, &workspace, &diagnostic)
           == GFFX_STATUS_INSUFFICIENT_WORKSPACE);
+
+    /* The public C entry point, which is what a caller actually uses. Until routing landed this
+     * returned UNSUPPORTED for any non-CPU context; now it forwards to the plugin, and the result
+     * must equal what the table call produced. The plugin is found through the loader, so this
+     * also exercises the lazy load and the fact that it stays mapped. */
+    {
+        uint64_t public_bytes = 0, public_alignment = 0;
+        CHECK(cuMemcpyHtoD(d_faces, FACES, sizeof(FACES)) == CUDA_SUCCESS);
+        workspace.capacity_bytes = workspace_bytes;
+        CHECK(gffx_mesh_face_geometry_workspace(4, 4, GFFX_DTYPE_FLOAT64, &context,
+                                                &public_bytes, &public_alignment, &diagnostic)
+              == GFFX_STATUS_OK);
+        /* The device requirement, not the host's zero: the query reached the plugin. */
+        CHECK(public_bytes == workspace_bytes);
+        CHECK(cuMemsetD8(d_areas, 0x00, sizeof(areas)) == CUDA_SUCCESS);
+        CHECK(gffx_mesh_face_geometry(&vertices_view, &faces_view, 9.5367431640625e-7, &context,
+                                      &normals_view, &areas_view, &valid_view, &workspace,
+                                      &diagnostic) == GFFX_STATUS_OK);
+        CHECK(cuCtxSynchronize() == CUDA_SUCCESS);
+        CHECK(cuMemcpyDtoH(areas, d_areas, sizeof(areas)) == CUDA_SUCCESS);
+        for (index = 0; index < 3; ++index) CHECK(areas[index] == 0.5);
+        CHECK(fabs(areas[3] - 0.8660254037844386) < 1e-15);
+
+        /* And the contract still holds through the public path: a bad index is refused. */
+        CHECK(cuMemcpyHtoD(d_faces, bad_faces, sizeof(bad_faces)) == CUDA_SUCCESS);
+        CHECK(gffx_mesh_face_geometry(&vertices_view, &faces_view, 9.5367431640625e-7, &context,
+                                      &normals_view, &areas_view, &valid_view, &workspace,
+                                      &diagnostic) == GFFX_STATUS_INVALID_ARGUMENT);
+    }
 
     cuMemFree(d_vertices); cuMemFree(d_faces); cuMemFree(d_normals);
     cuMemFree(d_areas); cuMemFree(d_valid); cuMemFree(d_workspace);
