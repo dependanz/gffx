@@ -12,18 +12,20 @@ gffx_status gffx_cuda_loader_probe(
 );
 
 /*
- * No operation-dispatch accessor is published yet, and the omission is deliberate.
+ * The negotiated operation table, or NULL when no plugin is present, it publishes no operations,
+ * or its table is too small to trust.
  *
- * The negotiated table lives in the plugin's address space, so a pointer to it is valid only while
- * the library stays loaded. gffx_cuda_loader_probe holds its state in a local and does not keep the
- * plugin mapped, so returning that pointer would hand out a dangling one the moment the probe
- * returns. Making it valid means keeping the plugin loaded for the process lifetime, which is
- * exactly the hidden process-wide state this scaffold is built to avoid, and that is a decision to
- * take openly rather than as a side effect of adding dispatch. It is recorded as an unresolved
- * decision in the project plan.
+ * The plugin is loaded once, lazily, on the first call and then stays mapped for the life of the
+ * process. That is deliberate and is the one place GFFX keeps state between calls. The table lives
+ * in the plugin's address space, so a pointer into it is valid only while the library is loaded;
+ * unloading after each use would mean re-loading and re-JIT-compiling the embedded PTX on every
+ * operation, which is not a cost a frame loop can absorb.
  *
- * The ABI carries operations regardless: the table is negotiated and validated during the probe,
- * so a plugin can publish kernels and the host can already tell whether it did.
+ * It is confined here on purpose. runtime.dependency_inspection excludes this translation unit
+ * precisely because plugin loading needs platform facilities and cannot be stateless, and nothing
+ * outside it gains persistent state. Loading never happens implicitly: this function is called
+ * only when an operation has actually been asked for on a CUDA device.
  */
+const gffx_cuda_operations *gffx_cuda_loader_operations(void);
 
 #endif

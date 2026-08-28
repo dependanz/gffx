@@ -12,6 +12,7 @@
 #include <gffx/tensor.h>
 
 #include "internal.h"
+#include "cuda_loader.h"
 #include "mesh_common.h"
 
 #include <math.h>
@@ -211,11 +212,26 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_face_geometry_workspace(
     }
     status = gffx_validate_execution_context(context, diagnostic);
     if (status != GFFX_STATUS_OK) return status;
+    if (context->device_type == GFFX_DEVICE_CUDA) {
+        /* The device answer is the plugin's, never the host's: the CUDA path needs scratch for
+         * the index-validation status word where the scalar CPU reference needs none. */
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL || operations->workspace_query == NULL) {
+            return gffx_internal_fail(
+                diagnostic,
+                GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available to report a device workspace requirement"
+            );
+        }
+        return operations->workspace_query(
+            GFFX_CUDA_OP_MESH_FACE_GEOMETRY, NULL, 0u, dtype, context, required_bytes,
+            required_alignment, diagnostic);
+    }
     if (context->device_type != GFFX_DEVICE_CPU) {
         return gffx_internal_fail(
             diagnostic,
             GFFX_STATUS_UNSUPPORTED,
-            "mesh.face_geometry implements only the CPU backend in this phase"
+            "mesh.face_geometry implements only the CPU and CUDA backends"
         );
     }
     *required_bytes = UINT64_C(0);
@@ -234,6 +250,39 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_face_geometry(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /*
+     * Device dispatch happens before any CPU validation, not after it.
+     *
+     * The shared validator dereferences the face tensor to range-check indices, which is exactly
+     * what must not happen when that tensor lives in device memory; running it first would read a
+     * device pointer from host code. The CUDA backend performs the same check on the device, so
+     * the guarantee is kept rather than skipped, and the caller sees one contract regardless of
+     * where the work runs.
+     *
+     * A backend that publishes no such operation returns UNSUPPORTED rather than silently falling
+     * back to the CPU, which would turn a missing kernel into an unannounced device-to-host copy.
+     */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic,
+                GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU"
+            );
+        }
+        if (operations->mesh_face_geometry == NULL) {
+            return gffx_internal_fail(
+                diagnostic,
+                GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement mesh.face_geometry"
+            );
+        }
+        return operations->mesh_face_geometry(
+            vertices, faces, eps, context, unit_normals, areas, valid, workspace, diagnostic);
+    }
+
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t face_count;
     if (status != GFFX_STATUS_OK) return status;
