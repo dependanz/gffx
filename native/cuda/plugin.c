@@ -332,6 +332,35 @@ static gffx_status GFFX_CALL gffx_cuda_capabilities(
     return GFFX_STATUS_OK;
 }
 
+/*
+ * The published operation table.
+ *
+ * Every entry is NULL at this point, which is the honest state: the dispatch path exists and is
+ * negotiated, and no CUDA kernel is implemented yet. A NULL entry means unsupported, so a caller
+ * asking for a CUDA operation today receives GFFX_STATUS_UNSUPPORTED rather than a silent CPU
+ * fallback. Entries are filled in one at a time as kernels land, and nothing outside this table
+ * changes when they do.
+ *
+ * const, so it lives in read-only storage and the file-scope-mutable-state rule is satisfied.
+ */
+static const gffx_cuda_operations gffx_cuda_operation_table = {
+    (uint32_t)sizeof(gffx_cuda_operations),
+    0u,
+    NULL,   /* workspace_query */
+    NULL, NULL,   /* mesh.face_geometry, backward */
+    NULL, NULL,   /* mesh.vertex_normals, backward */
+    NULL, NULL,   /* mesh.gather_faces, backward */
+    NULL, NULL,   /* transforms.transform_points, backward */
+    NULL, NULL,   /* transforms.perspective_divide, backward */
+    NULL,         /* mesh.build_edge_topology, no backward by contract */
+    NULL, NULL,   /* points.knn, backward */
+    NULL, NULL,   /* points.closest_point_on_mesh, backward */
+    NULL, NULL,   /* mesh.sample_surface, backward */
+    NULL, NULL,   /* render.rasterize, backward */
+    NULL, NULL,   /* render.interpolate, backward */
+    {0, 0, 0, 0}
+};
+
 GFFX_CUDA_PLUGIN_API gffx_status GFFX_CALL gffx_cuda_plugin_handshake_v1(
     uint32_t requested_plugin_abi,
     uint32_t host_core_abi,
@@ -356,8 +385,10 @@ GFFX_CUDA_PLUGIN_API gffx_status GFFX_CALL gffx_cuda_plugin_handshake_v1(
     api->plugin_abi_version = GFFX_CUDA_PLUGIN_ABI_VERSION;
     api->core_abi_min = GFFX_ABI_VERSION;
     api->core_abi_max = GFFX_ABI_VERSION;
-    api->flags = GFFX_CUDA_PLUGIN_FLAG_CAPABILITY_PROVIDER;
+    api->flags = GFFX_CUDA_PLUGIN_FLAG_CAPABILITY_PROVIDER |
+                 GFFX_CUDA_PLUGIN_FLAG_OPERATION_PROVIDER;
     api->build_identity = GFFX_CUDA_BUILD_ID;
     api->capabilities_probe = gffx_cuda_capabilities;
+    api->operations = &gffx_cuda_operation_table;
     return GFFX_STATUS_OK;
 }

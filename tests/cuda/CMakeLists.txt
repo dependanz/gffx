@@ -64,6 +64,9 @@ gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_good 0)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_incompatible 1)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_missing_symbol 2)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_must_not_load 3)
+# Operation-table negotiation, added to plugin ABI v1 alongside dispatch.
+gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_null_operations 4)
+gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_operations 5)
 
 add_executable(gffx_test_cuda_plugin_probe test_plugin_probe.c)
 target_compile_features(gffx_test_cuda_plugin_probe PRIVATE c_std_11)
@@ -106,6 +109,19 @@ add_test(NAME cuda.plugin.compatible
     COMMAND gffx_test_cuda_plugin_probe
         $<TARGET_FILE:gffx_cuda_synthetic_good> loaded compatible
 )
+# A plugin publishing a well-formed but entirely empty operation table is compatible: advertising
+# dispatch says the path exists, never that any kernel does.
+add_test(NAME cuda.plugin.operations
+    COMMAND gffx_test_cuda_plugin_probe
+        $<TARGET_FILE:gffx_cuda_synthetic_operations> loaded compatible
+)
+# Advertising operations while publishing no table is a build mismatch, not a capability to
+# route around, so the host must reject the plugin rather than dispatch through a null table.
+add_test(NAME cuda.plugin.null_operations
+    COMMAND gffx_test_cuda_plugin_probe
+        $<TARGET_FILE:gffx_cuda_synthetic_null_operations> "published no table" partial
+)
+
 add_test(NAME cuda.plugin.incompatible
     COMMAND gffx_test_cuda_plugin_probe
         $<TARGET_FILE:gffx_cuda_synthetic_incompatible> incompatible partial

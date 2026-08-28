@@ -251,8 +251,33 @@ static int api_is_compatible(const gffx_cuda_plugin_api *api, char *detail, size
         copy_text(detail, capacity, "plugin build identity is empty");
         return 0;
     }
+    /* The operation table is optional; a plugin may provide capabilities only. What is not
+     * optional is consistency: advertising the flag without a usable table, or publishing a table
+     * too small to contain the fields this host reads, is a build mismatch rather than a
+     * capability the host can work around. */
+    if ((api->flags & GFFX_CUDA_PLUGIN_FLAG_OPERATION_PROVIDER) != 0u) {
+        const size_t required_operations_size =
+            offsetof(gffx_cuda_operations, render_interpolate_backward) +
+            sizeof(((const gffx_cuda_operations *)0)->render_interpolate_backward);
+        if (api->struct_size < offsetof(gffx_cuda_plugin_api, operations) +
+                                   sizeof(api->operations)) {
+            copy_text(detail, capacity,
+                      "plugin advertises operations but its API struct predates the field");
+            return 0;
+        }
+        if (api->operations == NULL) {
+            copy_text(detail, capacity, "plugin advertises operations but published no table");
+            return 0;
+        }
+        if (api->operations->struct_size < required_operations_size) {
+            copy_text(detail, capacity, "plugin operation table is smaller than this host reads");
+            return 0;
+        }
+    }
     if (api->struct_size >= sizeof(*api)) {
-        for (index = 0u; index < 6u; ++index) {
+        /* Five, not six: the operations pointer took one slot from the reserved tail when
+         * dispatch joined v1, so scanning six would read past the end of the struct. */
+        for (index = 0u; index < 5u; ++index) {
             if (api->reserved[index] != UINT64_C(0)) {
                 copy_text(detail, capacity, "plugin API reserved fields are nonzero");
                 return 0;
