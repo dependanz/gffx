@@ -204,6 +204,8 @@ GFFX_API gffx_status GFFX_CALL gffx_render_texture_workspace(
 GFFX_API gffx_status GFFX_CALL gffx_render_texture(
     const gffx_tensor_view *pyramid,
     const gffx_tensor_view *level_offsets,
+    int64_t texture_height,
+    int64_t texture_width,
     const gffx_tensor_view *coordinates,
     const gffx_tensor_view *derivatives,
     const gffx_tensor_view *lod,
@@ -221,6 +223,8 @@ GFFX_API gffx_status GFFX_CALL gffx_render_texture(
 GFFX_API gffx_status GFFX_CALL gffx_render_texture_backward(
     const gffx_tensor_view *pyramid,
     const gffx_tensor_view *level_offsets,
+    int64_t texture_height,
+    int64_t texture_width,
     const gffx_tensor_view *coordinates,
     const gffx_tensor_view *derivatives,
     const gffx_tensor_view *lod,

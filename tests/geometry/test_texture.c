@@ -73,7 +73,8 @@ static gffx_diagnostic_buffer make_diagnostic(void) {
 
 static gffx_status build_pyramid(
     const void *texture, int64_t height, int64_t width, int64_t channels, int64_t levels,
-    gffx_dtype dtype, void *pyramid_out, int32_t *offsets_out, int64_t offsets_capacity
+    gffx_dtype dtype, void *pyramid_out, int32_t *offsets_out, int64_t offsets_capacity,
+    int64_t pyramid_capacity
 ) {
     gffx_execution_context context = cpu_context();
     gffx_diagnostic_buffer diagnostic = make_diagnostic();
@@ -87,7 +88,10 @@ static gffx_status build_pyramid(
 
     texture_shape[0] = height; texture_shape[1] = width; texture_shape[2] = channels;
     texture_strides[0] = width * channels; texture_strides[1] = channels; texture_strides[2] = 1;
-    pyramid_shape[0] = offsets_capacity * height * width * channels;
+    /* The true element capacity of the caller's buffer. Deriving it from the level
+     * chain would let the view claim storage the test does not own, which the
+     * aliasing check then reports as an overlap with whatever follows on the stack. */
+    pyramid_shape[0] = pyramid_capacity;
     pyramid_strides[0] = 1;
     offsets_shape[0] = offsets_capacity;
     offsets_strides[0] = 1;
@@ -102,8 +106,9 @@ static gffx_status build_pyramid(
                                        &offsets_view, NULL, &diagnostic);
 }
 
-static gffx_status sample(
+static gffx_status sample_ex(
     const void *pyramid, const int32_t *offsets, int64_t level_count,
+    int64_t texture_height, int64_t texture_width,
     const void *coordinates, int64_t count, int64_t channels,
     const void *derivatives, const void *lod,
     uint32_t filter, uint32_t mip_filter, uint32_t wrap_u, uint32_t wrap_v,
@@ -146,7 +151,8 @@ static gffx_status sample(
     sample_view = make_view(samples_out, dtype, 2u, sample_shape, sample_strides,
                             GFFX_TENSOR_OUTPUT);
 
-    return gffx_render_texture(&pyramid_view, &offsets_view, &coordinate_view,
+    return gffx_render_texture(&pyramid_view, &offsets_view,
+                               texture_height, texture_width, &coordinate_view,
                                derivatives ? &derivative_view : NULL,
                                lod ? &lod_view : NULL,
                                filter, mip_filter, wrap_u, wrap_v, &border_view,
@@ -167,13 +173,13 @@ static int test_tx01_tx03_nearest_and_bilinear(gffx_dtype dtype) {
 
     for (index = 0; index < 16; ++index) set_component(texture, dtype, index, (double)index);
     set_component(border, dtype, 0, 0.0);
-    CHECK(build_pyramid(texture, 4, 4, 1, 1, dtype, pyramid, offsets, 2) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 4, 4, 1, 1, dtype, pyramid, offsets, 2, 64) == GFFX_STATUS_OK);
 
     /* TX-01: texel centres under NEAREST return their own texel exactly. */
     set_component(coordinates, dtype, 0, 0.125); set_component(coordinates, dtype, 1, 0.125);
     set_component(coordinates, dtype, 2, 0.875); set_component(coordinates, dtype, 3, 0.875);
     set_component(coordinates, dtype, 4, 0.625); set_component(coordinates, dtype, 5, 0.125);
-    CHECK(sample(pyramid, offsets, 1, coordinates, 3, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 4, 4, coordinates, 3, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -182,7 +188,7 @@ static int test_tx01_tx03_nearest_and_bilinear(gffx_dtype dtype) {
     CHECK(get_component(samples, dtype, 2) == 2.0);
 
     /* TX-03: BILINEAR at a texel centre collapses to one weight, so it equals NEAREST exactly. */
-    CHECK(sample(pyramid, offsets, 1, coordinates, 3, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 4, 4, coordinates, 3, 1, NULL, NULL,
                  GFFX_FILTER_BILINEAR, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -205,8 +211,8 @@ static int test_tx02_bilinear_centre(gffx_dtype dtype) {
     set_component(texture, dtype, 2, 3.0); set_component(texture, dtype, 3, 4.0);
     set_component(border, dtype, 0, 0.0);
     set_component(coordinates, dtype, 0, 0.5); set_component(coordinates, dtype, 1, 0.5);
-    CHECK(build_pyramid(texture, 2, 2, 1, 1, dtype, pyramid, offsets, 2) == GFFX_STATUS_OK);
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(build_pyramid(texture, 2, 2, 1, 1, dtype, pyramid, offsets, 2, 16) == GFFX_STATUS_OK);
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 2, coordinates, 1, 1, NULL, NULL,
                  GFFX_FILTER_BILINEAR, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -228,8 +234,8 @@ static int test_tx04_non_square(gffx_dtype dtype) {
     for (index = 0; index < 16; ++index) set_component(texture, dtype, index, (double)index);
     set_component(border, dtype, 0, 0.0);
     set_component(coordinates, dtype, 0, 0.5625); set_component(coordinates, dtype, 1, 0.75);
-    CHECK(build_pyramid(texture, 2, 8, 1, 1, dtype, pyramid, offsets, 2) == GFFX_STATUS_OK);
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(build_pyramid(texture, 2, 8, 1, 1, dtype, pyramid, offsets, 2, 64) == GFFX_STATUS_OK);
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 8, coordinates, 1, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -248,7 +254,7 @@ static int test_tx05_constant_pyramid(gffx_dtype dtype) {
     int64_t index;
 
     for (index = 0; index < 16; ++index) set_component(texture, dtype, index, 0.375);
-    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4, 64) == GFFX_STATUS_OK);
     CHECK(offsets[0] == 0);
     CHECK(offsets[1] == 16);
     CHECK(offsets[2] == 20);
@@ -269,7 +275,7 @@ static int test_tx06_odd_dimensions(gffx_dtype dtype) {
     double expected;
 
     for (index = 0; index < 15; ++index) set_component(texture, dtype, index, (double)index);
-    CHECK(build_pyramid(texture, 5, 3, 1, 0, dtype, pyramid, offsets, 4) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 5, 3, 1, 0, dtype, pyramid, offsets, 4, 64) == GFFX_STATUS_OK);
     CHECK(offsets[1] == 15);      /* 5x3 */
     CHECK(offsets[2] == 15 + 2);  /* 2x1 */
     CHECK(offsets[3] == 15 + 2 + 1);
@@ -287,7 +293,7 @@ static int test_tx07_degenerate_axis(gffx_dtype dtype) {
     int64_t index;
 
     for (index = 0; index < 8; ++index) set_component(texture, dtype, index, (double)index);
-    CHECK(build_pyramid(texture, 1, 8, 1, 0, dtype, pyramid, offsets, 5) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 1, 8, 1, 0, dtype, pyramid, offsets, 5, 32) == GFFX_STATUS_OK);
     CHECK(offsets[1] == 8);
     CHECK(offsets[2] == 12);
     CHECK(offsets[3] == 14);
@@ -313,17 +319,17 @@ static int test_tx08_explicit_lod(gffx_dtype dtype) {
     for (index = 0; index < 16; ++index) set_component(texture, dtype, index, (double)index);
     set_component(border, dtype, 0, 0.0);
     set_component(coordinates, dtype, 0, 0.5); set_component(coordinates, dtype, 1, 0.5);
-    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4, 64) == GFFX_STATUS_OK);
 
     set_component(lod, dtype, 0, 0.0);
-    CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, NULL, lod,
+    CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, NULL, lod,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
     level0 = get_component(samples, dtype, 0);
 
     set_component(lod, dtype, 0, 1.0);
-    CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, NULL, lod,
+    CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, NULL, lod,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -332,7 +338,7 @@ static int test_tx08_explicit_lod(gffx_dtype dtype) {
 
     /* lod 0.5 under LINEAR is the midpoint of the two level samples. */
     set_component(lod, dtype, 0, 0.5);
-    CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, NULL, lod,
+    CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, NULL, lod,
                  GFFX_FILTER_NEAREST, GFFX_MIP_LINEAR,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -360,21 +366,21 @@ static int test_tx09_tx11_derivative_lod(gffx_dtype dtype) {
     for (index = 0; index < 16; ++index) set_component(texture, dtype, index, (double)index);
     set_component(border, dtype, 0, 0.0);
     set_component(coordinates, dtype, 0, 0.5); set_component(coordinates, dtype, 1, 0.5);
-    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4, 64) == GFFX_STATUS_OK);
 
     for (k = 0; k < 3; ++k) {
         set_component(derivatives, dtype, 0, scales[k]);
         set_component(derivatives, dtype, 1, 0.0);
         set_component(derivatives, dtype, 2, 0.0);
         set_component(derivatives, dtype, 3, scales[k]);
-        CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, derivatives, NULL,
+        CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, derivatives, NULL,
                      GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                      GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
               == GFFX_STATUS_OK);
         by_derivative = get_component(samples, dtype, 0);
 
         set_component(lod, dtype, 0, expected_levels[k]);
-        CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, NULL, lod,
+        CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, NULL, lod,
                      GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                      GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
               == GFFX_STATUS_OK);
@@ -387,13 +393,13 @@ static int test_tx09_tx11_derivative_lod(gffx_dtype dtype) {
     set_component(derivatives, dtype, 1, 0.0);
     set_component(derivatives, dtype, 2, 0.0);
     set_component(derivatives, dtype, 3, 64.0);
-    CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, derivatives, NULL,
+    CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, derivatives, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
     set_component(lod, dtype, 0, 2.0);
     by_derivative = get_component(samples, dtype, 0);
-    CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, NULL, lod,
+    CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, NULL, lod,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -419,9 +425,9 @@ static int test_tx10_zero_derivative(gffx_dtype dtype) {
     set_component(border, dtype, 0, 0.0);
     set_component(coordinates, dtype, 0, 0.5); set_component(coordinates, dtype, 1, 0.5);
     for (index = 0; index < 4; ++index) set_component(derivatives, dtype, index, 0.0);
-    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4, 64) == GFFX_STATUS_OK);
 
-    CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, derivatives, NULL,
+    CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, derivatives, NULL,
                  GFFX_FILTER_BILINEAR, GFFX_MIP_LINEAR,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -429,7 +435,7 @@ static int test_tx10_zero_derivative(gffx_dtype dtype) {
     CHECK(by_zero_derivative == by_zero_derivative);  /* not NaN */
 
     set_component(lod, dtype, 0, 0.0);
-    CHECK(sample(pyramid, offsets, 3, coordinates, 1, 1, NULL, lod,
+    CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 1, 1, NULL, lod,
                  GFFX_FILTER_BILINEAR, GFFX_MIP_LINEAR,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -451,35 +457,35 @@ static int test_tx12_tx13_wrap_modes(gffx_dtype dtype) {
     set_component(texture, dtype, 0, 10.0); set_component(texture, dtype, 1, 20.0);
     set_component(texture, dtype, 2, 30.0); set_component(texture, dtype, 3, 40.0);
     set_component(border, dtype, 0, -7.0);
-    CHECK(build_pyramid(texture, 1, 4, 1, 1, dtype, pyramid, offsets, 2) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 1, 4, 1, 1, dtype, pyramid, offsets, 2, 16) == GFFX_STATUS_OK);
 
     /* u = -0.125 is the centre of the texel one to the left of the first; u = 1.125 one to the
      * right of the last. Under NEAREST each wrap mode has a single defined answer. */
     set_component(coordinates, dtype, 0, -0.125); set_component(coordinates, dtype, 1, 0.5);
     set_component(coordinates, dtype, 2, 1.125); set_component(coordinates, dtype, 3, 0.5);
 
-    CHECK(sample(pyramid, offsets, 1, coordinates, 2, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 1, 4, coordinates, 2, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_REPEAT, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
     CHECK(get_component(samples, dtype, 0) == 40.0);
     CHECK(get_component(samples, dtype, 1) == 10.0);
 
-    CHECK(sample(pyramid, offsets, 1, coordinates, 2, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 1, 4, coordinates, 2, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
     CHECK(get_component(samples, dtype, 0) == 10.0);
     CHECK(get_component(samples, dtype, 1) == 40.0);
 
-    CHECK(sample(pyramid, offsets, 1, coordinates, 2, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 1, 4, coordinates, 2, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_MIRROR, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
     CHECK(get_component(samples, dtype, 0) == 10.0);
     CHECK(get_component(samples, dtype, 1) == 40.0);
 
-    CHECK(sample(pyramid, offsets, 1, coordinates, 2, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 1, 4, coordinates, 2, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_BORDER, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -489,7 +495,7 @@ static int test_tx12_tx13_wrap_modes(gffx_dtype dtype) {
     /* TX-13: a bilinear footprint straddling the left edge wraps each tap on its own. At u = 0.0
      * the two taps are the border value and texel 0, weighted equally. */
     set_component(coordinates, dtype, 0, 0.0); set_component(coordinates, dtype, 1, 0.5);
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 1, 4, coordinates, 1, 1, NULL, NULL,
                  GFFX_FILTER_BILINEAR, GFFX_MIP_NEAREST,
                  GFFX_WRAP_BORDER, GFFX_WRAP_CLAMP, border, dtype, samples)
           == GFFX_STATUS_OK);
@@ -511,25 +517,25 @@ static int test_tx14_nonfinite(void) {
 
     texture[1] = NAN;
     texture[2] = INFINITY;
-    CHECK(build_pyramid(texture, 2, 2, 1, 1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2)
+    CHECK(build_pyramid(texture, 2, 2, 1, 1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2, 16)
           == GFFX_STATUS_OK);
 
     coordinates[0] = 0.75; coordinates[1] = 0.25;   /* the NaN texel */
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 2, coordinates, 1, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border,
                  GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_OK);
     CHECK(isnan(samples[0]));
 
     coordinates[0] = 0.25; coordinates[1] = 0.75;   /* the infinite texel */
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 2, coordinates, 1, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border,
                  GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_OK);
     CHECK(isinf(samples[0]));
 
     coordinates[0] = NAN; coordinates[1] = 0.5;
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 2, coordinates, 1, 1, NULL, NULL,
                  GFFX_FILTER_BILINEAR, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border,
                  GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_OK);
@@ -547,32 +553,32 @@ static int test_tx15_validation(void) {
     double border[1] = {0.0};
     int32_t offsets[8] = {0};
 
-    CHECK(build_pyramid(texture, 2, 2, 1, 1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2)
+    CHECK(build_pyramid(texture, 2, 2, 1, 1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2, 16)
           == GFFX_STATUS_OK);
 
     /* derivatives and lod are mutually exclusive: supplying both is a caller error, not a
      * precedence question the library should resolve silently. */
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, derivatives, lod,
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 2, coordinates, 1, 1, derivatives, lod,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border,
                  GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_INVALID_ARGUMENT);
 
     /* Unknown enum values are rejected rather than defaulted. */
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 2, coordinates, 1, 1, NULL, NULL,
                  999u, GFFX_MIP_NEAREST,
                  GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border,
                  GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_INVALID_ARGUMENT);
-    CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL,
+    CHECK(sample_ex(pyramid, offsets, 1, 2, 2, coordinates, 1, 1, NULL, NULL,
                  GFFX_FILTER_NEAREST, GFFX_MIP_NEAREST,
                  999u, GFFX_WRAP_CLAMP, border,
                  GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_INVALID_ARGUMENT);
 
     /* An int32 texture has no defined filter result. */
-    CHECK(build_pyramid(texture, 2, 2, 1, 1, GFFX_DTYPE_INT32, pyramid, offsets, 2)
+    CHECK(build_pyramid(texture, 2, 2, 1, 1, GFFX_DTYPE_INT32, pyramid, offsets, 2, 16)
           == GFFX_STATUS_UNSUPPORTED);
 
     /* A negative level count is invalid; zero means the full chain and is valid. */
-    CHECK(build_pyramid(texture, 2, 2, 1, -1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2)
+    CHECK(build_pyramid(texture, 2, 2, 1, -1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2, 16)
           == GFFX_STATUS_INVALID_ARGUMENT);
     return 0;
 }
@@ -598,14 +604,14 @@ static int test_tx16_determinism(gffx_dtype dtype) {
     for (index = 0; index < 8; ++index) {
         set_component(coordinates, dtype, index, 0.1 + 0.11 * (double)index);
     }
-    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4) == GFFX_STATUS_OK);
+    CHECK(build_pyramid(texture, 4, 4, 1, 0, dtype, pyramid, offsets, 4, 64) == GFFX_STATUS_OK);
 
     for (f = 0; f < 2; ++f) {
         for (m = 0; m < 2; ++m) {
-            CHECK(sample(pyramid, offsets, 3, coordinates, 4, 1, NULL, NULL, filters[f], mips[m],
+            CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 4, 1, NULL, NULL, filters[f], mips[m],
                          GFFX_WRAP_REPEAT, GFFX_WRAP_REPEAT, border, dtype, first)
                   == GFFX_STATUS_OK);
-            CHECK(sample(pyramid, offsets, 3, coordinates, 4, 1, NULL, NULL, filters[f], mips[m],
+            CHECK(sample_ex(pyramid, offsets, 3, 4, 4, coordinates, 4, 1, NULL, NULL, filters[f], mips[m],
                          GFFX_WRAP_REPEAT, GFFX_WRAP_REPEAT, border, dtype, second)
                   == GFFX_STATUS_OK);
             CHECK(memcmp(first, second, bytes) == 0);
@@ -636,8 +642,9 @@ static int test_workspace_query(void) {
  * BILINEAR is differentiable in the coordinate almost everywhere, and NEAREST is not - it must
  * return exactly zero rather than a small wrong number. */
 
-static gffx_status sample_backward(
+static gffx_status sample_backward_ex(
     const void *pyramid, const int32_t *offsets, int64_t level_count,
+    int64_t texture_height, int64_t texture_width,
     const void *coordinates, int64_t count, int64_t channels,
     const void *grad_samples, uint32_t filter,
     void *grad_pyramid_out, void *grad_coordinates_out
@@ -678,7 +685,7 @@ static gffx_status sample_backward(
                                      GFFX_TENSOR_OUTPUT);
 
     return gffx_render_texture_backward(
-        &pyramid_view, &offsets_view, &coordinate_view, NULL, NULL,
+        &pyramid_view, &offsets_view, texture_height, texture_width, &coordinate_view, NULL, NULL,
         filter, GFFX_MIP_NEAREST, GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, &border_view,
         &grad_sample_view, &context, &grad_pyramid_view, &grad_coordinate_view,
         NULL, &diagnostic);
@@ -700,10 +707,10 @@ static int test_tx16_gradients(void) {
     double weight_sum = 0.0;
 
     for (index = 0; index < 16; ++index) texture[index] = 0.3 + 0.61 * (double)index;
-    CHECK(build_pyramid(texture, 4, 4, 1, 1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2)
+    CHECK(build_pyramid(texture, 4, 4, 1, 1, GFFX_DTYPE_FLOAT64, pyramid, offsets, 2, 64)
           == GFFX_STATUS_OK);
 
-    CHECK(sample_backward(pyramid, offsets, 1, coordinates, 1, 1, grad_samples,
+    CHECK(sample_backward_ex(pyramid, offsets, 1, 4, 4, coordinates, 1, 1, grad_samples,
                           GFFX_FILTER_BILINEAR, grad_pyramid, grad_coordinates)
           == GFFX_STATUS_OK);
 
@@ -711,12 +718,12 @@ static int test_tx16_gradients(void) {
     for (axis = 0; axis < 2; ++axis) {
         double plus, minus, numeric, saved = coordinates[axis];
         coordinates[axis] = saved + step;
-        CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL, GFFX_FILTER_BILINEAR,
+        CHECK(sample_ex(pyramid, offsets, 1, 4, 4, coordinates, 1, 1, NULL, NULL, GFFX_FILTER_BILINEAR,
                      GFFX_MIP_NEAREST, GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border,
                      GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_OK);
         plus = samples[0];
         coordinates[axis] = saved - step;
-        CHECK(sample(pyramid, offsets, 1, coordinates, 1, 1, NULL, NULL, GFFX_FILTER_BILINEAR,
+        CHECK(sample_ex(pyramid, offsets, 1, 4, 4, coordinates, 1, 1, NULL, NULL, GFFX_FILTER_BILINEAR,
                      GFFX_MIP_NEAREST, GFFX_WRAP_CLAMP, GFFX_WRAP_CLAMP, border,
                      GFFX_DTYPE_FLOAT64, samples) == GFFX_STATUS_OK);
         minus = samples[0];
@@ -733,7 +740,7 @@ static int test_tx16_gradients(void) {
 
     /* NEAREST: exactly zero, not merely small. */
     grad_coordinates[0] = 1.0; grad_coordinates[1] = 1.0;
-    CHECK(sample_backward(pyramid, offsets, 1, coordinates, 1, 1, grad_samples,
+    CHECK(sample_backward_ex(pyramid, offsets, 1, 4, 4, coordinates, 1, 1, grad_samples,
                           GFFX_FILTER_NEAREST, grad_pyramid, grad_coordinates)
           == GFFX_STATUS_OK);
     CHECK(grad_coordinates[0] == 0.0);
@@ -761,7 +768,7 @@ static int test_tx16_pyramid_gradient(void) {
     double total = 0.0;
 
     for (index = 0; index < 16; ++index) texture[index] = (double)index;
-    CHECK(build_pyramid(texture, 4, 4, 1, 0, GFFX_DTYPE_FLOAT64, pyramid, offsets, 4)
+    CHECK(build_pyramid(texture, 4, 4, 1, 0, GFFX_DTYPE_FLOAT64, pyramid, offsets, 4, 64)
           == GFFX_STATUS_OK);
 
     /* Level 1 is 2x2; its texel 0 covers level-0 texels 0, 1, 4 and 5. */
@@ -812,7 +819,7 @@ static int test_tx16_pyramid_gradient_multilevel(void) {
     double total = 0.0;
 
     for (index = 0; index < 16; ++index) texture[index] = (double)index;
-    CHECK(build_pyramid(texture, 4, 4, 1, 0, GFFX_DTYPE_FLOAT64, pyramid, offsets, 4)
+    CHECK(build_pyramid(texture, 4, 4, 1, 0, GFFX_DTYPE_FLOAT64, pyramid, offsets, 4, 64)
           == GFFX_STATUS_OK);
     grad_pyramid[offsets[2]] = 1.0;
 
