@@ -50,6 +50,12 @@ op gffx_render_rasterize_workspace
 op gffx_render_interpolate
 op gffx_render_interpolate_backward
 op gffx_render_interpolate_workspace
+op gffx_render_texture_pyramid
+op gffx_render_texture_pyramid_backward
+op gffx_render_texture_pyramid_workspace
+op gffx_render_texture
+op gffx_render_texture_backward
+op gffx_render_texture_workspace
 
 setup gffx_mesh_validate
 setup gffx_mesh_validate_workspace

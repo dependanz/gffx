@@ -34,6 +34,7 @@ add_library(gffx_core SHARED
     native/io/ply_file.c
     native/core/points_proximity.c
     native/core/render_rasterize.c
+    native/core/render_texture.c
     native/core/status.c
     native/core/transforms.c
 )

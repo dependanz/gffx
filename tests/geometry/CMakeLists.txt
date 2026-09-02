@@ -54,6 +54,13 @@ if(UNIX)
 endif()
 add_test(NAME geometry.render COMMAND gffx_test_render)
 
+add_executable(gffx_test_texture test_texture.c)
+target_link_libraries(gffx_test_texture PRIVATE gffx_core)
+if(UNIX)
+    target_link_libraries(gffx_test_texture PRIVATE m)
+endif()
+add_test(NAME geometry.texture COMMAND gffx_test_texture)
+
 add_executable(gffx_test_validate test_validate.c)
 target_link_libraries(gffx_test_validate PRIVATE gffx_core)
 if(UNIX)
@@ -71,6 +78,7 @@ if(WIN32)
         gffx_test_proximity
         gffx_test_sample_surface
         gffx_test_render
+        gffx_test_texture
         gffx_test_validate
     )
         add_custom_command(TARGET ${test_target} POST_BUILD

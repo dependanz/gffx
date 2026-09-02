@@ -48,6 +48,33 @@
 #define GFFX_CULL_BACK UINT32_C(2)
 #define GFFX_CULL_FRONT UINT32_C(3)
 
+
+/*
+ * render.texture_pyramid and render.texture. Semantics and the sixteen acceptance fixtures are
+ * fixed by TEXTURE_ACCEPTANCE_V0_1.md; API_CONTRACT_V0_1.md section 4.7 owns the public schema.
+ *
+ * Coordinates are normalised to [0,1] with (0,0) at the first texel of the first row and v
+ * increasing with row index, so the output of gffx_render_interpolate is a valid input unchanged.
+ * At most one of derivatives or lod may be supplied; with neither, level 0 is read. The operation
+ * never derives its own screen-space derivatives, because that would make each sample depend on
+ * its neighbours and break both per-element independence and unstructured point sampling.
+ *
+ * Every output element depends only on its own coordinate and the texture, so both operations are
+ * order-independent and CPU/CUDA results are bit-identical. The pyramid reduction order is fixed
+ * rather than left to a parallel schedule for that reason.
+ */
+
+#define GFFX_FILTER_NEAREST UINT32_C(1)
+#define GFFX_FILTER_BILINEAR UINT32_C(2)
+
+#define GFFX_MIP_NEAREST UINT32_C(1)
+#define GFFX_MIP_LINEAR UINT32_C(2)
+
+#define GFFX_WRAP_REPEAT UINT32_C(1)
+#define GFFX_WRAP_CLAMP UINT32_C(2)
+#define GFFX_WRAP_MIRROR UINT32_C(3)
+#define GFFX_WRAP_BORDER UINT32_C(4)
+
 GFFX_EXTERN_C_BEGIN
 
 GFFX_API gffx_status GFFX_CALL gffx_render_rasterize_workspace(
@@ -126,6 +153,86 @@ GFFX_API gffx_status GFFX_CALL gffx_render_interpolate_backward(
     const gffx_execution_context *context,
     gffx_tensor_view *grad_barycentric,
     gffx_tensor_view *grad_face_attributes,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+
+GFFX_API gffx_status GFFX_CALL gffx_render_texture_pyramid_workspace(
+    int64_t texture_height,
+    int64_t texture_width,
+    int64_t channel_count,
+    gffx_dtype dtype,
+    const gffx_execution_context *context,
+    uint64_t *required_bytes,
+    uint64_t *required_alignment,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_render_texture_pyramid(
+    const gffx_tensor_view *texture,
+    int64_t levels,
+    const gffx_execution_context *context,
+    gffx_tensor_view *pyramid,
+    gffx_tensor_view *level_offsets,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_render_texture_pyramid_backward(
+    const gffx_tensor_view *level_offsets,
+    int64_t texture_height,
+    int64_t texture_width,
+    int64_t channel_count,
+    const gffx_tensor_view *grad_pyramid,
+    const gffx_execution_context *context,
+    gffx_tensor_view *grad_texture,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_render_texture_workspace(
+    int64_t sample_count,
+    int64_t channel_count,
+    gffx_dtype dtype,
+    const gffx_execution_context *context,
+    uint64_t *required_bytes,
+    uint64_t *required_alignment,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_render_texture(
+    const gffx_tensor_view *pyramid,
+    const gffx_tensor_view *level_offsets,
+    const gffx_tensor_view *coordinates,
+    const gffx_tensor_view *derivatives,
+    const gffx_tensor_view *lod,
+    uint32_t filter,
+    uint32_t mip_filter,
+    uint32_t wrap_u,
+    uint32_t wrap_v,
+    const gffx_tensor_view *border,
+    const gffx_execution_context *context,
+    gffx_tensor_view *samples,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+
+GFFX_API gffx_status GFFX_CALL gffx_render_texture_backward(
+    const gffx_tensor_view *pyramid,
+    const gffx_tensor_view *level_offsets,
+    const gffx_tensor_view *coordinates,
+    const gffx_tensor_view *derivatives,
+    const gffx_tensor_view *lod,
+    uint32_t filter,
+    uint32_t mip_filter,
+    uint32_t wrap_u,
+    uint32_t wrap_v,
+    const gffx_tensor_view *border,
+    const gffx_tensor_view *grad_samples,
+    const gffx_execution_context *context,
+    gffx_tensor_view *grad_pyramid,
+    gffx_tensor_view *grad_coordinates,
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 );
