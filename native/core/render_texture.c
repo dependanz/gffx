@@ -26,6 +26,7 @@
 #include <gffx/tensor.h>
 
 #include "internal.h"
+#include "cuda_loader.h"
 #include "mesh_common.h"
 
 #include <math.h>
@@ -108,7 +109,8 @@ GFFX_API gffx_status GFFX_CALL gffx_render_texture_pyramid_workspace(
         return gffx_internal_fail(
             diagnostic,
             GFFX_STATUS_UNSUPPORTED,
-            "render.texture_pyramid implements only the CPU backend in this phase"
+            "render.texture_pyramid workspace queries are answered for the CPU; the CUDA path "
+            "requires none"
         );
     }
     /* Section 2.9: zero bytes in both directions. The reduction reads and writes the caller's
@@ -136,13 +138,25 @@ GFFX_API gffx_status GFFX_CALL gffx_render_texture_pyramid(
     int64_t total_elements;
     int32_t *offset_data;
 
+    /* Device dispatch precedes CPU validation, because the shared validators dereference tensor
+     * data and must never do that for device memory. A backend publishing no such operation
+     * returns UNSUPPORTED rather than falling back, so a missing kernel stays visible instead of
+     * becoming an unannounced host copy. */
     if (context != NULL && context->struct_size >= sizeof(*context) &&
         context->device_type == GFFX_DEVICE_CUDA) {
-        /* No CUDA provider publishes this operation yet. Returning UNSUPPORTED keeps the missing
-         * kernel visible rather than silently running the CPU path on device memory. */
-        return gffx_internal_fail(
-            diagnostic, GFFX_STATUS_UNSUPPORTED,
-            "the CUDA provider does not implement this operation");
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->render_texture_pyramid == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->render_texture_pyramid(texture, levels, context, pyramid,
+                                                  level_offsets, workspace, diagnostic);
     }
     status = gffx_internal_prepare_diagnostic(diagnostic);
     if (status != GFFX_STATUS_OK) return status;
@@ -1134,9 +1148,21 @@ GFFX_API gffx_status GFFX_CALL gffx_render_texture(
 
     if (context != NULL && context->struct_size >= sizeof(*context) &&
         context->device_type == GFFX_DEVICE_CUDA) {
-        return gffx_internal_fail(
-            diagnostic, GFFX_STATUS_UNSUPPORTED,
-            "the CUDA provider does not implement this operation");
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->render_texture == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->render_texture(pyramid, level_offsets, texture_height, texture_width,
+                                          coordinates, derivatives, lod, filter, mip_filter,
+                                          wrap_u, wrap_v, border, context, samples, workspace,
+                                          diagnostic);
     }
     status = gffx_internal_prepare_diagnostic(diagnostic);
     if (status != GFFX_STATUS_OK) return status;

@@ -415,6 +415,24 @@ GFFX_API gffx_status GFFX_CALL gffx_transforms_transform_points_backward(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* Device dispatch before validation, for the same reason as the forward. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->transforms_transform_points_backward == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->transforms_transform_points_backward(
+            points, matrices, point_offsets, grad_homogeneous, context, grad_points,
+            grad_matrices, workspace, diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t point_count = 0;
     int64_t batch_count = 0;
@@ -766,9 +784,28 @@ GFFX_API gffx_status GFFX_CALL gffx_transforms_perspective_divide_backward(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
-    gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
+    gffx_status status;
     int64_t point_count = 0;
     int64_t point;
+    /* Device dispatch before validation, as in the forward: the shared checkers dereference
+     * tensor data, which must not happen for device memory. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->transforms_perspective_divide_backward == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->transforms_perspective_divide_backward(
+            homogeneous, eps, grad_ndc, context, grad_homogeneous, workspace, diagnostic);
+    }
+    status = gffx_internal_prepare_diagnostic(diagnostic);
     if (status != GFFX_STATUS_OK) return status;
     status = gffx_divide_check_common(homogeneous, eps, context, workspace, &point_count,
                                       diagnostic);

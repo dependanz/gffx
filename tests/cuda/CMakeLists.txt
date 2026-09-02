@@ -163,6 +163,37 @@ add_test(NAME cuda.plugin.removed
 )
 
 if(GFFX_ENABLE_CUDA AND GFFX_CUDA_RUN_DEVICE_TESTS)
+    # CPU/CUDA bit-identity for the texture operations, run against a real device through the
+    # driver API. It lives here rather than beside TB-14 because TB-14 needs a CUDA-enabled
+    # PyTorch, and a CPU-only PyTorch makes that fixture skip while still reporting success.
+    # This one cannot skip silently: it is gated on the device tests being requested, and if it
+    # runs at all it compares actual bytes.
+    add_executable(gffx_test_texture_device_parity test_texture_device_parity.c)
+    target_link_libraries(gffx_test_texture_device_parity PRIVATE gffx_core CUDA::cuda_driver)
+    if(WIN32)
+        add_custom_command(TARGET gffx_test_texture_device_parity POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gffx_core>
+                $<TARGET_FILE_DIR:gffx_test_texture_device_parity>
+            VERBATIM
+        )
+    endif()
+    add_test(NAME cuda.texture_device_parity COMMAND gffx_test_texture_device_parity)
+
+    # Backward kernels. Split from the texture fixture because the two make different claims: a
+    # default path is held to bit-identity, a relaxed path only to a tolerance.
+    add_executable(gffx_test_backward_device_parity test_backward_device_parity.c)
+    target_link_libraries(gffx_test_backward_device_parity PRIVATE gffx_core CUDA::cuda_driver)
+    if(WIN32)
+        add_custom_command(TARGET gffx_test_backward_device_parity POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gffx_core>
+                $<TARGET_FILE_DIR:gffx_test_backward_device_parity>
+            VERBATIM
+        )
+    endif()
+    add_test(NAME cuda.backward_device_parity COMMAND gffx_test_backward_device_parity)
+
     add_test(NAME cuda.plugin.real_device_probe
         COMMAND gffx_test_cuda_plugin_probe $<TARGET_FILE:gffx_cuda12> loaded real
     )

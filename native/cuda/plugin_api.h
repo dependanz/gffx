@@ -151,6 +151,19 @@ typedef gffx_status (GFFX_CALL *gffx_cuda_render_rasterize_backward_fn)(
     const gffx_tensor_view *, const gffx_execution_context *, gffx_tensor_view *,
     const gffx_buffer *, gffx_diagnostic_buffer *
 );
+typedef gffx_status (GFFX_CALL *gffx_cuda_render_texture_pyramid_fn)(
+    const gffx_tensor_view *, int64_t, const gffx_execution_context *,
+    gffx_tensor_view *, gffx_tensor_view *, const gffx_buffer *, gffx_diagnostic_buffer *
+);
+
+typedef gffx_status (GFFX_CALL *gffx_cuda_render_texture_fn)(
+    const gffx_tensor_view *, const gffx_tensor_view *, int64_t, int64_t,
+    const gffx_tensor_view *, const gffx_tensor_view *, const gffx_tensor_view *,
+    uint32_t, uint32_t, uint32_t, uint32_t, const gffx_tensor_view *,
+    const gffx_execution_context *, gffx_tensor_view *, const gffx_buffer *,
+    gffx_diagnostic_buffer *
+);
+
 typedef gffx_status (GFFX_CALL *gffx_cuda_render_interpolate_fn)(
     const gffx_tensor_view *, const gffx_tensor_view *, const gffx_tensor_view *,
     const gffx_execution_context *, gffx_tensor_view *, const gffx_buffer *,
@@ -175,6 +188,8 @@ typedef gffx_status (GFFX_CALL *gffx_cuda_render_interpolate_backward_fn)(
 #define GFFX_CUDA_OP_MESH_SAMPLE_SURFACE UINT32_C(9)
 #define GFFX_CUDA_OP_RENDER_RASTERIZE UINT32_C(10)
 #define GFFX_CUDA_OP_RENDER_INTERPOLATE UINT32_C(11)
+#define GFFX_CUDA_OP_RENDER_TEXTURE_PYRAMID UINT32_C(12)
+#define GFFX_CUDA_OP_RENDER_TEXTURE UINT32_C(13)
 
 /*
  * Device-side workspace requirement.
@@ -232,6 +247,8 @@ typedef struct gffx_cuda_operations {
     gffx_cuda_render_rasterize_backward_fn render_rasterize_backward;
     gffx_cuda_render_interpolate_fn render_interpolate;
     gffx_cuda_render_interpolate_backward_fn render_interpolate_backward;
+    gffx_cuda_render_texture_pyramid_fn render_texture_pyramid;
+    gffx_cuda_render_texture_fn render_texture;
 
     uint64_t reserved[4];
 } gffx_cuda_operations;

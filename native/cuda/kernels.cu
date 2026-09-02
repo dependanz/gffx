@@ -627,3 +627,474 @@ extern "C" __global__ void gffx_cuda_rasterize_##SUFFIX(                        
 
 GFFX_CUDA_RASTERIZE(f32, float, __int_as_float(0x7f800000))
 GFFX_CUDA_RASTERIZE(f64, double, __longlong_as_double(0x7ff0000000000000LL))
+
+/* ------------------------------------------------- render.texture_pyramid and render.texture
+ *
+ * The pyramid runs one kernel per level, one thread per output texel of that level. Levels are
+ * inherently sequential because level l+1 reads level l, so the sequencing is in the launch order
+ * rather than inside a kernel; within a level every texel is independent.
+ *
+ * Each thread sums its own two-by-two block in the fixed order the host uses, left to right then
+ * top to bottom, and in the operand dtype rather than promoted to double. That differs from
+ * render.interpolate, which accumulates in double on both backends. The difference is deliberate:
+ * what bit-identity requires is that the two backends perform the same operations in the same
+ * order, and the host reference for this operation was written to sum in the operand dtype. A
+ * promotion here would make CUDA disagree with it, which is the failure the rule exists to prevent.
+ *
+ * The sampler is one thread per sample. Every output element depends only on its own coordinate
+ * and the pyramid, so there is no cross-thread interaction to make deterministic in the first
+ * place; that per-element independence is what the acceptance record's bit-identity claim rests on.
+ */
+
+__device__ __forceinline__ int gffx_cuda_texture_wrap(
+    long long index, long long extent, unsigned int mode, long long *out
+) {
+    long long period;
+    long long folded;
+    if (mode == 1u) { /* repeat */
+        *out = ((index % extent) + extent) % extent;
+        return 1;
+    }
+    if (mode == 2u) { /* clamp */
+        *out = index < 0 ? 0 : (index >= extent ? extent - 1 : index);
+        return 1;
+    }
+    if (mode == 3u) { /* mirror */
+        period = extent * 2;
+        folded = ((index % period) + period) % period;
+        *out = folded >= extent ? period - 1 - folded : folded;
+        return 1;
+    }
+    if (index < 0 || index >= extent) return 0; /* border */
+    *out = index;
+    return 1;
+}
+
+__device__ __forceinline__ void gffx_cuda_texture_level_extent(
+    long long height, long long width, long long level,
+    long long *out_height, long long *out_width
+) {
+    long long h = height;
+    long long w = width;
+    for (long long i = 0; i < level; ++i) {
+        h = h > 1 ? h / 2 : 1;
+        w = w > 1 ? w / 2 : 1;
+    }
+    *out_height = h;
+    *out_width = w;
+}
+
+#define GFFX_CUDA_TEXTURE_PYRAMID_LEVEL(SUFFIX, SCALAR)                                        \
+extern "C" __global__ void gffx_cuda_texture_pyramid_##SUFFIX(                                 \
+    const SCALAR *__restrict__ previous, SCALAR *__restrict__ current,                         \
+    long long previous_height, long long previous_width,                                       \
+    long long level_height, long long level_width, long long channels                          \
+) {                                                                                            \
+    long long texel = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (texel >= level_height * level_width) return;                                           \
+    {                                                                                          \
+        long long y = texel / level_width;                                                     \
+        long long x = texel - y * level_width;                                                 \
+        long long y0 = previous_height > 1 ? y * 2 : y;                                        \
+        long long x0 = previous_width > 1 ? x * 2 : x;                                         \
+        long long y1 = previous_height > 1 ? y0 + 1 : y0;                                      \
+        long long x1 = previous_width > 1 ? x0 + 1 : x0;                                       \
+        SCALAR divisor = (SCALAR)1;                                                            \
+        if (previous_height > 1) divisor *= (SCALAR)2;                                         \
+        if (previous_width > 1) divisor *= (SCALAR)2;                                          \
+        for (long long c = 0; c < channels; ++c) {                                             \
+            SCALAR sum = previous[(y0 * previous_width + x0) * channels + c];                  \
+            if (x1 != x0) sum += previous[(y0 * previous_width + x1) * channels + c];          \
+            if (y1 != y0) {                                                                    \
+                sum += previous[(y1 * previous_width + x0) * channels + c];                    \
+                if (x1 != x0) sum += previous[(y1 * previous_width + x1) * channels + c];      \
+            }                                                                                  \
+            current[(y * level_width + x) * channels + c] = sum / divisor;                     \
+        }                                                                                      \
+    }                                                                                          \
+}
+
+GFFX_CUDA_TEXTURE_PYRAMID_LEVEL(f32, float)
+GFFX_CUDA_TEXTURE_PYRAMID_LEVEL(f64, double)
+
+#define GFFX_CUDA_TEXTURE_SAMPLE(SUFFIX, SCALAR, FLOOR_FN, SQRT_FN, LOG2_FN, NAN_EXPR)         \
+__device__ __forceinline__ void gffx_cuda_texture_level_##SUFFIX(                              \
+    const SCALAR *level, long long level_height, long long level_width, long long channels,    \
+    SCALAR u, SCALAR v, unsigned int filter, unsigned int wrap_u, unsigned int wrap_v,         \
+    const SCALAR *border, SCALAR *out                                                          \
+) {                                                                                            \
+    if (filter == 1u) { /* nearest */                                                          \
+        long long x = (long long)FLOOR_FN(u * (SCALAR)level_width);                            \
+        long long y = (long long)FLOOR_FN(v * (SCALAR)level_height);                           \
+        long long xi, yi;                                                                      \
+        int inside = gffx_cuda_texture_wrap(x, level_width, wrap_u, &xi) &                     \
+                     gffx_cuda_texture_wrap(y, level_height, wrap_v, &yi);                     \
+        for (long long c = 0; c < channels; ++c) {                                             \
+            out[c] = inside ? level[(yi * level_width + xi) * channels + c] : border[c];        \
+        }                                                                                      \
+        return;                                                                                \
+    }                                                                                          \
+    {                                                                                          \
+        SCALAR fx = u * (SCALAR)level_width - (SCALAR)0.5;                                     \
+        SCALAR fy = v * (SCALAR)level_height - (SCALAR)0.5;                                    \
+        long long x0 = (long long)FLOOR_FN(fx);                                                \
+        long long y0 = (long long)FLOOR_FN(fy);                                                \
+        SCALAR a = fx - (SCALAR)x0;                                                            \
+        SCALAR b = fy - (SCALAR)y0;                                                            \
+        long long xi0, xi1, yi0, yi1;                                                          \
+        int ix0 = gffx_cuda_texture_wrap(x0, level_width, wrap_u, &xi0);                       \
+        int ix1 = gffx_cuda_texture_wrap(x0 + 1, level_width, wrap_u, &xi1);                   \
+        int iy0 = gffx_cuda_texture_wrap(y0, level_height, wrap_v, &yi0);                      \
+        int iy1 = gffx_cuda_texture_wrap(y0 + 1, level_height, wrap_v, &yi1);                  \
+        for (long long c = 0; c < channels; ++c) {                                             \
+            SCALAR t00 = (ix0 && iy0) ? level[(yi0 * level_width + xi0) * channels + c]        \
+                                      : border[c];                                             \
+            SCALAR t10 = (ix1 && iy0) ? level[(yi0 * level_width + xi1) * channels + c]        \
+                                      : border[c];                                             \
+            SCALAR t01 = (ix0 && iy1) ? level[(yi1 * level_width + xi0) * channels + c]        \
+                                      : border[c];                                             \
+            SCALAR t11 = (ix1 && iy1) ? level[(yi1 * level_width + xi1) * channels + c]        \
+                                      : border[c];                                             \
+            SCALAR sum = ((SCALAR)1 - a) * ((SCALAR)1 - b) * t00;                              \
+            sum += a * ((SCALAR)1 - b) * t10;                                                  \
+            sum += ((SCALAR)1 - a) * b * t01;                                                  \
+            sum += a * b * t11;                                                                \
+            out[c] = sum;                                                                      \
+        }                                                                                      \
+    }                                                                                          \
+}                                                                                              \
+                                                                                               \
+extern "C" __global__ void gffx_cuda_texture_##SUFFIX(                                         \
+    const SCALAR *__restrict__ pyramid, const int *__restrict__ offsets,                       \
+    long long level_count, long long height, long long width, long long channels,              \
+    const SCALAR *__restrict__ coordinates, long long count,                                   \
+    const SCALAR *__restrict__ derivatives, const SCALAR *__restrict__ lod_values,             \
+    unsigned int filter, unsigned int mip_filter, unsigned int wrap_u, unsigned int wrap_v,    \
+    const SCALAR *__restrict__ border, SCALAR *__restrict__ samples                            \
+) {                                                                                            \
+    long long n = (long long)blockIdx.x * blockDim.x + threadIdx.x;                            \
+    if (n >= count) return;                                                                    \
+    {                                                                                          \
+        SCALAR u = coordinates[n * 2];                                                         \
+        SCALAR v = coordinates[n * 2 + 1];                                                     \
+        SCALAR *out = samples + n * channels;                                                  \
+        double lod = 0.0;                                                                      \
+        long long first, second, h0, w0, h1, w1;                                               \
+        double blend = 0.0;                                                                    \
+        if (!(u == u) || !(v == v) || u * (SCALAR)0 != (SCALAR)0 ||                            \
+            v * (SCALAR)0 != (SCALAR)0) {                                                      \
+            for (long long c = 0; c < channels; ++c) out[c] = NAN_EXPR;                        \
+            return;                                                                            \
+        }                                                                                      \
+        if (derivatives != 0) {                                                                \
+            SCALAR ax = derivatives[n * 4] * (SCALAR)width;                                    \
+            SCALAR bx = derivatives[n * 4 + 1] * (SCALAR)height;                               \
+            SCALAR ay = derivatives[n * 4 + 2] * (SCALAR)width;                                \
+            SCALAR by = derivatives[n * 4 + 3] * (SCALAR)height;                               \
+            SCALAR rx = SQRT_FN(ax * ax + bx * bx);                                            \
+            SCALAR ry = SQRT_FN(ay * ay + by * by);                                            \
+            SCALAR rho = rx > ry ? rx : ry;                                                    \
+            if (!(rho > (SCALAR)1.1754943508222875e-38))                                       \
+                rho = (SCALAR)1.1754943508222875e-38;                                          \
+            lod = (double)LOG2_FN(rho);                                                        \
+        } else if (lod_values != 0) {                                                          \
+            lod = (double)lod_values[n];                                                       \
+        }                                                                                      \
+        if (!(lod > 0.0)) lod = 0.0;                                                           \
+        if (lod > (double)(level_count - 1)) lod = (double)(level_count - 1);                  \
+        if (mip_filter == 1u) {                                                                \
+            first = (long long)(lod + 0.5);                                                    \
+            if (first > level_count - 1) first = level_count - 1;                              \
+            second = first;                                                                    \
+        } else {                                                                               \
+            double base = floor(lod);                                                          \
+            first = (long long)base;                                                           \
+            second = first + 1;                                                                \
+            if (second > level_count - 1) second = level_count - 1;                            \
+            blend = lod - base;                                                                \
+        }                                                                                      \
+        gffx_cuda_texture_level_extent(height, width, first, &h0, &w0);                        \
+        gffx_cuda_texture_level_##SUFFIX(pyramid + offsets[first], h0, w0, channels, u, v,     \
+                                         filter, wrap_u, wrap_v, border, out);                 \
+        if (blend > 0.0 && second != first) {                                                  \
+            SCALAR coarse[4];                                                                  \
+            gffx_cuda_texture_level_extent(height, width, second, &h1, &w1);                   \
+            gffx_cuda_texture_level_##SUFFIX(pyramid + offsets[second], h1, w1, channels, u,   \
+                                             v, filter, wrap_u, wrap_v, border, coarse);       \
+            for (long long c = 0; c < channels; ++c) {                                         \
+                out[c] = out[c] * (SCALAR)(1.0 - blend) + coarse[c] * (SCALAR)blend;           \
+            }                                                                                  \
+        }                                                                                      \
+    }                                                                                          \
+}
+
+GFFX_CUDA_TEXTURE_SAMPLE(f32, float, floorf, sqrtf, log2f, __int_as_float(0x7fc00000))
+GFFX_CUDA_TEXTURE_SAMPLE(f64, double, floor, sqrt, log2,
+                         __longlong_as_double(0x7ff8000000000000LL))
+
+/* ------------------------------------------------------------------- backward kernels
+ *
+ * A forward kernel here is scatter-free: one thread owns one output. A backward usually is not,
+ * because many outputs feed back into one input, and the obvious device answer - an atomic add -
+ * completes in whatever order the hardware schedules. Floating-point addition is not associative,
+ * so an atomic scatter gives a different answer run to run and would forfeit the determinism the
+ * conformance contract promises.
+ *
+ * Every kernel below therefore inverts the scatter into a gather: the thread that owns an input
+ * element walks the outputs that touch it, in the same ascending order the host reference uses.
+ * That costs more work than an atomic scatter and is the point - it is what lets these results be
+ * compared to the CPU with memcmp rather than a tolerance.
+ */
+
+/* transforms.perspective_divide backward. Elementwise: one thread per point, no interaction at
+ * all, so determinism needs no argument beyond the arithmetic matching the host. */
+#define GFFX_CUDA_DIVIDE_BACKWARD(SUFFIX, SCALAR, ABS_FN)                                      \
+extern "C" __global__ void gffx_cuda_divide_backward_##SUFFIX(                                 \
+    const SCALAR *__restrict__ homogeneous, double eps, const SCALAR *__restrict__ grad_ndc,   \
+    long long point_count, SCALAR *__restrict__ grad_homogeneous                               \
+) {                                                                                            \
+    long long point = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (point >= point_count) return;                                                          \
+    {                                                                                          \
+        SCALAR w = homogeneous[point * 4 + 3];                                                 \
+        if ((double)ABS_FN(w) > eps) {                                                         \
+            SCALAR gx = grad_ndc[point * 3 + 0];                                               \
+            SCALAR gy = grad_ndc[point * 3 + 1];                                               \
+            SCALAR gz = grad_ndc[point * 3 + 2];                                               \
+            SCALAR nx = homogeneous[point * 4 + 0] / w;                                        \
+            SCALAR ny = homogeneous[point * 4 + 1] / w;                                        \
+            SCALAR nz = homogeneous[point * 4 + 2] / w;                                        \
+            grad_homogeneous[point * 4 + 0] = gx / w;                                          \
+            grad_homogeneous[point * 4 + 1] = gy / w;                                          \
+            grad_homogeneous[point * 4 + 2] = gz / w;                                          \
+            grad_homogeneous[point * 4 + 3] = -(gx * nx + gy * ny + gz * nz) / w;              \
+        } else {                                                                               \
+            grad_homogeneous[point * 4 + 0] = (SCALAR)0;                                       \
+            grad_homogeneous[point * 4 + 1] = (SCALAR)0;                                       \
+            grad_homogeneous[point * 4 + 2] = (SCALAR)0;                                       \
+            grad_homogeneous[point * 4 + 3] = (SCALAR)0;                                       \
+        }                                                                                      \
+    }                                                                                          \
+}
+
+GFFX_CUDA_DIVIDE_BACKWARD(f32, float, fabsf)
+GFFX_CUDA_DIVIDE_BACKWARD(f64, double, fabs)
+
+/*
+ * transforms.transform_points backward, in two kernels because its two outputs have different
+ * shapes of dependency.
+ *
+ * grad_points is elementwise: each point's gradient is a contraction against its own batch's
+ * matrix. The thread finds its batch by binary search over the packed offsets rather than being
+ * told, which keeps the launch one-dimensional over points.
+ *
+ * grad_matrices is the reduction. One thread owns one of the sixteen elements of one matrix and
+ * walks that batch's points in ascending order, which is exactly the order the host loop
+ * accumulates in. Threads never share an output, so no atomics and no ordering ambiguity.
+ */
+__device__ __forceinline__ long long gffx_cuda_batch_of_point(
+    const int *__restrict__ offsets, long long batch_count, long long point
+) {
+    long long low = 0;
+    long long high = batch_count - 1;
+    while (low < high) {
+        long long mid = (low + high + 1) / 2;
+        if ((long long)offsets[mid] <= point) low = mid; else high = mid - 1;
+    }
+    return low;
+}
+
+#define GFFX_CUDA_TRANSFORM_BACKWARD(SUFFIX, SCALAR)                                           \
+extern "C" __global__ void gffx_cuda_transform_backward_points_##SUFFIX(                       \
+    const SCALAR *__restrict__ matrices, const int *__restrict__ offsets,                      \
+    const SCALAR *__restrict__ grad_homogeneous, long long point_count, long long batch_count, \
+    SCALAR *__restrict__ grad_points                                                           \
+) {                                                                                            \
+    long long point = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (point >= point_count) return;                                                          \
+    {                                                                                          \
+        long long batch = gffx_cuda_batch_of_point(offsets, batch_count, point);               \
+        const SCALAR *m = matrices + batch * 16;                                               \
+        const SCALAR *g = grad_homogeneous + point * 4;                                        \
+        for (int column = 0; column < 3; ++column) {                                           \
+            grad_points[point * 3 + column] =                                                  \
+                g[0] * m[0 * 4 + column] + g[1] * m[1 * 4 + column] +                          \
+                g[2] * m[2 * 4 + column] + g[3] * m[3 * 4 + column];                           \
+        }                                                                                      \
+    }                                                                                          \
+}                                                                                              \
+                                                                                               \
+extern "C" __global__ void gffx_cuda_transform_backward_matrices_##SUFFIX(                     \
+    const SCALAR *__restrict__ points, const int *__restrict__ offsets,                        \
+    const SCALAR *__restrict__ grad_homogeneous, long long batch_count,                        \
+    SCALAR *__restrict__ grad_matrices                                                         \
+) {                                                                                            \
+    long long slot = (long long)blockIdx.x * blockDim.x + threadIdx.x;                         \
+    if (slot >= batch_count * 16) return;                                                      \
+    {                                                                                          \
+        long long batch = slot / 16;                                                           \
+        long long element = slot - batch * 16;                                                 \
+        long long row = element / 4;                                                           \
+        long long column = element - row * 4;                                                  \
+        SCALAR total = (SCALAR)0;                                                              \
+        for (long long point = (long long)offsets[batch];                                      \
+             point < (long long)offsets[batch + 1]; ++point) {                                 \
+            SCALAR g = grad_homogeneous[point * 4 + row];                                      \
+            /* Column 3 is the translation column, whose input is the implicit 1. */           \
+            total += column < 3 ? g * points[point * 3 + column] : g;                          \
+        }                                                                                      \
+        grad_matrices[slot] = total;                                                           \
+    }                                                                                          \
+}
+
+GFFX_CUDA_TRANSFORM_BACKWARD(f32, float)
+GFFX_CUDA_TRANSFORM_BACKWARD(f64, double)
+
+/*
+ * mesh.gather_faces backward. The host scatters, adding each corner's cotangent onto its vertex in
+ * ascending face then corner order. Inverted here into a gather: one thread owns one vertex and
+ * scans every face corner in that same order, taking the ones that name it. Reproducing the host's
+ * addition order is what makes the result comparable byte for byte.
+ *
+ * The cost is O(V*F) rather than O(F), which is the price of the ordering. A vertex-to-face
+ * incidence structure would remove it, and mesh.build_edge_topology already computes one, but
+ * consuming it here would make this backward depend on another operation's output; that is a
+ * design change rather than a kernel, and it is not made silently.
+ */
+#define GFFX_CUDA_GATHER_FACES_BACKWARD(SUFFIX, SCALAR)                                        \
+extern "C" __global__ void gffx_cuda_gather_faces_backward_##SUFFIX(                           \
+    const int *__restrict__ faces, const SCALAR *__restrict__ grad_face_vertices,              \
+    long long face_count, long long vertex_count, SCALAR *__restrict__ grad_vertices            \
+) {                                                                                            \
+    long long vertex = (long long)blockIdx.x * blockDim.x + threadIdx.x;                       \
+    if (vertex >= vertex_count) return;                                                        \
+    {                                                                                          \
+        SCALAR gx = (SCALAR)0;                                                                 \
+        SCALAR gy = (SCALAR)0;                                                                 \
+        SCALAR gz = (SCALAR)0;                                                                 \
+        for (long long face = 0; face < face_count; ++face) {                                  \
+            for (int corner = 0; corner < 3; ++corner) {                                       \
+                if ((long long)faces[face * 3 + corner] != vertex) continue;                   \
+                gx += grad_face_vertices[face * 9 + corner * 3 + 0];                           \
+                gy += grad_face_vertices[face * 9 + corner * 3 + 1];                           \
+                gz += grad_face_vertices[face * 9 + corner * 3 + 2];                           \
+            }                                                                                  \
+        }                                                                                      \
+        grad_vertices[vertex * 3 + 0] = gx;                                                    \
+        grad_vertices[vertex * 3 + 1] = gy;                                                    \
+        grad_vertices[vertex * 3 + 2] = gz;                                                    \
+    }                                                                                          \
+}
+
+GFFX_CUDA_GATHER_FACES_BACKWARD(f32, float)
+GFFX_CUDA_GATHER_FACES_BACKWARD(f64, double)
+
+/*
+ * render.interpolate backward, in three kernels because its two outputs differ in kind and one of
+ * them has two lawful implementations.
+ *
+ * grad_barycentric is per fragment: a thread owns one fragment and writes its own three corners.
+ * No interaction, so it needs no determinism argument beyond matching the host arithmetic, which
+ * accumulates the channel sum in double for both dtypes and narrows once at the store.
+ *
+ * grad_face_attributes is the scatter, and it is the case the standing policy of 2026-08-28
+ * covers: deterministic by default, relaxed only when the caller sets the flag.
+ *
+ *   ordered - a thread owns one attribute entry and scans fragments ascending, taking the ones
+ *   that name its face. Reproduces the host's addition order exactly, so it is comparable byte for
+ *   byte. Costs O(F*3*C*fragments), which is the honest price of the ordering and is why the
+ *   relaxed path exists at all.
+ *
+ *   atomic - a thread owns one fragment and adds into whatever entries it touches. Fast, and the
+ *   completion order is the hardware's, so repeated runs differ in the last bits. Reached only
+ *   through GFFX_EXECUTION_ALLOW_NONDETERMINISTIC; a caller who has not asked for that must never
+ *   receive it.
+ */
+
+#define GFFX_CUDA_INTERPOLATE_BACKWARD(SUFFIX, SCALAR)                                         \
+extern "C" __global__ void gffx_cuda_interpolate_backward_bary_##SUFFIX(                       \
+    const int *__restrict__ face_index, const SCALAR *__restrict__ face_attributes,            \
+    const SCALAR *__restrict__ grad_attributes, long long fragment_count,                      \
+    long long channel_count, SCALAR *__restrict__ grad_barycentric                             \
+) {                                                                                            \
+    long long fragment = (long long)blockIdx.x * blockDim.x + threadIdx.x;                     \
+    if (fragment >= fragment_count) return;                                                    \
+    {                                                                                          \
+        long long face = (long long)face_index[fragment];                                      \
+        for (int corner = 0; corner < 3; ++corner) {                                           \
+            double weight_gradient = 0.0;                                                      \
+            if (face >= 0) {                                                                   \
+                for (long long channel = 0; channel < channel_count; ++channel) {              \
+                    double cotangent =                                                         \
+                        (double)grad_attributes[fragment * channel_count + channel];           \
+                    double value = (double)face_attributes[                                    \
+                        (face * 3 + corner) * channel_count + channel];                        \
+                    weight_gradient += value * cotangent;                                      \
+                }                                                                              \
+            }                                                                                  \
+            grad_barycentric[fragment * 3 + corner] = (SCALAR)weight_gradient;                 \
+        }                                                                                      \
+    }                                                                                          \
+}                                                                                              \
+                                                                                               \
+extern "C" __global__ void gffx_cuda_interpolate_backward_attr_ordered_##SUFFIX(               \
+    const int *__restrict__ face_index, const SCALAR *__restrict__ barycentric,                \
+    const SCALAR *__restrict__ grad_attributes, long long fragment_count,                      \
+    long long channel_count, long long face_count,                                             \
+    SCALAR *__restrict__ grad_face_attributes                                                  \
+) {                                                                                            \
+    long long entry = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (entry >= face_count * 3 * channel_count) return;                                       \
+    {                                                                                          \
+        long long channel = entry % channel_count;                                             \
+        long long corner = (entry / channel_count) % 3;                                        \
+        long long face = entry / (channel_count * 3);                                          \
+        SCALAR total = (SCALAR)0;                                                              \
+        for (long long fragment = 0; fragment < fragment_count; ++fragment) {                  \
+            if ((long long)face_index[fragment] != face) continue;                             \
+            {                                                                                  \
+                double weight = (double)barycentric[fragment * 3 + corner];                    \
+                double cotangent =                                                             \
+                    (double)grad_attributes[fragment * channel_count + channel];               \
+                /* The host narrows each term before adding it to a running sum in the         \
+                 * operand dtype; doing the sum in double here would not match. */             \
+                total += (SCALAR)(weight * cotangent);                                         \
+            }                                                                                  \
+        }                                                                                      \
+        grad_face_attributes[entry] = total;                                                   \
+    }                                                                                          \
+}                                                                                              \
+                                                                                               \
+extern "C" __global__ void gffx_cuda_interpolate_backward_attr_atomic_##SUFFIX(                \
+    const int *__restrict__ face_index, const SCALAR *__restrict__ barycentric,                \
+    const SCALAR *__restrict__ grad_attributes, long long fragment_count,                      \
+    long long channel_count, long long face_count,                                             \
+    SCALAR *__restrict__ grad_face_attributes                                                  \
+) {                                                                                            \
+    long long fragment = (long long)blockIdx.x * blockDim.x + threadIdx.x;                     \
+    if (fragment >= fragment_count) return;                                                    \
+    {                                                                                          \
+        long long face = (long long)face_index[fragment];                                      \
+        if (face < 0 || face >= face_count) return;                                            \
+        for (int corner = 0; corner < 3; ++corner) {                                           \
+            double weight = (double)barycentric[fragment * 3 + corner];                        \
+            for (long long channel = 0; channel < channel_count; ++channel) {                  \
+                double cotangent =                                                             \
+                    (double)grad_attributes[fragment * channel_count + channel];               \
+                atomicAdd(&grad_face_attributes[(face * 3 + corner) * channel_count + channel], \
+                          (SCALAR)(weight * cotangent));                                       \
+            }                                                                                  \
+        }                                                                                      \
+    }                                                                                          \
+}                                                                                              \
+                                                                                               \
+extern "C" __global__ void gffx_cuda_zero_##SUFFIX(                                            \
+    SCALAR *__restrict__ data, long long count                                                 \
+) {                                                                                            \
+    long long index = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
+    if (index >= count) return;                                                                \
+    data[index] = (SCALAR)0;                                                                   \
+}
+
+GFFX_CUDA_INTERPOLATE_BACKWARD(f32, float)
+GFFX_CUDA_INTERPOLATE_BACKWARD(f64, double)

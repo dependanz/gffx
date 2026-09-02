@@ -209,6 +209,23 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_gather_faces_backward(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* Device dispatch before validation, as in the forward. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->mesh_gather_faces_backward == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->mesh_gather_faces_backward(
+            vertices, faces, grad_face_vertices, context, grad_vertices, workspace, diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t face_count;
     int64_t vertex_count;
