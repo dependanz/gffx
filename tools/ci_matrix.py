@@ -75,7 +75,25 @@ WORKFLOW_NAMES = {
     "package-foundation-pr.yml",
     "package-foundation-nightly.yml",
     "package-foundation-rc.yml",
+    "cuda-hardware.yml",
 }
+
+# The hardware lane is the one workflow that runs on a machine this project controls rather than
+# on a disposable hosted runner, so its safety rules are specific to it rather than shared with
+# the packaging cadences.  A self-hosted runner attached to a public repository executes whatever
+# the triggering revision contains; the only structural defence is that the trigger cannot be
+# reached without write access, which is what these tokens pin.
+CUDA_LANE_REQUIRED = (
+    "tools/verify_cuda_lane.py",
+    "-DGFFX_ENABLE_CUDA=ON",
+    "-DGFFX_CUDA_RUN_DEVICE_TESTS=ON",
+    "compute-sanitizer",
+    "self-hosted",
+)
+CUDA_LANE_FORBIDDEN = (
+    "pull_request:",
+    "schedule:",
+)
 
 _USES_PATTERN = re.compile(
     r"^\s*-?\s*uses:\s+([^@\s]+)@([0-9a-f]{40})\s+#\s+(v[^\s]+)\s*$",
@@ -336,6 +354,16 @@ def validate_workflows(root: Path) -> list[str]:
     ):
         if token not in nightly:
             errors.append(f"nightly workflow missing {token}")
+
+    cuda = texts.get("cuda-hardware.yml", "")
+    for token in CUDA_LANE_REQUIRED:
+        if token not in cuda:
+            errors.append(f"cuda hardware workflow missing {token}")
+    for token in CUDA_LANE_FORBIDDEN:
+        # A self-hosted GPU host must not be reachable by a fork's pull request, and must not be
+        # driven by a schedule it will sleep through.
+        if token in cuda:
+            errors.append(f"cuda hardware workflow must not use {token}")
 
     rc = texts.get("package-foundation-rc.yml", "")
     if _extract_generated(rc, "RC BUILD MATRIX") != render_release_build_block():

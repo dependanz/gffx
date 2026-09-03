@@ -53,6 +53,10 @@ this README were produced by calling it from Python with `ctypes` and nothing el
   inherited prototype with unrelated APIs. This is `0.2.0.dev0`, available only from a repository
   checkout or an explicitly supplied artifact.
 - **No published CUDA artifact.** The provider is built from source and needs the CUDA toolkit.
+- **CUDA agreement is measured on one machine, not in continuous integration.** No hosted runner
+  has a GPU, so every device claim above comes from manual runs on a single RTX 5090. The
+  [hardware lane](docs/CUDA_HARDWARE_LANE.md) exists to close this and needs a registered
+  self-hosted runner before it does.
 - **No JAX adapter**, and no public `torch.compile`, export, serialization, or streaming operation
   surface.
 - **No spatial acceleration structure.** `points.knn` and `points.closest_point_on_mesh` are brute
@@ -115,6 +119,7 @@ Do not call the full CUDA capability probe from a real-time frame or audio callb
 - [Dependency and vendoring policy](docs/DEPENDENCIES.md)
 - [Measured evidence versus support targets](docs/SUPPORT_STATUS.md)
 - [Isolated CUDA provider recipes](docs/CUDA_PLUGIN_BUILD.md)
+- [The CUDA hardware test lane](docs/CUDA_HARDWARE_LANE.md)
 - [Capability figures and how they are generated](docs/showcase/)
 
 ## Source boundaries

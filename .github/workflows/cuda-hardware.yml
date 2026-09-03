@@ -1,0 +1,105 @@
+name: cuda-hardware
+
+# Runs the device-gated CUDA fixtures on a self-hosted machine that actually has an NVIDIA GPU.
+# No GitHub-hosted runner in the standard matrix has one, so every bitwise CPU/CUDA claim GFFX
+# makes is otherwise unguarded by continuous integration.
+#
+# The trigger is deliberately manual.  A self-hosted runner attached to a public repository is
+# the configuration GitHub warns about, because a workflow that runs on a fork's pull request
+# executes that fork's code on the host; `workflow_dispatch` cannot be reached without write
+# access to this repository, so a fork cannot start this lane at all.  It is also the honest
+# cadence for the reference host, which is a laptop: a schedule would mostly fire while the
+# machine is asleep, and a red result that means "the host was off" teaches you to ignore red.
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Git revision to verify (defaults to the triggering revision)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cuda-hardware-${{ inputs.revision || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  device:
+    name: cuda / self-hosted / nvidia
+    # Labels, not a hostname, so the lane is portable to a second GPU host.  A machine that
+    # advertises `cuda` without a working driver fails the inventory check below rather than
+    # reporting a pass over the fixtures that survived.
+    runs-on: [self-hosted, windows, x64, cuda]
+    # A protected environment with the repository owner as required reviewer.  Redundant while
+    # the trigger stays manual, and the reason to keep it is that it stops being redundant the
+    # moment anyone widens the trigger.
+    environment: cuda-hardware
+    timeout-minutes: 60
+    steps:
+      - name: Check out the selected revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+          persist-credentials: false
+          clean: true
+
+      - name: Discard any build tree left by an earlier job
+        shell: pwsh
+        # A self-hosted runner is not a fresh container.  A stale CMake cache is how a build
+        # silently keeps an old configuration, and a stale object is how a test passes against
+        # code that no longer exists.
+        run: |
+          if (Test-Path build/hardware) { Remove-Item -Recurse -Force build/hardware }
+
+      - name: Configure the CUDA build
+        shell: pwsh
+        run: |
+          cmake -S . -B build/hardware `
+            -DBUILD_TESTING=ON `
+            -DGFFX_ENABLE_CUDA=ON `
+            -DGFFX_CUDA_RUN_DEVICE_TESTS=ON `
+            -DGFFX_BUILD_PYTHON=OFF `
+            -DGFFX_BUILD_PYTORCH=OFF
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/hardware --config Release --parallel
+
+      - name: Run the full suite including the device fixtures
+        shell: pwsh
+        run: |
+          ctest --test-dir build/hardware -C Release --output-on-failure `
+            --output-junit "$env:GITHUB_WORKSPACE/build/hardware/ctest.xml"
+
+      - name: Verify the run reached a device and record what it ran on
+        shell: pwsh
+        run: |
+          python tools/verify_cuda_lane.py build/hardware/ctest.xml `
+            --report build/hardware/lane-report.json
+
+      - name: Check the kernels for memory errors on real hardware
+        shell: pwsh
+        # The class of defect a CPU-side emulator would have been useful for - out-of-bounds
+        # access, uninitialised reads, bad launch configuration - checked here instead, on the
+        # hardware, where the floating-point results stay real.
+        run: |
+          $sanitizer = Get-Command compute-sanitizer -ErrorAction SilentlyContinue
+          if (-not $sanitizer) { throw "compute-sanitizer is not on PATH; the CUDA toolkit is incomplete" }
+          foreach ($target in @('texture_device_parity', 'backward_device_parity')) {
+            $exe = "build/hardware/tests/cuda/Release/gffx_test_$target.exe"
+            & compute-sanitizer --tool memcheck --error-exitcode 1 --leak-check no $exe
+            if ($LASTEXITCODE -ne 0) { throw "memcheck reported errors in $target" }
+          }
+
+      - name: Retain the lane report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-hardware-report
+          path: |
+            build/hardware/ctest.xml
+            build/hardware/lane-report.json
+          retention-days: 14
+          if-no-files-found: warn

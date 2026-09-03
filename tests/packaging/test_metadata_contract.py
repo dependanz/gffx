@@ -95,13 +95,27 @@ def test_development_dependency_groups_are_explicit_and_do_not_leak_to_runtime()
     assert document["build-system"]["requires"] == ["scikit-build-core==1.0.3"]
 
 
+def _flow(text: str) -> str:
+    """Collapse whitespace so a phrase assertion survives a line rewrap.
+
+    These are documentation contracts about what the docs claim, not about where the author
+    happened to wrap.  Matching raw text makes reflowing a paragraph a test failure, which
+    trains people to edit the test rather than read it.
+    """
+    return " ".join(text.split())
+
+
 def test_readme_states_the_current_product_and_non_support_boundaries():
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    readme = _flow((REPO_ROOT / "README.md").read_text(encoding="utf-8"))
 
     for required in (
-        "general-purpose differentiable graphics, geometry, and mesh toolkit",
-        "Public PyPI releases through `0.1.4` belong to the inherited prototype",
-        "No public graphics or geometry operation is implemented",
+        "general-purpose graphics, geometry, and mesh toolkit",
+        "differentiable wherever differentiation exists",
+        "Public PyPI releases through `0.1.4` belong to an inherited prototype",
+        # The boundary section is load-bearing: a README that lists only capability overclaims
+        # by omission, which is the failure this assertion exists to prevent.
+        "## What does not work yet",
+        "`pip install gffx` does not install this",
         "import gffx",
         "gffx.capabilities()",
         "gffx.cuda.capabilities()",
@@ -128,9 +142,14 @@ def test_install_build_dependency_and_support_documents_are_truthful():
     assert "zero mandatory third-party Python runtime dependencies" in dependencies
     assert "No third-party source is vendored" in dependencies
     assert "MIT" in dependencies
+    support = _flow(support)
     assert "Target, not support" in support
     assert "Internal foundation evidence" in support
-    assert "No functional CUDA kernel" in support
+    # Twelve CUDA forwards and twelve backwards now exist, so the old "no functional CUDA kernel"
+    # pin asserted a falsehood.  What has to stay conservative is the scope of the evidence: the
+    # kernels are measured on one machine, and no hosted lane has ever run one.
+    assert "Internal evidence on **one** host only" in support
+    assert "No hosted lane has ever executed a CUDA kernel" in support
 
 
 def test_documented_dependency_categories_match_declared_groups():
@@ -147,10 +166,12 @@ def test_merged_documentation_has_no_branch_or_completed_step_staleness():
         encoding="utf-8"
     )
     support = (REPO_ROOT / "docs" / "SUPPORT_STATUS.md").read_text(encoding="utf-8")
+    readme, installation, support = _flow(readme), _flow(installation), _flow(support)
 
     assert "from this branch" not in readme
     assert (
-        "repository checkout that contains the `0.2.0.dev0` foundation" in readme
+        "available only from a repository checkout or an explicitly supplied artifact"
+        in readme
     )
     assert "default GitHub branch also remains the inherited prototype" not in support
     assert (

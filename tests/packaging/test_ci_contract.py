@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "tools"
@@ -11,13 +13,16 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 
-def _load_ci_matrix():
-    module_path = TOOLS / "ci_matrix.py"
-    spec = importlib.util.spec_from_file_location("gffx_ci_matrix", module_path)
+def _load_module(name: str, module_path: Path):
+    spec = importlib.util.spec_from_file_location(name, module_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_ci_matrix():
+    return _load_module("gffx_ci_matrix", TOOLS / "ci_matrix.py")
 
 
 def test_action_pins_are_exact_and_immutable() -> None:
@@ -78,15 +83,77 @@ def test_release_candidate_matrix_builds_four_and_tests_eighty() -> None:
     assert len({(e["platform"], e["python"], e["pytorch"]) for e in tests}) == 80
 
 
-def test_workflows_are_exactly_the_three_cadences_and_validate() -> None:
+def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
     matrix = _load_ci_matrix()
     workflows = ROOT / ".github" / "workflows"
     assert matrix.validate_workflows(ROOT) == []
     assert not (workflows / "wheels.yml").exists()
     assert {path.name for path in workflows.glob("*.yml")} == {
         "package-foundation-pr.yml", "package-foundation-nightly.yml",
-        "package-foundation-rc.yml",
+        "package-foundation-rc.yml", "cuda-hardware.yml",
     }
+
+
+def test_cuda_lane_cannot_be_started_by_a_fork_or_by_a_schedule() -> None:
+    """The hardware lane runs on a machine we own, so its trigger is the security boundary.
+
+    A self-hosted runner attached to a public repository executes the triggering revision's own
+    code.  ``workflow_dispatch`` requires write access to this repository, so a fork cannot reach
+    it; a ``pull_request`` trigger would hand that machine to anyone who can open one.  The
+    schedule exclusion is not security but honesty: the reference host is a laptop, and a cadence
+    it sleeps through produces red that means nothing.
+    """
+    cuda = (ROOT / ".github" / "workflows" / "cuda-hardware.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in cuda
+    assert "pull_request:" not in cuda
+    assert "schedule:" not in cuda
+    assert "runs-on: [self-hosted, windows, x64, cuda]" in cuda
+    assert "environment: cuda-hardware" in cuda
+
+
+def test_cuda_lane_enables_the_device_build_and_proves_it_reached_a_device() -> None:
+    """Enabling CUDA and running CTest is not evidence that a GPU was touched.
+
+    Every device-gated fixture declines when no device is present, so a lane that lost its GPU
+    would report a complete pass over whatever remained.  The lane therefore asserts the device
+    fixtures by name through ``verify_cuda_lane.py`` rather than trusting the exit status.
+    """
+    cuda = (ROOT / ".github" / "workflows" / "cuda-hardware.yml").read_text(encoding="utf-8")
+    assert "-DGFFX_ENABLE_CUDA=ON" in cuda
+    assert "-DGFFX_CUDA_RUN_DEVICE_TESTS=ON" in cuda
+    assert "tools/verify_cuda_lane.py" in cuda
+    assert "compute-sanitizer" in cuda
+
+    lane = _load_module("gffx_verify_cuda_lane", TOOLS / "verify_cuda_lane.py")
+    assert set(lane.DEVICE_GATED_TESTS) == {
+        "cuda.texture_device_parity", "cuda.backward_device_parity",
+        "cuda.plugin.real_device_probe", "cuda.plugin.default_discovery",
+    }
+    assert lane.MINIMUM_TOTAL_TESTS >= 40
+
+
+def test_cuda_lane_verifier_rejects_a_pass_that_never_reached_a_device() -> None:
+    """The false green is the failure mode, so it is the one worth a test."""
+    lane = _load_module("gffx_verify_cuda_lane", TOOLS / "verify_cuda_lane.py")
+    complete = {
+        "total": lane.MINIMUM_TOTAL_TESTS,
+        "names": sorted(lane.DEVICE_GATED_TESTS + lane.PLUGIN_BUILD_TESTS)
+        + [f"filler.{index}" for index in range(lane.MINIMUM_TOTAL_TESTS - 6)],
+    }
+    lane.check_inventory(complete)
+
+    without_device = {
+        "total": complete["total"] - len(lane.DEVICE_GATED_TESTS),
+        "names": [
+            name for name in complete["names"] if name not in set(lane.DEVICE_GATED_TESTS)
+        ],
+    }
+    with pytest.raises(lane.LaneError, match="did not touch a GPU"):
+        lane.check_inventory(without_device)
+
+    shrunk = {"total": lane.MINIMUM_TOTAL_TESTS - 1, "names": complete["names"]}
+    with pytest.raises(lane.LaneError, match="inventory shrank"):
+        lane.check_inventory(shrunk)
 
 
 def test_workflows_are_least_privilege_pinned_and_scope_truthful() -> None:
