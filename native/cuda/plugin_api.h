@@ -164,6 +164,20 @@ typedef gffx_status (GFFX_CALL *gffx_cuda_render_texture_fn)(
     gffx_diagnostic_buffer *
 );
 
+typedef gffx_status (GFFX_CALL *gffx_cuda_render_texture_pyramid_backward_fn)(
+    const gffx_tensor_view *, int64_t, int64_t, int64_t, const gffx_tensor_view *,
+    const gffx_execution_context *, gffx_tensor_view *, const gffx_buffer *,
+    gffx_diagnostic_buffer *
+);
+
+typedef gffx_status (GFFX_CALL *gffx_cuda_render_texture_backward_fn)(
+    const gffx_tensor_view *, const gffx_tensor_view *, int64_t, int64_t,
+    const gffx_tensor_view *, const gffx_tensor_view *, const gffx_tensor_view *,
+    uint32_t, uint32_t, uint32_t, uint32_t, const gffx_tensor_view *,
+    const gffx_tensor_view *, const gffx_execution_context *, gffx_tensor_view *,
+    gffx_tensor_view *, const gffx_buffer *, gffx_diagnostic_buffer *
+);
+
 typedef gffx_status (GFFX_CALL *gffx_cuda_render_interpolate_fn)(
     const gffx_tensor_view *, const gffx_tensor_view *, const gffx_tensor_view *,
     const gffx_execution_context *, gffx_tensor_view *, const gffx_buffer *,
@@ -249,6 +263,8 @@ typedef struct gffx_cuda_operations {
     gffx_cuda_render_interpolate_backward_fn render_interpolate_backward;
     gffx_cuda_render_texture_pyramid_fn render_texture_pyramid;
     gffx_cuda_render_texture_fn render_texture;
+    gffx_cuda_render_texture_backward_fn render_texture_backward;
+    gffx_cuda_render_texture_pyramid_backward_fn render_texture_pyramid_backward;
 
     uint64_t reserved[4];
 } gffx_cuda_operations;

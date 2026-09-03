@@ -418,11 +418,23 @@ GFFX_API gffx_status GFFX_CALL gffx_render_texture_pyramid_backward(
     int64_t level;
     const int32_t *offset_data;
 
+    /* Device dispatch before validation, as in the forward. */
     if (context != NULL && context->struct_size >= sizeof(*context) &&
         context->device_type == GFFX_DEVICE_CUDA) {
-        return gffx_internal_fail(
-            diagnostic, GFFX_STATUS_UNSUPPORTED,
-            "the CUDA provider does not implement this operation");
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->render_texture_pyramid_backward == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->render_texture_pyramid_backward(
+            level_offsets, texture_height, texture_width, channel_count, grad_pyramid, context,
+            grad_texture, workspace, diagnostic);
     }
     status = gffx_internal_prepare_diagnostic(diagnostic);
     if (status != GFFX_STATUS_OK) return status;
@@ -1334,6 +1346,25 @@ GFFX_API gffx_status GFFX_CALL gffx_render_texture_backward(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* Device dispatch before validation, as in the forward. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->render_texture_backward == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->render_texture_backward(
+            pyramid, level_offsets, texture_height, texture_width, coordinates, derivatives,
+            lod, filter, mip_filter, wrap_u, wrap_v, border, grad_samples, context,
+            grad_pyramid, grad_coordinates, workspace, diagnostic);
+    }
     gffx_status status;
     int64_t count;
     int64_t level_count;

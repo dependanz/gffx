@@ -377,6 +377,27 @@ static CUfunction gffx_cuda_interpolate_backward_bary[2] = {NULL, NULL};
 static CUfunction gffx_cuda_interpolate_backward_attr_ordered[2] = {NULL, NULL};
 static CUfunction gffx_cuda_interpolate_backward_attr_atomic[2] = {NULL, NULL};
 static CUfunction gffx_cuda_zero[2] = {NULL, NULL};
+static CUfunction gffx_cuda_texture_backward_coords[2] = {NULL, NULL};
+static CUfunction gffx_cuda_face_geometry_backward[2] = {NULL, NULL};
+static CUfunction gffx_cuda_texture_pyramid_backward[2] = {NULL, NULL};
+static CUfunction gffx_cuda_knn_backward_query[2] = {NULL, NULL};
+static CUfunction gffx_cuda_knn_backward_reference_ordered[2] = {NULL, NULL};
+static CUfunction gffx_cuda_knn_backward_reference_atomic[2] = {NULL, NULL};
+static CUfunction gffx_cuda_closest_backward_points[2] = {NULL, NULL};
+static CUfunction gffx_cuda_rasterize_backward_ordered[2] = {NULL, NULL};
+static CUfunction gffx_cuda_vertex_normals[2] = {NULL, NULL};
+static CUfunction gffx_cuda_vertex_normals_sums[2] = {NULL, NULL};
+static CUfunction gffx_cuda_sample_cumulative[2] = {NULL, NULL};
+static CUfunction gffx_cuda_sample_backward_ordered[2] = {NULL, NULL};
+static CUfunction gffx_cuda_sample_backward_atomic[2] = {NULL, NULL};
+static CUfunction gffx_cuda_sample_surface[2] = {NULL, NULL};
+static CUfunction gffx_cuda_vertex_normals_q[2] = {NULL, NULL};
+static CUfunction gffx_cuda_vertex_normals_backward[2] = {NULL, NULL};
+static CUfunction gffx_cuda_rasterize_backward_atomic[2] = {NULL, NULL};
+static CUfunction gffx_cuda_closest_backward_vertices_ordered[2] = {NULL, NULL};
+static CUfunction gffx_cuda_closest_backward_vertices_atomic[2] = {NULL, NULL};
+static CUfunction gffx_cuda_texture_backward_pyramid_ordered[2] = {NULL, NULL};
+static CUfunction gffx_cuda_texture_backward_pyramid_atomic[2] = {NULL, NULL};
 static CUfunction gffx_cuda_transform_backward_points[2] = {NULL, NULL};
 static CUfunction gffx_cuda_transform_backward_matrices[2] = {NULL, NULL};
 
@@ -468,7 +489,91 @@ static gffx_status gffx_cuda_ensure_module(gffx_diagnostic_buffer *diagnostic) {
         cuModuleGetFunction(&gffx_cuda_zero[0], gffx_cuda_module,
                             "gffx_cuda_zero_f32") != CUDA_SUCCESS ||
         cuModuleGetFunction(&gffx_cuda_zero[1], gffx_cuda_module,
-                            "gffx_cuda_zero_f64") != CUDA_SUCCESS) {
+                            "gffx_cuda_zero_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_backward_coords[0], gffx_cuda_module,
+                            "gffx_cuda_texture_backward_coords_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_backward_coords[1], gffx_cuda_module,
+                            "gffx_cuda_texture_backward_coords_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_backward_pyramid_ordered[0], gffx_cuda_module,
+                            "gffx_cuda_texture_backward_pyramid_ordered_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_backward_pyramid_ordered[1], gffx_cuda_module,
+                            "gffx_cuda_texture_backward_pyramid_ordered_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_backward_pyramid_atomic[0], gffx_cuda_module,
+                            "gffx_cuda_texture_backward_pyramid_atomic_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_backward_pyramid_atomic[1], gffx_cuda_module,
+                            "gffx_cuda_texture_backward_pyramid_atomic_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_face_geometry_backward[0], gffx_cuda_module,
+                            "gffx_cuda_face_geometry_backward_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_face_geometry_backward[1], gffx_cuda_module,
+                            "gffx_cuda_face_geometry_backward_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_pyramid_backward[0], gffx_cuda_module,
+                            "gffx_cuda_texture_pyramid_backward_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_texture_pyramid_backward[1], gffx_cuda_module,
+                            "gffx_cuda_texture_pyramid_backward_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_knn_backward_query[0], gffx_cuda_module,
+                            "gffx_cuda_knn_backward_query_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_knn_backward_query[1], gffx_cuda_module,
+                            "gffx_cuda_knn_backward_query_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_knn_backward_reference_ordered[0], gffx_cuda_module,
+                            "gffx_cuda_knn_backward_reference_ordered_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_knn_backward_reference_ordered[1], gffx_cuda_module,
+                            "gffx_cuda_knn_backward_reference_ordered_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_knn_backward_reference_atomic[0], gffx_cuda_module,
+                            "gffx_cuda_knn_backward_reference_atomic_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_knn_backward_reference_atomic[1], gffx_cuda_module,
+                            "gffx_cuda_knn_backward_reference_atomic_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_closest_backward_points[0], gffx_cuda_module,
+                            "gffx_cuda_closest_backward_points_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_closest_backward_points[1], gffx_cuda_module,
+                            "gffx_cuda_closest_backward_points_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_closest_backward_vertices_ordered[0], gffx_cuda_module,
+                            "gffx_cuda_closest_backward_vertices_ordered_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_closest_backward_vertices_ordered[1], gffx_cuda_module,
+                            "gffx_cuda_closest_backward_vertices_ordered_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_closest_backward_vertices_atomic[0], gffx_cuda_module,
+                            "gffx_cuda_closest_backward_vertices_atomic_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_closest_backward_vertices_atomic[1], gffx_cuda_module,
+                            "gffx_cuda_closest_backward_vertices_atomic_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_rasterize_backward_ordered[0], gffx_cuda_module,
+                            "gffx_cuda_rasterize_backward_ordered_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_rasterize_backward_ordered[1], gffx_cuda_module,
+                            "gffx_cuda_rasterize_backward_ordered_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_rasterize_backward_atomic[0], gffx_cuda_module,
+                            "gffx_cuda_rasterize_backward_atomic_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_rasterize_backward_atomic[1], gffx_cuda_module,
+                            "gffx_cuda_rasterize_backward_atomic_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals[0], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals[1], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals_sums[0], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_sums_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals_sums[1], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_sums_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals_q[0], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_q_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals_q[1], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_q_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals_backward[0], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_backward_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_vertex_normals_backward[1], gffx_cuda_module,
+                            "gffx_cuda_vertex_normals_backward_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_cumulative[0], gffx_cuda_module,
+                            "gffx_cuda_sample_cumulative_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_cumulative[1], gffx_cuda_module,
+                            "gffx_cuda_sample_cumulative_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_surface[0], gffx_cuda_module,
+                            "gffx_cuda_sample_surface_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_surface[1], gffx_cuda_module,
+                            "gffx_cuda_sample_surface_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_backward_ordered[0], gffx_cuda_module,
+                            "gffx_cuda_sample_backward_ordered_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_backward_ordered[1], gffx_cuda_module,
+                            "gffx_cuda_sample_backward_ordered_f64") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_backward_atomic[0], gffx_cuda_module,
+                            "gffx_cuda_sample_backward_atomic_f32") != CUDA_SUCCESS ||
+        cuModuleGetFunction(&gffx_cuda_sample_backward_atomic[1], gffx_cuda_module,
+                            "gffx_cuda_sample_backward_atomic_f64") != CUDA_SUCCESS) {
         cuModuleUnload(gffx_cuda_module);
         gffx_cuda_module = NULL;
         return gffx_cuda_fail(diagnostic, GFFX_STATUS_INTERNAL_ERROR,
@@ -1612,23 +1717,800 @@ static gffx_status GFFX_CALL gffx_cuda_op_interpolate_backward(
     }
 }
 
+
+static gffx_status GFFX_CALL gffx_cuda_op_texture_backward(
+    const gffx_tensor_view *pyramid, const gffx_tensor_view *level_offsets,
+    int64_t texture_height, int64_t texture_width, const gffx_tensor_view *coordinates,
+    const gffx_tensor_view *derivatives, const gffx_tensor_view *lod, uint32_t filter,
+    uint32_t mip_filter, uint32_t wrap_u, uint32_t wrap_v, const gffx_tensor_view *border,
+    const gffx_tensor_view *grad_samples, const gffx_execution_context *context,
+    gffx_tensor_view *grad_pyramid, gffx_tensor_view *grad_coordinates,
+    const gffx_buffer *workspace, gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long count;
+    long long channels;
+    long long level_count;
+    long long height;
+    long long width;
+    long long total;
+    int slot;
+    int relaxed;
+    void *derivative_data;
+    void *lod_data;
+
+    (void)workspace;
+    (void)border;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (pyramid == NULL || level_offsets == NULL || coordinates == NULL ||
+        grad_samples == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "texture backward requires its inputs");
+    }
+    if (derivatives != NULL && lod != NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "derivatives and lod are mutually exclusive");
+    }
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    count = (long long)coordinates->shape[0];
+    channels = (long long)grad_samples->shape[1];
+    level_count = (long long)level_offsets->shape[0] - 1;
+    height = (long long)texture_height;
+    width = (long long)texture_width;
+    slot = gffx_cuda_dtype_slot(pyramid->dtype);
+    relaxed = (context->flags & GFFX_EXECUTION_ALLOW_NONDETERMINISTIC) != 0u;
+    derivative_data = derivatives != NULL ? derivatives->data : NULL;
+    lod_data = lod != NULL ? lod->data : NULL;
+    total = (long long)pyramid->shape[0];
+
+    if (grad_coordinates != NULL && count > 0) {
+        void *arguments[16];
+        arguments[0] = (void *)&pyramid->data;
+        arguments[1] = (void *)&level_offsets->data;
+        arguments[2] = (void *)&level_count;
+        arguments[3] = (void *)&height;
+        arguments[4] = (void *)&width;
+        arguments[5] = (void *)&channels;
+        arguments[6] = (void *)&coordinates->data;
+        arguments[7] = (void *)&count;
+        arguments[8] = (void *)&derivative_data;
+        arguments[9] = (void *)&lod_data;
+        arguments[10] = (void *)&filter;
+        arguments[11] = (void *)&mip_filter;
+        arguments[12] = (void *)&wrap_u;
+        arguments[13] = (void *)&wrap_v;
+        arguments[14] = (void *)&grad_samples->data;
+        arguments[15] = (void *)&grad_coordinates->data;
+        status = gffx_cuda_launch(gffx_cuda_texture_backward_coords[slot], count, arguments,
+                                  context, diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+    }
+    if (grad_pyramid == NULL) return GFFX_STATUS_OK;
+    if (!relaxed) {
+        void *arguments[16];
+        arguments[0] = (void *)&level_offsets->data;
+        arguments[1] = (void *)&level_count;
+        arguments[2] = (void *)&height;
+        arguments[3] = (void *)&width;
+        arguments[4] = (void *)&channels;
+        arguments[5] = (void *)&coordinates->data;
+        arguments[6] = (void *)&count;
+        arguments[7] = (void *)&derivative_data;
+        arguments[8] = (void *)&lod_data;
+        arguments[9] = (void *)&filter;
+        arguments[10] = (void *)&mip_filter;
+        arguments[11] = (void *)&wrap_u;
+        arguments[12] = (void *)&wrap_v;
+        arguments[13] = (void *)&grad_samples->data;
+        arguments[14] = (void *)&grad_pyramid->data;
+        arguments[15] = (void *)&total;
+        return gffx_cuda_launch(gffx_cuda_texture_backward_pyramid_ordered[slot], total,
+                                arguments, context, diagnostic);
+    }
+    {
+        void *zero_arguments[2];
+        void *arguments[15];
+        zero_arguments[0] = (void *)&grad_pyramid->data;
+        zero_arguments[1] = (void *)&total;
+        status = gffx_cuda_launch(gffx_cuda_zero[slot], total, zero_arguments, context,
+                                  diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+        if (count == 0) return GFFX_STATUS_OK;
+        arguments[0] = (void *)&level_offsets->data;
+        arguments[1] = (void *)&level_count;
+        arguments[2] = (void *)&height;
+        arguments[3] = (void *)&width;
+        arguments[4] = (void *)&channels;
+        arguments[5] = (void *)&coordinates->data;
+        arguments[6] = (void *)&count;
+        arguments[7] = (void *)&derivative_data;
+        arguments[8] = (void *)&lod_data;
+        arguments[9] = (void *)&filter;
+        arguments[10] = (void *)&mip_filter;
+        arguments[11] = (void *)&wrap_u;
+        arguments[12] = (void *)&wrap_v;
+        arguments[13] = (void *)&grad_samples->data;
+        arguments[14] = (void *)&grad_pyramid->data;
+        return gffx_cuda_launch(gffx_cuda_texture_backward_pyramid_atomic[slot], count,
+                                arguments, context, diagnostic);
+    }
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_face_geometry_backward(
+    const gffx_tensor_view *vertices, const gffx_tensor_view *faces, double eps,
+    const gffx_tensor_view *grad_unit_normals, const gffx_tensor_view *grad_areas,
+    const gffx_execution_context *context, gffx_tensor_view *grad_vertices,
+    const gffx_buffer *workspace, gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long face_count;
+    long long vertex_count;
+    void *normal_data;
+    void *area_data;
+    void *arguments[7];
+
+    (void)workspace;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (vertices == NULL || faces == NULL || grad_vertices == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "face_geometry backward requires vertices, faces and an output");
+    }
+    status = gffx_cuda_check_device_view(vertices, 2u, vertices->dtype,
+                                         "vertices must be a [V,3] device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    face_count = (long long)faces->shape[0];
+    vertex_count = (long long)vertices->shape[0];
+    if (vertex_count == 0) return GFFX_STATUS_OK;
+    normal_data = grad_unit_normals != NULL ? grad_unit_normals->data : NULL;
+    area_data = grad_areas != NULL ? grad_areas->data : NULL;
+    arguments[0] = (void *)&vertices->data;
+    arguments[1] = (void *)&faces->data;
+    arguments[2] = (void *)&face_count;
+    arguments[3] = (void *)&vertex_count;
+    arguments[4] = (void *)&eps;
+    arguments[5] = (void *)&normal_data;
+    arguments[6] = (void *)&area_data;
+    {
+        void *full[8];
+        int i;
+        for (i = 0; i < 7; ++i) full[i] = arguments[i];
+        full[7] = (void *)&grad_vertices->data;
+        return gffx_cuda_launch(
+            gffx_cuda_face_geometry_backward[gffx_cuda_dtype_slot(vertices->dtype)],
+            vertex_count, full, context, diagnostic);
+    }
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_texture_pyramid_backward(
+    const gffx_tensor_view *level_offsets, int64_t texture_height, int64_t texture_width,
+    int64_t channel_count, const gffx_tensor_view *grad_pyramid,
+    const gffx_execution_context *context, gffx_tensor_view *grad_texture,
+    const gffx_buffer *workspace, gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long level_count;
+    long long height;
+    long long width;
+    long long channels;
+    long long total;
+    void *arguments[6];
+
+    (void)workspace;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (level_offsets == NULL || grad_pyramid == NULL || grad_texture == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "texture_pyramid backward requires offsets, a gradient and an output");
+    }
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    level_count = (long long)level_offsets->shape[0] - 1;
+    height = (long long)texture_height;
+    width = (long long)texture_width;
+    channels = (long long)channel_count;
+    total = height * width * channels;
+    if (total == 0) return GFFX_STATUS_OK;
+    arguments[0] = (void *)&level_offsets->data;
+    arguments[1] = (void *)&level_count;
+    arguments[2] = (void *)&height;
+    arguments[3] = (void *)&width;
+    arguments[4] = (void *)&channels;
+    {
+        void *full[7];
+        int i;
+        for (i = 0; i < 5; ++i) full[i] = arguments[i];
+        full[5] = (void *)&grad_pyramid->data;
+        full[6] = (void *)&grad_texture->data;
+        return gffx_cuda_launch(
+            gffx_cuda_texture_pyramid_backward[gffx_cuda_dtype_slot(grad_pyramid->dtype)],
+            total, full, context, diagnostic);
+    }
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_knn_backward(
+    const gffx_tensor_view *query, const gffx_tensor_view *reference,
+    const gffx_tensor_view *reference_index, const gffx_tensor_view *valid,
+    const gffx_tensor_view *grad_distance_squared, const gffx_execution_context *context,
+    gffx_tensor_view *grad_query, gffx_tensor_view *grad_reference,
+    const gffx_buffer *workspace, gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long query_count;
+    long long neighbor_count;
+    long long reference_count;
+    int slot;
+    int relaxed;
+
+    (void)workspace;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (query == NULL || reference == NULL || reference_index == NULL || valid == NULL ||
+        grad_distance_squared == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "knn backward requires its five inputs");
+    }
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    query_count = (long long)query->shape[0];
+    reference_count = (long long)reference->shape[0];
+    neighbor_count = (long long)reference_index->shape[reference_index->rank - 1u];
+    slot = gffx_cuda_dtype_slot(query->dtype);
+    relaxed = (context->flags & GFFX_EXECUTION_ALLOW_NONDETERMINISTIC) != 0u;
+
+    if (grad_query != NULL && query_count > 0) {
+        void *arguments[8];
+        arguments[0] = (void *)&query->data;
+        arguments[1] = (void *)&reference->data;
+        arguments[2] = (void *)&reference_index->data;
+        arguments[3] = (void *)&valid->data;
+        arguments[4] = (void *)&grad_distance_squared->data;
+        arguments[5] = (void *)&query_count;
+        arguments[6] = (void *)&neighbor_count;
+        arguments[7] = (void *)&grad_query->data;
+        status = gffx_cuda_launch(gffx_cuda_knn_backward_query[slot], query_count, arguments,
+                                  context, diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+    }
+    if (grad_reference == NULL || reference_count == 0) return GFFX_STATUS_OK;
+    {
+        void *arguments[9];
+        arguments[0] = (void *)&query->data;
+        arguments[1] = (void *)&reference->data;
+        arguments[2] = (void *)&reference_index->data;
+        arguments[3] = (void *)&valid->data;
+        arguments[4] = (void *)&grad_distance_squared->data;
+        arguments[5] = (void *)&query_count;
+        arguments[6] = (void *)&neighbor_count;
+        arguments[7] = (void *)&reference_count;
+        arguments[8] = (void *)&grad_reference->data;
+        if (!relaxed) {
+            return gffx_cuda_launch(gffx_cuda_knn_backward_reference_ordered[slot],
+                                    reference_count, arguments, context, diagnostic);
+        }
+        {
+            void *zero_arguments[2];
+            long long total = reference_count * 3;
+            zero_arguments[0] = (void *)&grad_reference->data;
+            zero_arguments[1] = (void *)&total;
+            status = gffx_cuda_launch(gffx_cuda_zero[slot], total, zero_arguments, context,
+                                      diagnostic);
+            if (status != GFFX_STATUS_OK) return status;
+            if (query_count == 0) return GFFX_STATUS_OK;
+            return gffx_cuda_launch(gffx_cuda_knn_backward_reference_atomic[slot], query_count,
+                                    arguments, context, diagnostic);
+        }
+    }
+}
+
+static gffx_status GFFX_CALL gffx_cuda_op_closest_point_backward(
+    const gffx_tensor_view *points, const gffx_tensor_view *vertices,
+    const gffx_tensor_view *faces, const gffx_tensor_view *face_index,
+    const gffx_tensor_view *barycentric, const gffx_tensor_view *closest,
+    const gffx_tensor_view *valid, const gffx_tensor_view *grad_distance_squared,
+    const gffx_execution_context *context, gffx_tensor_view *grad_points,
+    gffx_tensor_view *grad_vertices, const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long point_count;
+    long long vertex_count;
+    int slot;
+    int relaxed;
+
+    (void)workspace;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (points == NULL || vertices == NULL || faces == NULL || face_index == NULL ||
+        barycentric == NULL || closest == NULL || valid == NULL ||
+        grad_distance_squared == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "closest_point_on_mesh backward requires its eight inputs");
+    }
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    point_count = (long long)points->shape[0];
+    vertex_count = (long long)vertices->shape[0];
+    slot = gffx_cuda_dtype_slot(points->dtype);
+    relaxed = (context->flags & GFFX_EXECUTION_ALLOW_NONDETERMINISTIC) != 0u;
+
+    if (grad_points != NULL && point_count > 0) {
+        void *arguments[6];
+        arguments[0] = (void *)&points->data;
+        arguments[1] = (void *)&closest->data;
+        arguments[2] = (void *)&valid->data;
+        arguments[3] = (void *)&grad_distance_squared->data;
+        arguments[4] = (void *)&point_count;
+        arguments[5] = (void *)&grad_points->data;
+        status = gffx_cuda_launch(gffx_cuda_closest_backward_points[slot], point_count, arguments,
+                                  context, diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+    }
+    if (grad_vertices == NULL || vertex_count == 0) return GFFX_STATUS_OK;
+    {
+        void *arguments[10];
+        arguments[0] = (void *)&points->data;
+        arguments[1] = (void *)&closest->data;
+        arguments[2] = (void *)&barycentric->data;
+        arguments[3] = (void *)&face_index->data;
+        arguments[4] = (void *)&faces->data;
+        arguments[5] = (void *)&valid->data;
+        arguments[6] = (void *)&grad_distance_squared->data;
+        arguments[7] = (void *)&point_count;
+        arguments[8] = (void *)&vertex_count;
+        arguments[9] = (void *)&grad_vertices->data;
+        if (!relaxed) {
+            return gffx_cuda_launch(gffx_cuda_closest_backward_vertices_ordered[slot],
+                                    vertex_count, arguments, context, diagnostic);
+        }
+        {
+            void *zero_arguments[2];
+            long long total = vertex_count * 3;
+            zero_arguments[0] = (void *)&grad_vertices->data;
+            zero_arguments[1] = (void *)&total;
+            status = gffx_cuda_launch(gffx_cuda_zero[slot], total, zero_arguments, context,
+                                      diagnostic);
+            if (status != GFFX_STATUS_OK) return status;
+            if (point_count == 0) return GFFX_STATUS_OK;
+            return gffx_cuda_launch(gffx_cuda_closest_backward_vertices_atomic[slot], point_count,
+                                    arguments, context, diagnostic);
+        }
+    }
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_rasterize_backward(
+    const gffx_tensor_view *ndc_vertices, const gffx_tensor_view *faces,
+    int64_t image_height, int64_t image_width, const gffx_tensor_view *face_index,
+    const gffx_tensor_view *grad_barycentric, const gffx_tensor_view *grad_depth,
+    const gffx_tensor_view *grad_signed_distance, const gffx_execution_context *context,
+    gffx_tensor_view *grad_ndc_vertices, const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long height;
+    long long width;
+    long long faces_per_pixel;
+    long long batch_count;
+    long long vertex_count;
+    long long fragment_count;
+    long long total;
+    void *bary_data;
+    void *depth_data;
+    void *distance_data;
+    void *arguments[11];
+    int slot;
+    int relaxed;
+
+    (void)workspace;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (ndc_vertices == NULL || faces == NULL || face_index == NULL ||
+        grad_ndc_vertices == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "rasterize backward requires its inputs and an output");
+    }
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    height = (long long)image_height;
+    width = (long long)image_width;
+    batch_count = (long long)face_index->shape[0];
+    faces_per_pixel = (long long)face_index->shape[3];
+    vertex_count = (long long)ndc_vertices->shape[0];
+    fragment_count = batch_count * height * width * faces_per_pixel;
+    total = vertex_count * 3;
+    slot = gffx_cuda_dtype_slot(ndc_vertices->dtype);
+    relaxed = (context->flags & GFFX_EXECUTION_ALLOW_NONDETERMINISTIC) != 0u;
+    bary_data = grad_barycentric != NULL ? grad_barycentric->data : NULL;
+    depth_data = grad_depth != NULL ? grad_depth->data : NULL;
+    distance_data = grad_signed_distance != NULL ? grad_signed_distance->data : NULL;
+    if (vertex_count == 0) return GFFX_STATUS_OK;
+
+    arguments[0] = (void *)&ndc_vertices->data;
+    arguments[1] = (void *)&faces->data;
+    arguments[2] = (void *)&face_index->data;
+    arguments[3] = (void *)&height;
+    arguments[4] = (void *)&width;
+    arguments[5] = (void *)&faces_per_pixel;
+    arguments[6] = relaxed ? (void *)&fragment_count : (void *)&batch_count;
+    arguments[7] = (void *)&vertex_count;
+    arguments[8] = (void *)&bary_data;
+    arguments[9] = (void *)&depth_data;
+    arguments[10] = (void *)&distance_data;
+    {
+        void *full[12];
+        int i;
+        for (i = 0; i < 11; ++i) full[i] = arguments[i];
+        full[11] = (void *)&grad_ndc_vertices->data;
+        if (!relaxed) {
+            return gffx_cuda_launch(gffx_cuda_rasterize_backward_ordered[slot], vertex_count,
+                                    full, context, diagnostic);
+        }
+        {
+            void *zero_arguments[2];
+            zero_arguments[0] = (void *)&grad_ndc_vertices->data;
+            zero_arguments[1] = (void *)&total;
+            status = gffx_cuda_launch(gffx_cuda_zero[slot], total, zero_arguments, context,
+                                      diagnostic);
+            if (status != GFFX_STATUS_OK) return status;
+            if (fragment_count == 0) return GFFX_STATUS_OK;
+            return gffx_cuda_launch(gffx_cuda_rasterize_backward_atomic[slot], fragment_count,
+                                    full, context, diagnostic);
+        }
+    }
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_vertex_normals(
+    const gffx_tensor_view *vertices, const gffx_tensor_view *faces, double eps,
+    uint32_t weighting, const gffx_execution_context *context, gffx_tensor_view *unit_normals,
+    const gffx_buffer *workspace, gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long face_count;
+    long long vertex_count;
+    void *arguments[7];
+
+    (void)workspace;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (vertices == NULL || faces == NULL || unit_normals == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "vertex_normals requires vertices, faces and an output");
+    }
+    status = gffx_cuda_check_device_view(vertices, 2u, vertices->dtype,
+                                         "vertices must be a [V,3] device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    face_count = (long long)faces->shape[0];
+    vertex_count = (long long)vertices->shape[0];
+    if (vertex_count == 0) return GFFX_STATUS_OK;
+    arguments[0] = (void *)&vertices->data;
+    arguments[1] = (void *)&faces->data;
+    arguments[2] = (void *)&face_count;
+    arguments[3] = (void *)&vertex_count;
+    arguments[4] = (void *)&eps;
+    arguments[5] = (void *)&weighting;
+    arguments[6] = (void *)&unit_normals->data;
+    return gffx_cuda_launch(gffx_cuda_vertex_normals[gffx_cuda_dtype_slot(vertices->dtype)],
+                            vertex_count, arguments, context, diagnostic);
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_vertex_normals_backward(
+    const gffx_tensor_view *vertices, const gffx_tensor_view *faces, double eps,
+    uint32_t weighting, const gffx_tensor_view *grad_unit_normals,
+    const gffx_execution_context *context, gffx_tensor_view *grad_vertices,
+    const gffx_buffer *workspace, gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long face_count;
+    long long vertex_count;
+    uint64_t required_bytes;
+    size_t element;
+    int slot;
+
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (vertices == NULL || faces == NULL || grad_unit_normals == NULL ||
+        grad_vertices == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "vertex_normals backward requires its inputs and an output");
+    }
+    status = gffx_cuda_check_device_view(vertices, 2u, vertices->dtype,
+                                         "vertices must be a [V,3] device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    face_count = (long long)faces->shape[0];
+    vertex_count = (long long)vertices->shape[0];
+    if (vertex_count == 0) return GFFX_STATUS_OK;
+    element = vertices->dtype == GFFX_DTYPE_FLOAT64 ? sizeof(double) : sizeof(float);
+    required_bytes = (uint64_t)vertex_count * UINT64_C(3) * (uint64_t)element;
+    /* The intermediate per-vertex sums live in the caller's workspace, exactly as on the host.
+     * This is one of the few operations with a nonzero requirement, and the phase structure is
+     * the reason: the conversion to dL/ds needs every vertex's sum complete first. */
+    if (workspace == NULL || workspace->data == NULL ||
+        workspace->capacity_bytes < required_bytes) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "the backward pass requires the workspace capacity reported by "
+                              "the query");
+    }
+    slot = gffx_cuda_dtype_slot(vertices->dtype);
+    {
+        void *sums = workspace->data;
+        void *arguments[7];
+        arguments[0] = (void *)&vertices->data;
+        arguments[1] = (void *)&faces->data;
+        arguments[2] = (void *)&face_count;
+        arguments[3] = (void *)&vertex_count;
+        arguments[4] = (void *)&eps;
+        arguments[5] = (void *)&weighting;
+        arguments[6] = (void *)&sums;
+        status = gffx_cuda_launch(gffx_cuda_vertex_normals_sums[slot], vertex_count, arguments,
+                                  context, diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+    }
+    {
+        void *sums = workspace->data;
+        void *arguments[4];
+        arguments[0] = (void *)&grad_unit_normals->data;
+        arguments[1] = (void *)&vertex_count;
+        arguments[2] = (void *)&eps;
+        arguments[3] = (void *)&sums;
+        status = gffx_cuda_launch(gffx_cuda_vertex_normals_q[slot], vertex_count, arguments,
+                                  context, diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+    }
+    {
+        void *sums = workspace->data;
+        void *arguments[8];
+        arguments[0] = (void *)&vertices->data;
+        arguments[1] = (void *)&faces->data;
+        arguments[2] = (void *)&face_count;
+        arguments[3] = (void *)&vertex_count;
+        arguments[4] = (void *)&eps;
+        arguments[5] = (void *)&weighting;
+        arguments[6] = (void *)&sums;
+        arguments[7] = (void *)&grad_vertices->data;
+        return gffx_cuda_launch(gffx_cuda_vertex_normals_backward[slot], vertex_count, arguments,
+                                context, diagnostic);
+    }
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_sample_surface(
+    const gffx_tensor_view *vertices, const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets, const gffx_tensor_view *face_offsets,
+    int64_t sample_count, const gffx_tensor_view *rng_key, const gffx_tensor_view *rng_counter,
+    double eps, const gffx_execution_context *context, gffx_tensor_view *points,
+    gffx_tensor_view *face_index, gffx_tensor_view *barycentric,
+    gffx_tensor_view *next_counter, const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long batch_count;
+    long long face_count;
+    long long samples;
+    uint64_t table_bytes;
+    unsigned int host_counter[2];
+    unsigned int advanced[2];
+    unsigned int degenerate = 0u;
+    CUdeviceptr flag;
+    int slot;
+
+    (void)vertex_offsets;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (vertices == NULL || faces == NULL || face_offsets == NULL || rng_key == NULL ||
+        rng_counter == NULL || next_counter == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "sample_surface requires its inputs and a next counter");
+    }
+    status = gffx_cuda_check_device_view(vertices, 2u, vertices->dtype,
+                                         "vertices must be a [V,3] device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    batch_count = (long long)face_offsets->shape[0] - 1;
+    face_count = (long long)faces->shape[0];
+    samples = (long long)sample_count;
+    slot = gffx_cuda_dtype_slot(vertices->dtype);
+    table_bytes = (uint64_t)face_count * (uint64_t)sizeof(double);
+
+    /* The counter advance is reported even when no sample is requested, so it happens before the
+     * early return. Two words are cheaper to advance on the host and copy up than to launch for. */
+    if (cuMemcpyDtoH(host_counter, (CUdeviceptr)rng_counter->data, sizeof(host_counter))
+        != CUDA_SUCCESS) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INTERNAL_ERROR,
+                              "failed to read the rng counter from the device");
+    }
+    advanced[0] = host_counter[0] + 1u;
+    advanced[1] = host_counter[1] + (advanced[0] == 0u ? 1u : 0u);
+    if (cuMemcpyHtoD((CUdeviceptr)next_counter->data, advanced, sizeof(advanced))
+        != CUDA_SUCCESS) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INTERNAL_ERROR,
+                              "failed to write the advanced counter to the device");
+    }
+    if (samples == 0 || batch_count == 0) return GFFX_STATUS_OK;
+    if (points == NULL || face_index == NULL || barycentric == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "sample_surface requires its three outputs");
+    }
+    /* The device requirement is the host's table plus one word for the degenerate-batch flag,
+     * which is why the workspace query answers per device rather than once. */
+    if (workspace == NULL || workspace->data == NULL ||
+        workspace->capacity_bytes < table_bytes + (uint64_t)sizeof(unsigned int)) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "the forward pass requires the workspace capacity reported by "
+                              "the query");
+    }
+    flag = (CUdeviceptr)((char *)workspace->data + table_bytes);
+    if (cuMemcpyHtoD(flag, &degenerate, sizeof(degenerate)) != CUDA_SUCCESS) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INTERNAL_ERROR,
+                              "failed to clear the degenerate-batch flag");
+    }
+    {
+        void *table = workspace->data;
+        void *flag_pointer = (void *)(uintptr_t)flag;
+        void *arguments[7];
+        arguments[0] = (void *)&vertices->data;
+        arguments[1] = (void *)&faces->data;
+        arguments[2] = (void *)&face_offsets->data;
+        arguments[3] = (void *)&batch_count;
+        arguments[4] = (void *)&eps;
+        arguments[5] = (void *)&table;
+        arguments[6] = (void *)&flag_pointer;
+        status = gffx_cuda_launch(gffx_cuda_sample_cumulative[slot], batch_count, arguments,
+                                  context, diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+    }
+    if (cuCtxSynchronize() != CUDA_SUCCESS ||
+        cuMemcpyDtoH(&degenerate, flag, sizeof(degenerate)) != CUDA_SUCCESS) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INTERNAL_ERROR,
+                              "failed to read the degenerate-batch flag");
+    }
+    if (degenerate != 0u) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "cannot sample a batch element with no positive-area face");
+    }
+    {
+        void *table = workspace->data;
+        void *arguments[10];
+        arguments[0] = (void *)&vertices->data;
+        arguments[1] = (void *)&faces->data;
+        arguments[2] = (void *)&face_offsets->data;
+        arguments[3] = (void *)&batch_count;
+        arguments[4] = (void *)&samples;
+        arguments[5] = (void *)&rng_key->data;
+        arguments[6] = (void *)&rng_counter->data;
+        arguments[7] = (void *)&table;
+        arguments[8] = (void *)&points->data;
+        arguments[9] = (void *)&face_index->data;
+        {
+            void *full[11];
+            int i;
+            for (i = 0; i < 10; ++i) full[i] = arguments[i];
+            full[10] = (void *)&barycentric->data;
+            return gffx_cuda_launch(gffx_cuda_sample_surface[slot], batch_count * samples,
+                                    full, context, diagnostic);
+        }
+    }
+}
+
+
+static gffx_status GFFX_CALL gffx_cuda_op_sample_surface_backward(
+    const gffx_tensor_view *faces, const gffx_tensor_view *face_index,
+    const gffx_tensor_view *barycentric, const gffx_tensor_view *grad_points,
+    const gffx_execution_context *context, gffx_tensor_view *grad_vertices,
+    const gffx_buffer *workspace, gffx_diagnostic_buffer *diagnostic
+) {
+    gffx_status status;
+    long long entry_count;
+    long long vertex_count;
+    long long total;
+    void *arguments[7];
+    int slot;
+    int relaxed;
+
+    (void)workspace;
+    if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "this backend requires a CUDA execution context");
+    }
+    if (faces == NULL || face_index == NULL || barycentric == NULL || grad_points == NULL ||
+        grad_vertices == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "sample_surface backward requires its inputs and an output");
+    }
+    status = gffx_cuda_ensure_module(diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+
+    entry_count = (long long)face_index->shape[0] * (long long)face_index->shape[1];
+    vertex_count = (long long)grad_vertices->shape[0];
+    total = vertex_count * 3;
+    if (vertex_count == 0) return GFFX_STATUS_OK;
+    slot = gffx_cuda_dtype_slot(barycentric->dtype);
+    relaxed = (context->flags & GFFX_EXECUTION_ALLOW_NONDETERMINISTIC) != 0u;
+
+    arguments[0] = (void *)&faces->data;
+    arguments[1] = (void *)&face_index->data;
+    arguments[2] = (void *)&barycentric->data;
+    arguments[3] = (void *)&grad_points->data;
+    arguments[4] = (void *)&entry_count;
+    arguments[5] = (void *)&vertex_count;
+    arguments[6] = (void *)&grad_vertices->data;
+    if (!relaxed) {
+        return gffx_cuda_launch(gffx_cuda_sample_backward_ordered[slot], vertex_count,
+                                arguments, context, diagnostic);
+    }
+    {
+        void *zero_arguments[2];
+        zero_arguments[0] = (void *)&grad_vertices->data;
+        zero_arguments[1] = (void *)&total;
+        status = gffx_cuda_launch(gffx_cuda_zero[slot], total, zero_arguments, context,
+                                  diagnostic);
+        if (status != GFFX_STATUS_OK) return status;
+        if (entry_count == 0) return GFFX_STATUS_OK;
+        return gffx_cuda_launch(gffx_cuda_sample_backward_atomic[slot], entry_count, arguments,
+                                context, diagnostic);
+    }
+}
+
 static const gffx_cuda_operations gffx_cuda_operation_table = {
     (uint32_t)sizeof(gffx_cuda_operations),
     0u,
     gffx_cuda_op_workspace,
-    gffx_cuda_op_face_geometry, NULL,   /* mesh.face_geometry; backward not yet implemented */
-    NULL, NULL,   /* mesh.vertex_normals, backward */
+    gffx_cuda_op_face_geometry, gffx_cuda_op_face_geometry_backward,
+    gffx_cuda_op_vertex_normals, gffx_cuda_op_vertex_normals_backward,
     gffx_cuda_op_gather_faces, gffx_cuda_op_gather_faces_backward,
     gffx_cuda_op_transform_points, gffx_cuda_op_transform_points_backward,
     gffx_cuda_op_perspective_divide, gffx_cuda_op_perspective_divide_backward,
     NULL,         /* mesh.build_edge_topology, no backward by contract */
-    gffx_cuda_op_knn, NULL,   /* points.knn */
-    gffx_cuda_op_closest_point_on_mesh, NULL,   /* points.closest_point_on_mesh */
-    NULL, NULL,   /* mesh.sample_surface, backward */
-    gffx_cuda_op_rasterize, NULL,   /* render.rasterize */
+    gffx_cuda_op_knn, gffx_cuda_op_knn_backward,
+    gffx_cuda_op_closest_point_on_mesh, gffx_cuda_op_closest_point_backward,
+    gffx_cuda_op_sample_surface, gffx_cuda_op_sample_surface_backward,
+    gffx_cuda_op_rasterize, gffx_cuda_op_rasterize_backward,
     gffx_cuda_op_interpolate, gffx_cuda_op_interpolate_backward,
     gffx_cuda_op_texture_pyramid,   /* render.texture_pyramid, backward not yet implemented */
-    gffx_cuda_op_texture,           /* render.texture, backward not yet implemented */
+    gffx_cuda_op_texture,
+    gffx_cuda_op_texture_backward,
+    gffx_cuda_op_texture_pyramid_backward,
     {0, 0, 0, 0}
 };
 

@@ -130,8 +130,38 @@ int main(int argc, char **argv) {
     CHECK(api.operations->struct_size >= sizeof(*api.operations));
     CHECK(api.operations->mesh_face_geometry != NULL);
     CHECK(api.operations->workspace_query != NULL);
-    /* An unimplemented entry stays NULL rather than pointing at a stub that would report success. */
-    CHECK(api.operations->mesh_face_geometry_backward == NULL);
+    /* An unimplemented entry stays NULL rather than pointing at a stub that would report success.
+     * mesh_face_geometry_backward held this role until it was implemented on 2026-09-02; the
+     * property being guarded is that null means absent, so the assertion moved to a slot that is
+     * still genuinely absent rather than being deleted. */
+    /* One slot is still genuinely absent: mesh.build_edge_topology, which has no CUDA forward.
+     * When that lands, this assertion has nowhere left to point, and the property it guards -
+     * that an absent operation is null rather than a stub reporting success - will need a
+     * different check. Counting the table's non-null entries against MODULE_BOUNDARY_V0_1.md
+     * would test it structurally instead of by naming whichever slot happens to be empty. The
+     * assertion must not simply be deleted for want of a target. */
+    CHECK(api.operations->mesh_build_edge_topology == NULL);
+    CHECK(api.operations->mesh_sample_surface_backward != NULL);
+    /* mesh.sample_surface is the last pair still genuinely absent, so the null assertions end
+     * here. When it lands there will be nothing left to assert null on, and the property will
+     * have to be checked another way rather than by picking a slot that happens to be empty. */
+    CHECK(api.operations->mesh_vertex_normals_backward != NULL);
+    /* Conversely, a slot that has been implemented must be populated, so this test fails if a
+     * kernel is silently dropped from the table as well as if a stub appears in it. */
+    CHECK(api.operations->mesh_face_geometry_backward != NULL);
+    CHECK(api.operations->mesh_gather_faces_backward != NULL);
+    CHECK(api.operations->transforms_transform_points_backward != NULL);
+    CHECK(api.operations->transforms_perspective_divide_backward != NULL);
+    CHECK(api.operations->render_interpolate_backward != NULL);
+    CHECK(api.operations->render_texture_pyramid != NULL);
+    CHECK(api.operations->render_texture != NULL);
+    CHECK(api.operations->render_texture_backward != NULL);
+    CHECK(api.operations->render_texture_pyramid_backward != NULL);
+    CHECK(api.operations->render_rasterize_backward != NULL);
+    CHECK(api.operations->points_knn_backward != NULL);
+    CHECK(api.operations->points_closest_point_on_mesh_backward != NULL);
+    CHECK(api.operations->mesh_vertex_normals != NULL);
+    CHECK(api.operations->mesh_sample_surface != NULL);
 
     CHECK(cuDeviceGet(&device, 0) == CUDA_SUCCESS);
     CHECK(cuCtxCreate(&cuda_context, 0, device) == CUDA_SUCCESS);

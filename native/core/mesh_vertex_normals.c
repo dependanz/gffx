@@ -14,6 +14,7 @@
 #include <gffx/tensor.h>
 
 #include "internal.h"
+#include "cuda_loader.h"
 #include "mesh_common.h"
 
 #include <math.h>
@@ -129,11 +130,16 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals_workspace(
     }
     status = gffx_validate_execution_context(context, diagnostic);
     if (status != GFFX_STATUS_OK) return status;
-    if (context->device_type != GFFX_DEVICE_CPU) {
+    if (context->device_type != GFFX_DEVICE_CPU &&
+        context->device_type != GFFX_DEVICE_CUDA) {
+        /* The requirement is the same on both backends: three elements per vertex for the
+         * intermediate sums. Refusing a CUDA context here left a device caller unable to learn
+         * the size it must allocate, which made the backward unreachable by contract even once
+         * its kernels existed. */
         return gffx_internal_fail(
             diagnostic,
             GFFX_STATUS_UNSUPPORTED,
-            "mesh.vertex_normals implements only the CPU backend in this phase"
+            "mesh.vertex_normals supports the CPU and CUDA backends"
         );
     }
     element_size = gffx_mesh_dtype_size(dtype);
@@ -159,6 +165,24 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* Device dispatch before validation, as elsewhere: the shared checkers dereference tensor
+     * data and must not do that for device memory. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->mesh_vertex_normals == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->mesh_vertex_normals(
+            vertices, faces, eps, weighting, context, unit_normals, workspace, diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t vertex_count;
     int64_t face_count;
@@ -253,6 +277,24 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_vertex_normals_backward(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* Device dispatch before validation, as in the forward. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->mesh_vertex_normals_backward == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->mesh_vertex_normals_backward(
+            vertices, faces, eps, weighting, grad_unit_normals, context, grad_vertices,
+            workspace, diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t vertex_count;
     int64_t face_count;

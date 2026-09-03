@@ -14,6 +14,7 @@
 #include <gffx/tensor.h>
 
 #include "internal.h"
+#include "cuda_loader.h"
 #include "mesh_common.h"
 
 #include <math.h>
@@ -169,6 +170,16 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_sample_surface_workspace(
     }
     status = gffx_validate_execution_context(context, diagnostic);
     if (status != GFFX_STATUS_OK) return status;
+    if (context->device_type == GFFX_DEVICE_CUDA) {
+        /* The device path needs the host's table plus one word for the degenerate-batch flag,
+         * because a kernel cannot return a status. Refusing the query here would leave a device
+         * caller unable to learn the size it must allocate, which is how the same refusal made
+         * mesh.vertex_normals unreachable on CUDA until it was corrected. */
+        *required_bytes = (uint64_t)face_count * (uint64_t)sizeof(double) +
+                          (uint64_t)sizeof(uint32_t);
+        *required_alignment = (uint64_t)sizeof(double);
+        return GFFX_STATUS_OK;
+    }
     if (context->device_type != GFFX_DEVICE_CPU) {
         return gffx_internal_fail(
             diagnostic,
@@ -206,6 +217,24 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_sample_surface(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* Device dispatch before validation, as elsewhere. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->mesh_sample_surface == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->mesh_sample_surface(
+            vertices, faces, vertex_offsets, face_offsets, sample_count, rng_key, rng_counter,
+            eps, context, points, face_index, barycentric, next_counter, workspace, diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t vertex_count;
     int64_t face_count;
@@ -548,6 +577,24 @@ GFFX_API gffx_status GFFX_CALL gffx_mesh_sample_surface_backward(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    /* Device dispatch before validation, as elsewhere. */
+    if (context != NULL && context->struct_size >= sizeof(*context) &&
+        context->device_type == GFFX_DEVICE_CUDA) {
+        const gffx_cuda_operations *operations = gffx_cuda_loader_operations();
+        if (operations == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "no CUDA provider is available; install the gffx CUDA plugin or run on the CPU");
+        }
+        if (operations->mesh_sample_surface_backward == NULL) {
+            return gffx_internal_fail(
+                diagnostic, GFFX_STATUS_UNSUPPORTED,
+                "the CUDA provider does not implement this operation");
+        }
+        return operations->mesh_sample_surface_backward(
+            faces, face_index, barycentric, grad_points, context, grad_vertices, workspace,
+            diagnostic);
+    }
     gffx_status status = gffx_internal_prepare_diagnostic(diagnostic);
     int64_t face_count;
     int64_t batch_count;

@@ -55,7 +55,7 @@ static const gffx_cuda_operations synthetic_operations = {
     NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    NULL, NULL,   /* render.texture_pyramid, render.texture */
+    NULL, NULL, NULL, NULL,   /* the two texture forwards and their backwards */
     {0, 0, 0, 0}
 };
 #endif

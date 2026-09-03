@@ -45,21 +45,16 @@ if(ptx_target STREQUAL "")
     set(ptx_target "unknown")
 endif()
 
-set(body "")
-set(column 0)
-set(index 0)
-while(index LESS hex_length)
-    string(SUBSTRING "${ptx_hex}" ${index} 2 byte)
-    string(APPEND body "0x${byte},")
-    math(EXPR column "${column} + 1")
-    if(column EQUAL 16)
-        string(APPEND body "\n    ")
-        set(column 0)
-    else()
-        string(APPEND body " ")
-    endif()
-    math(EXPR index "${index} + 2")
-endwhile()
+# Formatted with two regex passes rather than a per-byte loop. The loop this replaces appended to
+# a growing string once per byte, which is quadratic: at 0.5 MB of PTX it had stopped completing in
+# any usable time, having been unremarkable when the kernel set was small. Both passes below are
+# single traversals, so the cost stays linear as the kernel set grows.
+string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1, " body "${ptx_hex}")
+# Wrap at sixteen bytes a line so the generated file stays readable in a diff.
+# CMake regex has no {n} quantifier, so the sixteen-byte group is built literally with
+# string(REPEAT). Written as {16} it matches nothing and silently leaves one enormous line.
+string(REPEAT "0x[0-9a-fA-F][0-9a-fA-F], " 16 wrap_pattern)
+string(REGEX REPLACE "(${wrap_pattern})" "\\1\n    " body "${body}")
 
 get_filename_component(input_name "${GFFX_PTX_INPUT}" NAME)
 
