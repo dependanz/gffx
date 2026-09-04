@@ -55,6 +55,18 @@ target_include_directories(gffx_core
 
 target_link_libraries(gffx_core PRIVATE ${CMAKE_DL_LIBS})
 
+# glibc keeps the math functions in a separate libm, so a core that calls floor, log2 or sqrt has
+# to say so. Without this the shared library still builds, because a shared object is permitted to
+# carry unresolved symbols, and it still imports from Python, because the interpreter has already
+# loaded libm into the process. It fails only where an executable links against it directly, which
+# is why the wheel built and the Python gates passed on every hosted lane while the native CTest
+# build failed on all four Linux lanes with undefined references to floor, floorf, log2, log2f,
+# sqrt and sqrtf. Windows and macOS carry these in their default C library and were unaffected.
+# PRIVATE is correct: the library resolves its own math symbols and consumers need not know.
+if(UNIX)
+    target_link_libraries(gffx_core PRIVATE m)
+endif()
+
 set_target_properties(gffx_core PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES
