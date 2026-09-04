@@ -67,10 +67,29 @@ if(TORCH_CXX_FLAGS)
     target_compile_options(gffx_pytorch_adapter PRIVATE ${GFFX_TORCH_CXX_FLAGS})
 endif()
 
-target_link_libraries(gffx_pytorch_adapter PRIVATE ${TORCH_LIBRARIES})
+# The adapter calls the shared core directly; the kernels are not duplicated across the boundary.
+target_link_libraries(gffx_pytorch_adapter PRIVATE gffx_core ${TORCH_LIBRARIES})
 
 # The adapter is imported only after Python has imported torch, so the framework's own runtime
 # libraries are already loaded and remain owned by the framework distribution.
+#
+# The core is a different case and needs an explicit runtime search path. Both binaries install
+# into the same `gffx` package directory, but neither Linux nor macOS searches a loading library's
+# own directory by default, so without this the adapter builds and installs correctly and then
+# fails at import with `libgffx_core.so: cannot open shared object file`. That is what every
+# hosted lane hit on 2026-09-03: the wheel's adapter had never been loadable on any platform, and
+# local verification had missed it because the two binaries were hand-copied side by side, which
+# reproduces by accident the one condition the wheel does not establish.
+#
+# Windows needs no equivalent property. CPython loads a `.pyd` with LOAD_WITH_ALTERED_SEARCH_PATH,
+# which searches the directory holding the module being loaded, so a `gffx_core.dll` installed
+# beside the adapter is already found.
+if(APPLE)
+    set_target_properties(gffx_pytorch_adapter PROPERTIES INSTALL_RPATH "@loader_path")
+elseif(UNIX)
+    set_target_properties(gffx_pytorch_adapter PROPERTIES INSTALL_RPATH "$ORIGIN")
+endif()
+
 install(TARGETS gffx_pytorch_adapter
     RUNTIME DESTINATION gffx
     LIBRARY DESTINATION gffx

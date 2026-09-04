@@ -23,7 +23,17 @@ add_library(gffx_core_test_provider SHARED
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_edge_topology.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_gather_faces.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_sample_surface.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_validate.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
+    ${PROJECT_SOURCE_DIR}/native/core/points_proximity.c
+    ${PROJECT_SOURCE_DIR}/native/core/render_rasterize.c
+    ${PROJECT_SOURCE_DIR}/native/core/render_texture.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
+    ${PROJECT_SOURCE_DIR}/native/core/transforms.c
 )
 target_compile_features(gffx_core_test_provider PUBLIC c_std_11)
 target_compile_definitions(gffx_core_test_provider PRIVATE
@@ -35,7 +45,7 @@ target_include_directories(gffx_core_test_provider
     PUBLIC ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${PROJECT_SOURCE_DIR}/native/core ${PROJECT_SOURCE_DIR}/native/cuda
 )
-target_link_libraries(gffx_core_test_provider PRIVATE ${CMAKE_DL_LIBS})
+gffx_link_core_runtime(gffx_core_test_provider)
 set_target_properties(gffx_core_test_provider PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES
@@ -75,7 +85,17 @@ add_library(gffx_core_self_test SHARED
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_edge_topology.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_face_geometry.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_gather_faces.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_sample_surface.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_validate.c
+    ${PROJECT_SOURCE_DIR}/native/core/mesh_vertex_normals.c
+    ${PROJECT_SOURCE_DIR}/native/core/points_proximity.c
+    ${PROJECT_SOURCE_DIR}/native/core/render_rasterize.c
+    ${PROJECT_SOURCE_DIR}/native/core/render_texture.c
     ${PROJECT_SOURCE_DIR}/native/core/status.c
+    ${PROJECT_SOURCE_DIR}/native/core/transforms.c
     ${PROJECT_SOURCE_DIR}/native/core/self_test.c
 )
 target_compile_features(gffx_core_self_test PUBLIC c_std_11)
@@ -88,7 +108,7 @@ target_include_directories(gffx_core_self_test
     PUBLIC ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${PROJECT_SOURCE_DIR}/native/core ${PROJECT_SOURCE_DIR}/native/cuda
 )
-target_link_libraries(gffx_core_self_test PRIVATE ${CMAKE_DL_LIBS})
+gffx_link_core_runtime(gffx_core_self_test)
 set_target_properties(gffx_core_self_test PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES
@@ -111,4 +131,18 @@ add_test(NAME runtime.dependency_inspection
     COMMAND ${CMAKE_COMMAND}
         -DGFFX_SOURCE_DIR=${PROJECT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/dependency_inspection.cmake
+)
+
+add_test(NAME runtime.io_isolation
+    COMMAND ${CMAKE_COMMAND}
+        -DGFFX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/io_isolation.cmake
+)
+
+# Phase 2 Step 5: the committed public surface and its classification must agree with the headers
+# in both directions, so a symbol cannot join the compatibility surface by accident.
+add_test(NAME runtime.public_surface
+    COMMAND ${CMAKE_COMMAND}
+        -DGFFX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/public_surface.cmake
 )

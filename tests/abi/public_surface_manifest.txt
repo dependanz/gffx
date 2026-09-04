@@ -1,0 +1,73 @@
+# The committed v0.1 public C surface, classified.
+#
+# Format: <class> <symbol>. Classes:
+#   infra      ABI, validation, and capability transport
+#   op         differentiable operation entry point (forward, backward, or workspace query)
+#   setup      setup-class utility, excluded from any claimed real-time frame path
+#
+# This file is normative alongside MODULE_BOUNDARY_V0_1.md section 3 in the project record.
+# runtime.public_surface fails if a GFFX_API declaration exists that is not listed here, or if a
+# symbol listed here is not declared. Adding a public entry point therefore requires updating this
+# manifest and the record's classification in the same change, which is the point: a symbol must
+# not be able to join the compatibility surface by accident.
+
+infra gffx_get_abi_version
+infra gffx_validate_tensor_view
+infra gffx_validate_execution_context
+infra gffx_validate_buffer
+infra gffx_capabilities_query
+infra gffx_capabilities_probe
+
+op gffx_mesh_face_geometry
+op gffx_mesh_face_geometry_backward
+op gffx_mesh_face_geometry_workspace
+op gffx_mesh_vertex_normals
+op gffx_mesh_vertex_normals_backward
+op gffx_mesh_vertex_normals_workspace
+op gffx_mesh_gather_faces
+op gffx_mesh_gather_faces_backward
+op gffx_mesh_gather_faces_workspace
+op gffx_transforms_transform_points
+op gffx_transforms_transform_points_backward
+op gffx_transforms_transform_points_workspace
+op gffx_transforms_perspective_divide
+op gffx_transforms_perspective_divide_backward
+op gffx_transforms_perspective_divide_workspace
+op gffx_mesh_build_edge_topology
+op gffx_mesh_build_edge_topology_workspace
+op gffx_points_knn
+op gffx_points_knn_backward
+op gffx_points_knn_workspace
+op gffx_points_closest_point_on_mesh
+op gffx_points_closest_point_on_mesh_backward
+op gffx_points_closest_point_on_mesh_workspace
+op gffx_mesh_sample_surface
+op gffx_mesh_sample_surface_backward
+op gffx_mesh_sample_surface_workspace
+op gffx_render_rasterize
+op gffx_render_rasterize_backward
+op gffx_render_rasterize_workspace
+op gffx_render_interpolate
+op gffx_render_interpolate_backward
+op gffx_render_interpolate_workspace
+op gffx_render_texture_pyramid
+op gffx_render_texture_pyramid_backward
+op gffx_render_texture_pyramid_workspace
+op gffx_render_texture
+op gffx_render_texture_backward
+op gffx_render_texture_workspace
+
+setup gffx_mesh_validate
+setup gffx_mesh_validate_workspace
+setup gffx_io_ply_probe
+setup gffx_io_ply_read
+setup gffx_io_ply_read_workspace
+setup gffx_io_file_read_all
+setup gffx_io_file_release
+setup gffx_io_ply_probe_file
+setup gffx_io_ply_read_file
+
+# The self-test entry point must sit in the export table because tests/abi resolves it by name
+# at runtime, but it carries no compatibility promise and lives in an internal header. Classifying
+# it here is what keeps it visible in the record rather than ambient in the export table.
+private gffx_private_self_test

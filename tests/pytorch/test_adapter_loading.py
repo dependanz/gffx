@@ -12,14 +12,20 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT, SRC_DIR
+from conftest import REPO_ROOT, SRC_DIR, USING_SOURCE_TREE
 
 
 def run_python(code: str) -> subprocess.CompletedProcess:
     """Run a snippet in a clean interpreter against the in-tree package."""
     env = dict(os.environ)
     existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = SRC_DIR + (os.pathsep + existing if existing else "")
+    # The subprocess must resolve the same gffx the suite selected. Forcing the source tree onto
+    # PYTHONPATH unconditionally is how these checks kept testing the working tree while an
+    # installed wheel sat unexamined in site-packages; when the source tree is the selection, it
+    # still goes on the path so an in-place build works with no install.
+    if USING_SOURCE_TREE:
+        prefix = os.fspath(SRC_DIR)
+        env["PYTHONPATH"] = prefix + (os.pathsep + existing if existing else "")
     return subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,

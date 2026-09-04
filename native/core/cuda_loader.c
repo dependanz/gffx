@@ -5,6 +5,10 @@
 #include "cuda_loader.h"
 #include "plugin_api.h"
 
+#if !defined(_WIN32)
+#include <pthread.h>
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -251,8 +255,33 @@ static int api_is_compatible(const gffx_cuda_plugin_api *api, char *detail, size
         copy_text(detail, capacity, "plugin build identity is empty");
         return 0;
     }
+    /* The operation table is optional; a plugin may provide capabilities only. What is not
+     * optional is consistency: advertising the flag without a usable table, or publishing a table
+     * too small to contain the fields this host reads, is a build mismatch rather than a
+     * capability the host can work around. */
+    if ((api->flags & GFFX_CUDA_PLUGIN_FLAG_OPERATION_PROVIDER) != 0u) {
+        const size_t required_operations_size =
+            offsetof(gffx_cuda_operations, render_interpolate_backward) +
+            sizeof(((const gffx_cuda_operations *)0)->render_interpolate_backward);
+        if (api->struct_size < offsetof(gffx_cuda_plugin_api, operations) +
+                                   sizeof(api->operations)) {
+            copy_text(detail, capacity,
+                      "plugin advertises operations but its API struct predates the field");
+            return 0;
+        }
+        if (api->operations == NULL) {
+            copy_text(detail, capacity, "plugin advertises operations but published no table");
+            return 0;
+        }
+        if (api->operations->struct_size < required_operations_size) {
+            copy_text(detail, capacity, "plugin operation table is smaller than this host reads");
+            return 0;
+        }
+    }
     if (api->struct_size >= sizeof(*api)) {
-        for (index = 0u; index < 6u; ++index) {
+        /* Five, not six: the operations pointer took one slot from the reserved tail when
+         * dispatch joined v1, so scanning six would read past the end of the struct. */
+        for (index = 0u; index < 5u; ++index) {
             if (api->reserved[index] != UINT64_C(0)) {
                 copy_text(detail, capacity, "plugin API reserved fields are nonzero");
                 return 0;
@@ -374,6 +403,97 @@ static void emit_spec(const gffx_loader_spec *spec, gffx_capability_record *reco
         memcpy(strings + *string_cursor, spec->string_value, (size_t)string_size);
         *string_cursor += string_size;
     }
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Operation dispatch: the one piece of state GFFX keeps between calls.
+ *
+ * The probe above deliberately keeps its state in a local and unloads the plugin when it returns,
+ * so asking what a machine can do leaves nothing behind. Dispatch cannot work that way: the
+ * operation table lives inside the plugin, so using it requires the plugin to stay mapped, and
+ * reloading per call would re-JIT the embedded PTX every time.
+ *
+ * Initialisation is one-time and thread-safe through the platform's own primitive rather than a
+ * hand-rolled flag, because two threads reaching a first CUDA operation simultaneously is ordinary
+ * rather than exotic and a torn initialisation would hand one of them a half-built table.
+ * --------------------------------------------------------------------------------------------- */
+
+#if defined(_WIN32)
+static INIT_ONCE gffx_cuda_operations_once = INIT_ONCE_STATIC_INIT;
+#else
+static pthread_once_t gffx_cuda_operations_once = PTHREAD_ONCE_INIT;
+#endif
+
+static gffx_library_handle gffx_cuda_operations_library = NULL;
+static const gffx_cuda_operations *gffx_cuda_operations_table = NULL;
+
+static void gffx_cuda_operations_initialize(void) {
+    char detail[GFFX_CUDA_STATUS_CAPACITY] = {0};
+    char path[GFFX_CUDA_PATH_CAPACITY] = {0};
+    const char *override_path = getenv("GFFX_CUDA_PLUGIN_PATH");
+    gffx_cuda_plugin_handshake_fn handshake;
+    gffx_cuda_plugin_api api;
+    gffx_diagnostic_buffer diagnostic;
+    char handshake_text[GFFX_CUDA_STATUS_CAPACITY] = {0};
+
+    if (override_path != NULL && override_path[0] != '\0') {
+        if (strlen(override_path) + 1u > sizeof(path) || !is_absolute_path(override_path)) return;
+        copy_text(path, sizeof(path), override_path);
+    } else if (!default_path(path, sizeof(path))) {
+        return;
+    }
+    if (!path_exists(path) || !has_shared_library_magic(path)) return;
+
+    gffx_cuda_operations_library = open_library(path);
+    if (gffx_cuda_operations_library == NULL) return;
+
+    handshake = handshake_symbol(gffx_cuda_operations_library);
+    if (handshake == NULL) {
+        close_library(gffx_cuda_operations_library);
+        gffx_cuda_operations_library = NULL;
+        return;
+    }
+
+    memset(&diagnostic, 0, sizeof(diagnostic));
+    diagnostic.struct_size = (uint32_t)sizeof(diagnostic);
+    diagnostic.abi_version = GFFX_ABI_VERSION;
+    diagnostic.data = handshake_text;
+    diagnostic.capacity_bytes = (uint64_t)sizeof(handshake_text);
+
+    memset(&api, 0, sizeof(api));
+    api.struct_size = (uint32_t)sizeof(api);
+    if (handshake(GFFX_CUDA_PLUGIN_ABI_VERSION, GFFX_ABI_VERSION, &api, &diagnostic)
+            != GFFX_STATUS_OK ||
+        !api_is_compatible(&api, detail, sizeof(detail))) {
+        close_library(gffx_cuda_operations_library);
+        gffx_cuda_operations_library = NULL;
+        return;
+    }
+    if ((api.flags & GFFX_CUDA_PLUGIN_FLAG_OPERATION_PROVIDER) == 0u) {
+        /* A capability-only plugin is compatible and simply offers no operations; the library
+         * stays loaded because unloading it would only invite reloading it. */
+        return;
+    }
+    gffx_cuda_operations_table = api.operations;
+}
+
+#if defined(_WIN32)
+static BOOL CALLBACK gffx_cuda_operations_once_callback(PINIT_ONCE once, PVOID parameter,
+                                                        PVOID *context) {
+    (void)once; (void)parameter; (void)context;
+    gffx_cuda_operations_initialize();
+    return TRUE;
+}
+#endif
+
+const gffx_cuda_operations *gffx_cuda_loader_operations(void) {
+#if defined(_WIN32)
+    InitOnceExecuteOnce(&gffx_cuda_operations_once, gffx_cuda_operations_once_callback,
+                        NULL, NULL);
+#else
+    pthread_once(&gffx_cuda_operations_once, gffx_cuda_operations_initialize);
+#endif
+    return gffx_cuda_operations_table;
 }
 
 gffx_status gffx_cuda_loader_probe(uint32_t probe_flags, gffx_capability_report *report,

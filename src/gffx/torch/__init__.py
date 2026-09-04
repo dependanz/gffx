@@ -43,11 +43,18 @@ if _release_tuple(_torch_framework.__version__) < (2, 10):
 try:
     importlib.import_module("gffx._torch")
 except ImportError as error:
+    # The underlying loader error is included rather than only chained. When this failed on every
+    # hosted lane on 2026-09-03 the real cause was a missing runtime search path, and the Linux
+    # lanes were diagnosable only because pytest happened to print the chained cause while the
+    # Windows lane did not. Advice to rebuild is also actively wrong in that case: the adapter was
+    # built, and could not find the core beside it.
     raise ImportError(
         "gffx found a supported PyTorch %s installation, but its private Stable-ABI adapter "
-        "binary could not be loaded. Install a PyTorch-ready gffx wheel or rebuild gffx with "
-        "GFFX_BUILD_PYTORCH=ON. The base package remains usable with `import gffx`."
-        % _torch_framework.__version__
+        "binary could not be loaded: %s\n"
+        "Install a PyTorch-ready gffx wheel or rebuild gffx with GFFX_BUILD_PYTORCH=ON. If the "
+        "adapter is present but a library beside it could not be found, the installation's "
+        "runtime search path is wrong rather than the build. The base package remains usable "
+        "with `import gffx`." % (_torch_framework.__version__, error)
     ) from error
 
 if not hasattr(_torch_framework.ops.gffx_internal, "_foundation_probe"):
@@ -56,4 +63,6 @@ if not hasattr(_torch_framework.ops.gffx_internal, "_foundation_probe"):
         "Reinstall gffx; the base package remains usable with `import gffx`."
     )
 
-__all__: list[str] = []
+from . import io, mesh, points, render, stream, transforms  # noqa: E402
+
+__all__: list[str] = ["io", "mesh", "points", "render", "stream", "transforms"]

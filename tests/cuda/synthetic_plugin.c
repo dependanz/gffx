@@ -49,6 +49,17 @@ static gffx_status GFFX_CALL synthetic_capabilities(
     return GFFX_STATUS_OK;
 }
 
+#if GFFX_SYNTHETIC_PLUGIN_MODE == 5
+static const gffx_cuda_operations synthetic_operations = {
+    (uint32_t)sizeof(gffx_cuda_operations), 0u,
+    NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL,   /* the two texture forwards and their backwards */
+    {0, 0, 0, 0}
+};
+#endif
+
 GFFX_CUDA_PLUGIN_API gffx_status GFFX_CALL gffx_cuda_plugin_handshake_v1(
     uint32_t requested_plugin_abi,
     uint32_t host_core_abi,
@@ -73,7 +84,22 @@ GFFX_CUDA_PLUGIN_API gffx_status GFFX_CALL gffx_cuda_plugin_handshake_v1(
 #endif
     api->core_abi_min = GFFX_ABI_VERSION;
     api->core_abi_max = GFFX_ABI_VERSION;
+#if GFFX_SYNTHETIC_PLUGIN_MODE == 5
+    /* A well-formed operation table with every entry NULL, which is what a plugin looks like
+     * before any kernel is implemented. The host must accept it: publishing a table is a
+     * statement that dispatch exists, not that any operation does. */
+    api->flags = GFFX_CUDA_PLUGIN_FLAG_CAPABILITY_PROVIDER |
+                 GFFX_CUDA_PLUGIN_FLAG_OPERATION_PROVIDER;
+    api->operations = &synthetic_operations;
+#elif GFFX_SYNTHETIC_PLUGIN_MODE == 4
+    /* Advertises operations and publishes nothing. A build mismatch, and the host must refuse it
+     * rather than dispatch through a null table. */
+    api->flags = GFFX_CUDA_PLUGIN_FLAG_CAPABILITY_PROVIDER |
+                 GFFX_CUDA_PLUGIN_FLAG_OPERATION_PROVIDER;
+    api->operations = NULL;
+#else
     api->flags = GFFX_CUDA_PLUGIN_FLAG_CAPABILITY_PROVIDER;
+#endif
     api->build_identity = "synthetic-cuda-plugin/test-only";
     api->capabilities_probe = synthetic_capabilities;
     return GFFX_STATUS_OK;

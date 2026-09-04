@@ -1,0 +1,10 @@
+# The figure generators need gffx_core beside them or in a build tree. A copy placed here for
+# convenience is a build artifact and does not belong in the repository; the scripts report where
+# they looked when they cannot find one.
+gffx_core.dll
+gffx_core.so
+gffx_core.dylib
+*.obj
+*.exe
+*.pdb
+*.ilk

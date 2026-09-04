@@ -12,7 +12,53 @@ static const char *required_symbols[] = {
     "gffx_validate_execution_context",
     "gffx_validate_buffer",
     "gffx_capabilities_query",
-    "gffx_capabilities_probe"
+    "gffx_capabilities_probe",
+    /* Phase 2 operation exports: compatible additions per the ABI contract. */
+    "gffx_mesh_face_geometry",
+    "gffx_mesh_face_geometry_backward",
+    "gffx_mesh_face_geometry_workspace",
+    "gffx_mesh_vertex_normals",
+    "gffx_mesh_vertex_normals_backward",
+    "gffx_mesh_vertex_normals_workspace",
+    "gffx_mesh_gather_faces",
+    "gffx_mesh_gather_faces_backward",
+    "gffx_mesh_gather_faces_workspace",
+    "gffx_transforms_transform_points",
+    "gffx_transforms_transform_points_backward",
+    "gffx_transforms_transform_points_workspace",
+    "gffx_transforms_perspective_divide",
+    "gffx_transforms_perspective_divide_backward",
+    "gffx_transforms_perspective_divide_workspace",
+    /* Topology construction is nondifferentiable, so it exports no backward symbol. */
+    "gffx_mesh_build_edge_topology",
+    "gffx_mesh_build_edge_topology_workspace",
+    "gffx_points_knn",
+    "gffx_points_knn_backward",
+    "gffx_points_knn_workspace",
+    "gffx_points_closest_point_on_mesh",
+    "gffx_points_closest_point_on_mesh_backward",
+    "gffx_points_closest_point_on_mesh_workspace",
+    "gffx_mesh_sample_surface",
+    "gffx_mesh_sample_surface_backward",
+    "gffx_mesh_sample_surface_workspace",
+    "gffx_render_rasterize",
+    "gffx_render_rasterize_backward",
+    "gffx_render_rasterize_workspace",
+    "gffx_render_interpolate",
+    "gffx_render_interpolate_backward",
+    "gffx_render_interpolate_workspace",
+    /* The eager survey utility reports rather than differentiates, so no backward. */
+    "gffx_mesh_validate",
+    "gffx_mesh_validate_workspace",
+    /* The optional triangle-template reader produces setup data, so no backward. */
+    "gffx_io_ply_probe",
+    "gffx_io_ply_read",
+    "gffx_io_ply_read_workspace",
+    /* Setup-class file layer, outside the allocation-free geometry scaffold. */
+    "gffx_io_file_read_all",
+    "gffx_io_file_release",
+    "gffx_io_ply_probe_file",
+    "gffx_io_ply_read_file"
 };
 
 int main(int argc, char **argv) {

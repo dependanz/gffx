@@ -64,6 +64,24 @@ gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_good 0)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_incompatible 1)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_missing_symbol 2)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_must_not_load 3)
+# Operation-table negotiation, added to plugin ABI v1 alongside dispatch.
+gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_null_operations 4)
+gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_operations 5)
+
+# Calls a CUDA operation through the negotiated table. Needs the real plugin and a device, so it
+# is registered only when the CUDA build is enabled and skips itself when no device is present.
+if(TARGET gffx_cuda12)
+    add_executable(gffx_test_cuda_operation_dispatch test_operation_dispatch.c)
+    target_compile_features(gffx_test_cuda_operation_dispatch PRIVATE c_std_11)
+    target_include_directories(gffx_test_cuda_operation_dispatch PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/native/cuda
+    )
+    target_link_libraries(gffx_test_cuda_operation_dispatch PRIVATE gffx_core CUDA::cuda_driver)
+    add_test(NAME cuda.operation_dispatch
+        COMMAND gffx_test_cuda_operation_dispatch $<TARGET_FILE:gffx_cuda12>
+    )
+endif()
 
 add_executable(gffx_test_cuda_plugin_probe test_plugin_probe.c)
 target_compile_features(gffx_test_cuda_plugin_probe PRIVATE c_std_11)
@@ -106,6 +124,19 @@ add_test(NAME cuda.plugin.compatible
     COMMAND gffx_test_cuda_plugin_probe
         $<TARGET_FILE:gffx_cuda_synthetic_good> loaded compatible
 )
+# A plugin publishing a well-formed but entirely empty operation table is compatible: advertising
+# dispatch says the path exists, never that any kernel does.
+add_test(NAME cuda.plugin.operations
+    COMMAND gffx_test_cuda_plugin_probe
+        $<TARGET_FILE:gffx_cuda_synthetic_operations> loaded compatible
+)
+# Advertising operations while publishing no table is a build mismatch, not a capability to
+# route around, so the host must reject the plugin rather than dispatch through a null table.
+add_test(NAME cuda.plugin.null_operations
+    COMMAND gffx_test_cuda_plugin_probe
+        $<TARGET_FILE:gffx_cuda_synthetic_null_operations> "published no table" partial
+)
+
 add_test(NAME cuda.plugin.incompatible
     COMMAND gffx_test_cuda_plugin_probe
         $<TARGET_FILE:gffx_cuda_synthetic_incompatible> incompatible partial
@@ -132,6 +163,37 @@ add_test(NAME cuda.plugin.removed
 )
 
 if(GFFX_ENABLE_CUDA AND GFFX_CUDA_RUN_DEVICE_TESTS)
+    # CPU/CUDA bit-identity for the texture operations, run against a real device through the
+    # driver API. It lives here rather than beside TB-14 because TB-14 needs a CUDA-enabled
+    # PyTorch, and a CPU-only PyTorch makes that fixture skip while still reporting success.
+    # This one cannot skip silently: it is gated on the device tests being requested, and if it
+    # runs at all it compares actual bytes.
+    add_executable(gffx_test_texture_device_parity test_texture_device_parity.c)
+    target_link_libraries(gffx_test_texture_device_parity PRIVATE gffx_core CUDA::cuda_driver)
+    if(WIN32)
+        add_custom_command(TARGET gffx_test_texture_device_parity POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gffx_core>
+                $<TARGET_FILE_DIR:gffx_test_texture_device_parity>
+            VERBATIM
+        )
+    endif()
+    add_test(NAME cuda.texture_device_parity COMMAND gffx_test_texture_device_parity)
+
+    # Backward kernels. Split from the texture fixture because the two make different claims: a
+    # default path is held to bit-identity, a relaxed path only to a tolerance.
+    add_executable(gffx_test_backward_device_parity test_backward_device_parity.c)
+    target_link_libraries(gffx_test_backward_device_parity PRIVATE gffx_core CUDA::cuda_driver)
+    if(WIN32)
+        add_custom_command(TARGET gffx_test_backward_device_parity POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gffx_core>
+                $<TARGET_FILE_DIR:gffx_test_backward_device_parity>
+            VERBATIM
+        )
+    endif()
+    add_test(NAME cuda.backward_device_parity COMMAND gffx_test_backward_device_parity)
+
     add_test(NAME cuda.plugin.real_device_probe
         COMMAND gffx_test_cuda_plugin_probe $<TARGET_FILE:gffx_cuda12> loaded real
     )
