@@ -45,7 +45,7 @@ target_include_directories(gffx_core_test_provider
     PUBLIC ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${PROJECT_SOURCE_DIR}/native/core ${PROJECT_SOURCE_DIR}/native/cuda
 )
-target_link_libraries(gffx_core_test_provider PRIVATE ${CMAKE_DL_LIBS})
+gffx_link_core_runtime(gffx_core_test_provider)
 set_target_properties(gffx_core_test_provider PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES
@@ -108,7 +108,7 @@ target_include_directories(gffx_core_self_test
     PUBLIC ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${PROJECT_SOURCE_DIR}/native/core ${PROJECT_SOURCE_DIR}/native/cuda
 )
-target_link_libraries(gffx_core_self_test PRIVATE ${CMAKE_DL_LIBS})
+gffx_link_core_runtime(gffx_core_self_test)
 set_target_properties(gffx_core_self_test PROPERTIES
     C_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES

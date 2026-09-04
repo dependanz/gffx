@@ -53,19 +53,32 @@ target_include_directories(gffx_core
         ${CMAKE_CURRENT_SOURCE_DIR}/native/cuda
 )
 
-target_link_libraries(gffx_core PRIVATE ${CMAKE_DL_LIBS})
+# Three shared libraries are built from the core sources: gffx_core itself, and the two providers
+# in tests/abi that mirror it. All three needed the same runtime dependencies and all three were
+# missing libm, but the failure surfaced one target at a time, because each is linked by a
+# different executable and only the executable's link fails. Fixing one and pushing cost a full CI
+# round; declaring the rule once is the actual repair.
+#
+# glibc keeps the math functions in a separate library, so a core calling floor, log2 or sqrt has
+# to say so. The omission is invisible in three of four contexts: a shared object may carry
+# unresolved symbols so the library builds, and the interpreter has already loaded libm so the
+# wheel imports and every Python gate passes. Only a directly linked executable fails, which is
+# what the native CTest build does. Windows and macOS carry these in their default C library.
+function(gffx_link_core_runtime target)
+    target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})
+    if(UNIX)
+        target_link_libraries(${target} PRIVATE m)
+    endif()
+    if(UNIX AND NOT APPLE)
+        # Report a missing dependency at the library that has it, rather than at whichever
+        # executable links that library later. Verified against these sources on Linux: they link
+        # cleanly with the flag, and with libm removed the flag names the six math symbols at the
+        # library itself instead of deferring them to a consumer.
+        target_link_options(${target} PRIVATE "LINKER:--no-undefined")
+    endif()
+endfunction()
 
-# glibc keeps the math functions in a separate libm, so a core that calls floor, log2 or sqrt has
-# to say so. Without this the shared library still builds, because a shared object is permitted to
-# carry unresolved symbols, and it still imports from Python, because the interpreter has already
-# loaded libm into the process. It fails only where an executable links against it directly, which
-# is why the wheel built and the Python gates passed on every hosted lane while the native CTest
-# build failed on all four Linux lanes with undefined references to floor, floorf, log2, log2f,
-# sqrt and sqrtf. Windows and macOS carry these in their default C library and were unaffected.
-# PRIVATE is correct: the library resolves its own math symbols and consumers need not know.
-if(UNIX)
-    target_link_libraries(gffx_core PRIVATE m)
-endif()
+gffx_link_core_runtime(gffx_core)
 
 set_target_properties(gffx_core PROPERTIES
     C_VISIBILITY_PRESET hidden
