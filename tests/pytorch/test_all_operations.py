@@ -537,9 +537,11 @@ def test_tb14_unimplemented_operation_is_refused(gffx_torch):
     """
     if not torch.cuda.is_available():
         pytest.skip("no CUDA device present")
-    vertices, faces = tetra()
+    _, faces = tetra()
+    # build_edge_topology is the one operation-table entry without a CUDA forward; vertex_normals,
+    # the previous target, gained a verified CUDA kernel and registration on 2026-09-04.
     with pytest.raises((NotImplementedError, RuntimeError)):
-        gffx_torch.mesh.vertex_normals(vertices.cuda(), faces.cuda())
+        gffx_torch.mesh.build_edge_topology(faces.cuda())
 
 
 def test_tb14_mixed_devices_are_refused(gffx_torch):

@@ -18,7 +18,12 @@ from ._common import (
     check_eps, check_faces, check_same_device, check_vertices, materialize, translate_native_error,
 )
 
-__all__ = ["rasterize", "interpolate", "CULL_NONE", "CULL_BACK", "CULL_FRONT"]
+__all__ = [
+    "rasterize", "interpolate", "texture", "texture_pyramid",
+    "CULL_NONE", "CULL_BACK", "CULL_FRONT",
+    "FILTER_NEAREST", "FILTER_BILINEAR", "MIP_NEAREST", "MIP_LINEAR",
+    "WRAP_REPEAT", "WRAP_CLAMP", "WRAP_MIRROR", "WRAP_BORDER",
+]
 
 DEFAULT_EPS = 2.0 ** -20
 
@@ -173,3 +178,171 @@ def interpolate(
             % (tuple(face_attributes.shape),)
         )
     return _Interpolate.apply(face_index, barycentric, face_attributes)
+
+
+# Values mirror GFFX_FILTER_*, GFFX_MIP_* and GFFX_WRAP_* in include/gffx/render.h, where each
+# enumeration starts at 1 so that a zeroed struct cannot be read as a valid mode.
+FILTER_NEAREST = 1
+FILTER_BILINEAR = 2
+MIP_NEAREST = 1
+MIP_LINEAR = 2
+WRAP_REPEAT = 1
+WRAP_CLAMP = 2
+WRAP_MIRROR = 3
+WRAP_BORDER = 4
+
+
+class _TexturePyramid(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, texture, levels):
+        try:
+            pyramid, level_offsets = torch.ops.gffx.texture_pyramid(texture, levels)
+        except RuntimeError as error:
+            raise translate_native_error(error) from None
+        ctx.save_for_backward(level_offsets)
+        ctx.texture_shape = tuple(texture.shape)
+        ctx.mark_non_differentiable(level_offsets)
+        return pyramid, level_offsets
+
+    @staticmethod
+    def backward(ctx, grad_pyramid, grad_level_offsets):
+        if grad_pyramid is None:
+            return None, None
+        (level_offsets,) = ctx.saved_tensors
+        height, width, channels = ctx.texture_shape
+        grad_texture = torch.ops.gffx.texture_pyramid_backward(
+            level_offsets, height, width, channels, materialize(grad_pyramid)
+        )
+        return grad_texture, None
+
+
+class _Texture(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, pyramid, level_offsets, texture_height, texture_width, channel_count,
+                coordinates, derivatives, lod, filter_mode, mip_filter, wrap_u, wrap_v, border):
+        has_derivatives = derivatives is not None
+        has_lod = lod is not None
+        has_border = border is not None
+        # The ABI reads an absent optional as a null view, and these placeholders are never read
+        # when their flag is false. An empty tensor rather than a zero-filled one, so a bug that
+        # ignored a flag would fault rather than silently sample with zeros.
+        empty = pyramid.new_empty(0)
+        try:
+            samples = torch.ops.gffx.texture(
+                pyramid, level_offsets, texture_height, texture_width, channel_count,
+                coordinates,
+                derivatives if has_derivatives else empty,
+                lod if has_lod else empty,
+                has_derivatives, has_lod,
+                filter_mode, mip_filter, wrap_u, wrap_v,
+                border if has_border else empty, has_border,
+            )
+        except RuntimeError as error:
+            raise translate_native_error(error) from None
+        ctx.save_for_backward(
+            pyramid, level_offsets, coordinates,
+            derivatives if has_derivatives else empty,
+            lod if has_lod else empty,
+            border if has_border else empty,
+        )
+        ctx.extents = (texture_height, texture_width)
+        ctx.flags = (has_derivatives, has_lod, has_border)
+        ctx.modes = (filter_mode, mip_filter, wrap_u, wrap_v)
+        return samples
+
+    @staticmethod
+    def backward(ctx, grad_samples):
+        if grad_samples is None:
+            return (None,) * 13
+        pyramid, level_offsets, coordinates, derivatives, lod, border = ctx.saved_tensors
+        texture_height, texture_width = ctx.extents
+        has_derivatives, has_lod, has_border = ctx.flags
+        filter_mode, mip_filter, wrap_u, wrap_v = ctx.modes
+        grad_pyramid, grad_coordinates = torch.ops.gffx.texture_backward(
+            pyramid, level_offsets, texture_height, texture_width, coordinates, derivatives, lod,
+            has_derivatives, has_lod, filter_mode, mip_filter, wrap_u, wrap_v, border, has_border,
+            materialize(grad_samples),
+        )
+        # Only the pyramid and the coordinates carry gradients. The extents, channel count, filter,
+        # wrap and mip selections are discrete choices with no derivative, and NEAREST filtering
+        # returns an exactly zero coordinate gradient rather than an absent one, which is a
+        # statement the contract makes deliberately.
+        return (grad_pyramid, None, None, None, None, grad_coordinates,
+                None, None, None, None, None, None, None)
+
+
+def texture_pyramid(texture: torch.Tensor, levels: int = 0) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Build a mip chain from ``texture`` shaped ``[H, W, C]``.
+
+    ``levels=0`` builds the full chain, ``L = floor(log2(max(H, W))) + 1``. Level 0 is the input
+    copied bit for bit; each later level is the arithmetic mean of every two-by-two block of the
+    level above it, summed in a fixed order because floating-point addition is not associative and
+    a reordering would make the result depend on how the work was scheduled.
+
+    Returns the levels in one contiguous buffer and the ``[L + 1]`` offsets that address them, so a
+    streaming caller builds a pyramid once and reuses it.
+    """
+    if texture.dim() != 3:
+        raise ValueError(
+            f"texture must be [H, W, C]; received a tensor with {texture.dim()} dimensions"
+        )
+    return _TexturePyramid.apply(materialize(texture), int(levels))
+
+
+def texture(
+    pyramid: torch.Tensor,
+    level_offsets: torch.Tensor,
+    texture_height: int,
+    texture_width: int,
+    coordinates: torch.Tensor,
+    *,
+    channel_count: Optional[int] = None,
+    derivatives: Optional[torch.Tensor] = None,
+    lod: Optional[torch.Tensor] = None,
+    filter: int = FILTER_BILINEAR,
+    mip_filter: int = MIP_NEAREST,
+    wrap_u: int = WRAP_REPEAT,
+    wrap_v: int = WRAP_REPEAT,
+    border: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """Sample ``pyramid`` at ``coordinates`` shaped ``[N, 2]``, returning ``[N, C]``.
+
+    ``texture_height`` and ``texture_width`` are required because a pyramid and its offsets fix
+    only the product ``H * W * C`` per level, from which the two extents cannot be recovered. They
+    are cross-checked against ``level_offsets[1] - level_offsets[0]``.
+
+    Coordinates are normalised to ``[0, 1]`` with ``(0, 0)`` at the first texel of the first row and
+    ``v`` increasing with row index, so the output of :func:`interpolate` is a valid input
+    unchanged. This differs from the ``[-1, 1]`` convention used by ``grid_sample`` and from v-up
+    conventions; composition with :func:`interpolate` is the property being preserved.
+
+    At most one of ``derivatives`` or ``lod`` may be given, and the operation never derives its own.
+    Screen-space differencing would make each sample depend on its neighbours, which breaks both
+    per-element independence and the ability to sample an unstructured point set. A caller
+    rasterising through :func:`rasterize` holds neighbouring interpolated coordinates and can
+    difference them.
+
+    ``channel_count`` is derived from ``level_offsets`` when omitted, which reads two elements back
+    to the host. Pass it explicitly inside a frame loop to avoid that synchronisation.
+    """
+    if derivatives is not None and lod is not None:
+        raise ValueError("at most one of derivatives or lod may be given")
+    if coordinates.dim() != 2 or coordinates.size(1) != 2:
+        raise ValueError(f"coordinates must be [N, 2]; received {tuple(coordinates.shape)}")
+    if channel_count is None:
+        level_size = int(level_offsets[1].item()) - int(level_offsets[0].item())
+        extent = int(texture_height) * int(texture_width)
+        if extent <= 0 or level_size % extent != 0:
+            raise ValueError(
+                f"cannot derive the channel count: level 0 holds {level_size} elements, which is "
+                f"not a multiple of {texture_height} x {texture_width}"
+            )
+        channel_count = level_size // extent
+    return _Texture.apply(
+        materialize(pyramid), level_offsets, int(texture_height), int(texture_width),
+        int(channel_count), materialize(coordinates),
+        None if derivatives is None else materialize(derivatives),
+        None if lod is None else materialize(lod),
+        int(filter), int(mip_filter), int(wrap_u), int(wrap_v),
+        None if border is None else materialize(border),
+    )

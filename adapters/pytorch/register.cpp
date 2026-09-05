@@ -1082,6 +1082,195 @@ std::tuple<Tensor, Tensor> interpolate_backward(
 }
 
 
+/* ---------------------------------------------------------------- render.texture_pyramid */
+
+/* The level chain, computed on the host because the pyramid must be allocated before the kernel
+ * that would report its size can run. This mirrors the rule in API_CONTRACT_V0_1.md section 4.7:
+ * level 0 is the texture, each later level halves by integer division so an odd dimension drops
+ * its trailing row or column, and a dimension already at 1 is carried through. The duplication is
+ * real, and it is bounded by a cross-check the kernel already performs between level_offsets[1]
+ * and the extents and channel count, so a drift here fails loudly at the first sample rather than
+ * producing a quietly wrong pyramid. */
+int64_t pyramid_level_count(int64_t height, int64_t width, int64_t levels) {
+    if (levels > 0) {
+        return levels;
+    }
+    int64_t extent = height > width ? height : width;
+    int64_t count = 1;
+    while (extent > 1) {
+        extent /= 2;
+        ++count;
+    }
+    return count;
+}
+
+int64_t pyramid_element_count(
+    int64_t height, int64_t width, int64_t channels, int64_t level_count
+) {
+    int64_t total = 0;
+    int64_t level_height = height;
+    int64_t level_width = width;
+    for (int64_t level = 0; level < level_count; ++level) {
+        total += level_height * level_width * channels;
+        level_height = level_height > 1 ? level_height / 2 : 1;
+        level_width = level_width > 1 ? level_width / 2 : 1;
+    }
+    return total;
+}
+
+std::tuple<Tensor, Tensor> texture_pyramid(const Tensor &texture, int64_t levels) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = context_for(texture);
+
+    const int64_t height = texture.size(0);
+    const int64_t width = texture.size(1);
+    const int64_t channels = texture.size(2);
+    const int64_t level_count = pyramid_level_count(height, width, levels);
+    const std::vector<int64_t> pyramid_size{
+        pyramid_element_count(height, width, channels, level_count)};
+    const std::vector<int64_t> offset_size{level_count + 1};
+
+    uint64_t bytes = 0;
+    uint64_t alignment = 0;
+    GFFX_CHECK(gffx_render_texture_pyramid_workspace(
+                   height, width, channels, dtype_of(texture), &context, &bytes, &alignment,
+                   &diagnostic.buffer),
+               diagnostic.text());
+    const std::vector<int64_t> workspace_size{static_cast<int64_t>(bytes)};
+    Tensor workspace = torch::stable::new_empty(texture, workspace_size, ScalarType::Byte);
+    const gffx_buffer buffer = workspace_buffer(workspace, bytes);
+
+    Tensor pyramid = torch::stable::new_empty(texture, pyramid_size);
+    Tensor level_offsets = torch::stable::new_empty(texture, offset_size, ScalarType::Int);
+
+    gffx_tensor_view texture_view = arena.read(texture);
+    gffx_tensor_view pyramid_view = arena.write(pyramid);
+    gffx_tensor_view offsets_view = arena.write(level_offsets);
+    GFFX_CHECK(gffx_render_texture_pyramid(&texture_view, levels, &context, &pyramid_view,
+                                           &offsets_view, bytes > 0 ? &buffer : nullptr,
+                                           &diagnostic.buffer),
+               diagnostic.text());
+    return std::make_tuple(pyramid, level_offsets);
+}
+
+Tensor texture_pyramid_backward(
+    const Tensor &level_offsets, int64_t texture_height, int64_t texture_width,
+    int64_t channel_count, const Tensor &grad_pyramid
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = context_for(grad_pyramid);
+
+    const std::vector<int64_t> size{texture_height, texture_width, channel_count};
+    Tensor grad_texture = torch::stable::new_empty(grad_pyramid, size);
+
+    gffx_tensor_view offsets_view = arena.read(level_offsets);
+    gffx_tensor_view grad_pyramid_view = arena.read(grad_pyramid);
+    gffx_tensor_view grad_texture_view = arena.write(grad_texture);
+    GFFX_CHECK(gffx_render_texture_pyramid_backward(
+                   &offsets_view, texture_height, texture_width, channel_count,
+                   &grad_pyramid_view, &context, &grad_texture_view, nullptr,
+                   &diagnostic.buffer),
+               diagnostic.text());
+    return grad_texture;
+}
+
+
+/* ------------------------------------------------------------------------- render.texture */
+
+/* derivatives, lod and border each carry a presence flag rather than arriving as an optional
+ * tensor, matching the convention established for cotangents above. The ABI expresses absence as a
+ * null view, and a zero-filled tensor would assert a value of zero rather than the absence of one.
+ * The distinction is load-bearing here: a lod of zero selects level 0 deliberately, while an
+ * absent lod means the sampler derives nothing and reads level 0 for an entirely different
+ * reason. */
+Tensor texture(
+    const Tensor &pyramid, const Tensor &level_offsets, int64_t texture_height,
+    int64_t texture_width, int64_t channel_count, const Tensor &coordinates,
+    const Tensor &derivatives, const Tensor &lod, bool has_derivatives, bool has_lod,
+    int64_t filter, int64_t mip_filter, int64_t wrap_u, int64_t wrap_v, const Tensor &border,
+    bool has_border
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = context_for(pyramid);
+
+    const int64_t sample_count = coordinates.size(0);
+    const std::vector<int64_t> size{sample_count, channel_count};
+    Tensor samples = torch::stable::new_empty(pyramid, size);
+
+    uint64_t bytes = 0;
+    uint64_t alignment = 0;
+    GFFX_CHECK(gffx_render_texture_workspace(sample_count, channel_count, dtype_of(pyramid),
+                                             &context, &bytes, &alignment, &diagnostic.buffer),
+               diagnostic.text());
+    const std::vector<int64_t> workspace_size{static_cast<int64_t>(bytes)};
+    Tensor workspace = torch::stable::new_empty(pyramid, workspace_size, ScalarType::Byte);
+    const gffx_buffer buffer = workspace_buffer(workspace, bytes);
+
+    gffx_tensor_view pyramid_view = arena.read(pyramid);
+    gffx_tensor_view offsets_view = arena.read(level_offsets);
+    gffx_tensor_view coordinates_view = arena.read(coordinates);
+    gffx_tensor_view derivatives_view = arena.read(derivatives);
+    gffx_tensor_view lod_view = arena.read(lod);
+    gffx_tensor_view border_view = arena.read(border);
+    gffx_tensor_view samples_view = arena.write(samples);
+    GFFX_CHECK(gffx_render_texture(
+                   &pyramid_view, &offsets_view, texture_height, texture_width,
+                   &coordinates_view, has_derivatives ? &derivatives_view : nullptr,
+                   has_lod ? &lod_view : nullptr, static_cast<uint32_t>(filter),
+                   static_cast<uint32_t>(mip_filter), static_cast<uint32_t>(wrap_u),
+                   static_cast<uint32_t>(wrap_v), has_border ? &border_view : nullptr, &context,
+                   &samples_view, bytes > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+    return samples;
+}
+
+std::tuple<Tensor, Tensor> texture_backward(
+    const Tensor &pyramid, const Tensor &level_offsets, int64_t texture_height,
+    int64_t texture_width, const Tensor &coordinates, const Tensor &derivatives,
+    const Tensor &lod, bool has_derivatives, bool has_lod, int64_t filter, int64_t mip_filter,
+    int64_t wrap_u, int64_t wrap_v, const Tensor &border, bool has_border,
+    const Tensor &grad_samples
+) {
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = context_for(pyramid);
+
+    std::vector<int64_t> pyramid_size;
+    for (int64_t index = 0; index < pyramid.dim(); ++index) {
+        pyramid_size.push_back(pyramid.size(index));
+    }
+    std::vector<int64_t> coordinate_size;
+    for (int64_t index = 0; index < coordinates.dim(); ++index) {
+        coordinate_size.push_back(coordinates.size(index));
+    }
+    Tensor grad_pyramid = torch::stable::new_empty(pyramid, pyramid_size);
+    Tensor grad_coordinates = torch::stable::new_empty(coordinates, coordinate_size);
+
+    gffx_tensor_view pyramid_view = arena.read(pyramid);
+    gffx_tensor_view offsets_view = arena.read(level_offsets);
+    gffx_tensor_view coordinates_view = arena.read(coordinates);
+    gffx_tensor_view derivatives_view = arena.read(derivatives);
+    gffx_tensor_view lod_view = arena.read(lod);
+    gffx_tensor_view border_view = arena.read(border);
+    gffx_tensor_view grad_samples_view = arena.read(grad_samples);
+    gffx_tensor_view grad_pyramid_view = arena.write(grad_pyramid);
+    gffx_tensor_view grad_coordinates_view = arena.write(grad_coordinates);
+    GFFX_CHECK(gffx_render_texture_backward(
+                   &pyramid_view, &offsets_view, texture_height, texture_width,
+                   &coordinates_view, has_derivatives ? &derivatives_view : nullptr,
+                   has_lod ? &lod_view : nullptr, static_cast<uint32_t>(filter),
+                   static_cast<uint32_t>(mip_filter), static_cast<uint32_t>(wrap_u),
+                   static_cast<uint32_t>(wrap_v), has_border ? &border_view : nullptr,
+                   &grad_samples_view, &context, &grad_pyramid_view, &grad_coordinates_view,
+                   nullptr, &diagnostic.buffer),
+               diagnostic.text());
+    return std::make_tuple(grad_pyramid, grad_coordinates);
+}
+
+
 /* --------------------------------------------------------------------------------- io.ply
  *
  * The reader takes bytes, not a path. That is the core's boundary and it is kept here rather than
@@ -1503,6 +1692,20 @@ STABLE_TORCH_LIBRARY(gffx, m) {
     m.def(
         "interpolate_backward(Tensor face_index, Tensor barycentric, Tensor face_attributes, "
         "Tensor grad_attributes) -> (Tensor, Tensor)");
+    m.def("texture_pyramid(Tensor texture, int levels) -> (Tensor, Tensor)");
+    m.def(
+        "texture_pyramid_backward(Tensor level_offsets, int texture_height, int texture_width, "
+        "int channel_count, Tensor grad_pyramid) -> Tensor");
+    m.def(
+        "texture(Tensor pyramid, Tensor level_offsets, int texture_height, int texture_width, "
+        "int channel_count, Tensor coordinates, Tensor derivatives, Tensor lod, "
+        "bool has_derivatives, bool has_lod, int filter, int mip_filter, int wrap_u, int wrap_v, "
+        "Tensor border, bool has_border) -> Tensor");
+    m.def(
+        "texture_backward(Tensor pyramid, Tensor level_offsets, int texture_height, "
+        "int texture_width, Tensor coordinates, Tensor derivatives, Tensor lod, "
+        "bool has_derivatives, bool has_lod, int filter, int mip_filter, int wrap_u, int wrap_v, "
+        "Tensor border, bool has_border, Tensor grad_samples) -> (Tensor, Tensor)");
     m.def("ply_probe(Tensor data) -> (int, int, int)");
     m.def("ply_read(Tensor data, bool double_precision) -> (Tensor, Tensor)");
     m.def(
@@ -1571,14 +1774,42 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CompositeExplicitAutograd, m) {
  * function that would fail on a NULL table entry deeper down.
  */
 STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
+    /* Every operation whose CUDA kernel is verified against the host by the device parity
+     * fixtures. This list stood at eight forwards and no backwards until 2026-09-04, dating from
+     * when only the order-independent group had kernels; twelve backwards and three further
+     * forwards had landed since without being registered here, so a gradient on a CUDA tensor was
+     * refused by torch even though the kernel existed and was bit-identical to the host. The
+     * omission is invisible from C, where the operation table is complete, and invisible from a
+     * CPU-only PyTorch build, where nothing dispatches to this key. */
     m.impl("face_geometry", TORCH_BOX(&face_geometry));
+    m.impl("face_geometry_backward", TORCH_BOX(&face_geometry_backward));
+    m.impl("vertex_normals", TORCH_BOX(&vertex_normals));
+    m.impl("vertex_normals_backward", TORCH_BOX(&vertex_normals_backward));
     m.impl("gather_faces", TORCH_BOX(&gather_faces));
+    m.impl("gather_faces_backward", TORCH_BOX(&gather_faces_backward));
     m.impl("transform_points", TORCH_BOX(&transform_points));
+    m.impl("transform_points_backward", TORCH_BOX(&transform_points_backward));
     m.impl("perspective_divide", TORCH_BOX(&perspective_divide));
+    m.impl("perspective_divide_backward", TORCH_BOX(&perspective_divide_backward));
     m.impl("knn", TORCH_BOX(&knn));
+    m.impl("knn_backward", TORCH_BOX(&knn_backward));
     m.impl("closest_point_on_mesh", TORCH_BOX(&closest_point_on_mesh));
+    m.impl("closest_point_on_mesh_backward", TORCH_BOX(&closest_point_on_mesh_backward));
+    m.impl("sample_surface", TORCH_BOX(&sample_surface));
+    m.impl("sample_surface_backward", TORCH_BOX(&sample_surface_backward));
     m.impl("rasterize", TORCH_BOX(&rasterize));
+    m.impl("rasterize_backward", TORCH_BOX(&rasterize_backward));
     m.impl("interpolate", TORCH_BOX(&interpolate));
+    m.impl("interpolate_backward", TORCH_BOX(&interpolate_backward));
+    m.impl("texture_pyramid", TORCH_BOX(&texture_pyramid));
+    m.impl("texture_pyramid_backward", TORCH_BOX(&texture_pyramid_backward));
+    m.impl("texture", TORCH_BOX(&texture));
+    m.impl("texture_backward", TORCH_BOX(&texture_backward));
+
+    /* mesh.build_edge_topology is the one operation table entry without a CUDA forward, so it
+     * stays unregistered here and torch reports the absence itself. The preallocated _out
+     * variants also stay CPU-only: their kernels are the same functions and would very likely
+     * work, but "would work" is not what this list is for. */
 }
 
 STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {
@@ -1604,6 +1835,10 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {
     m.impl("rasterize_backward", TORCH_BOX(&rasterize_backward));
     m.impl("interpolate", TORCH_BOX(&interpolate));
     m.impl("interpolate_backward", TORCH_BOX(&interpolate_backward));
+    m.impl("texture_pyramid", TORCH_BOX(&texture_pyramid));
+    m.impl("texture_pyramid_backward", TORCH_BOX(&texture_pyramid_backward));
+    m.impl("texture", TORCH_BOX(&texture));
+    m.impl("texture_backward", TORCH_BOX(&texture_backward));
     m.impl("ply_probe", TORCH_BOX(&ply_probe));
     m.impl("ply_read", TORCH_BOX(&ply_read));
     m.impl("mesh_validate", TORCH_BOX(&mesh_validate));
