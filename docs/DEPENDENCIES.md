@@ -16,6 +16,7 @@ PEP 735 dependency groups do not enter wheel `Requires-Dist` metadata.
 | `framework` | empty | frameworks are selected explicitly outside GFFX metadata |
 | `accelerator` | empty | drivers/toolkits are system prerequisites, not pip dependencies |
 | `visualization` | empty | no visualization integration is implemented |
+| `testing-dashboard` | `coverage==7.10.7` | optional Python coverage collection for the repository-only testing app; never a wheel runtime dependency; [package provenance](https://pypi.org/project/coverage/7.10.7/) |
 | `format` | empty | no mesh/scene file-format integration is implemented |
 | `example` | empty | no example-only dependency is admitted yet |
 | `benchmark` | empty | benchmark tooling waits for an executable operation |

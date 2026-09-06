@@ -66,6 +66,7 @@ development = [
     {include-group = "packaging"},
 ]
 framework = []
+testing-dashboard = ["coverage==7.10.7"]
 accelerator = []
 visualization = []
 format = []

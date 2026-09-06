@@ -4,33 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gffx dashboard</title>
-<style>
-  :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #f7f7f5; --mute: #6a6a66; --line: #d8d8d3; }
-  @media (prefers-color-scheme: dark) { :root { --fg: #e8e8e4; --bg: #141416; --mute: #9a9a95; --line: #2c2c30; } }
-  body { margin: 0; padding: 2rem; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
-  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
-  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { text-align: left; padding: .3rem .8rem .3rem 0; border-bottom: 1px solid var(--line); }
-  th { color: var(--mute); font-weight: 500; }
-  p { color: var(--mute); max-width: 60ch; }
-  code { font-family: ui-monospace, monospace; }
-</style>
+<link rel="stylesheet" href="/app.css">
 </head>
-<body>
-<h1>gffx dashboard</h1>
-<p>Phase 1 step 1: the server. The page with its layout grid and panels arrives at step 3; until then this lists the runs the server holds.</p>
-<table id="runs"><thead><tr><th>run</th><th>processes</th><th>paths</th><th>current step</th></tr></thead><tbody></tbody></table>
-<script>
-  async function refresh() {
-    const body = document.querySelector("#runs tbody");
-    try {
-      const data = await (await fetch("/api/runs", { cache: "no-store" })).json();
-      body.innerHTML = data.runs.map(r =>
-        `<tr><td><code>${r.run}</code></td><td>${r.names.join(", ")}</td><td>${r.paths}</td><td>${r.current_step}</td></tr>`).join("")
-        || `<tr><td colspan="4">no runs yet</td></tr>`;
-    } catch (e) { body.innerHTML = `<tr><td colspan="4">server unreachable</td></tr>`; }
-  }
-  refresh(); setInterval(refresh, 2000);
-</script>
+<body data-gffx-app="general">
+<header class="bar">
+  <span class="brand">gffx dashboard</span>
+  <label>run <select id="run"></select></label>
+  <label>layout <select id="layout"><option value="">auto</option></select></label>
+  <button id="save" title="Save the current layout under a name">save</button>
+  <button id="edit" title="Move, resize, rebind or remove panels">edit</button>
+  <button id="add" hidden>add panel</button>
+  <label>delivery <select id="delivery"><option value="low">low bandwidth</option><option value="standard">standard</option><option value="paused">paused</option></select></label>
+  <span id="status" class="status">connecting</span>
+</header>
+<div id="resources" class="resource-status" role="status">Resource limits require the updated server. Low bandwidth still uses data; pause when not viewing.</div>
+<section class="reference-bar" aria-label="Testing page reference">
+  <span id="page-reference">Page identity pending</span>
+  <button id="copy-reference">copy page reference</button>
+  <button id="copy-link">copy link</button>
+  <textarea id="reference-fallback" hidden readonly aria-label="Reference to copy manually"></textarea>
+</section>
+<main id="grid" class="grid"></main>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

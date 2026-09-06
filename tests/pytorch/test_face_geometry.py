@@ -17,6 +17,7 @@ gate and Stable-ABI binary are already verified by test_adapter_loading.py.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -60,9 +61,11 @@ def _case_tensors(case, vertex_dtype=torch.float64):
 
 # ------------------------------------------------------------------------------ TA-01, TA-02
 
-def test_ta01_forward_parity(oracle):
+def test_ta01_forward_parity(oracle, request):
     """Forward output is bit-identical to the C reference on the same inputs."""
     operation = _adapter()
+    reporter=request.config.pluginmanager.get_plugin('tools.testing_dashboard.pytest_plugin')
+    inspection=reporter.Evidence(request.node.nodeid) if reporter else None
     for case in oracle["cases"]:
         vertices, faces = _case_tensors(case)
         normals, areas, valid = operation(vertices, faces, eps=EPS)
@@ -71,9 +74,14 @@ def test_ta01_forward_parity(oracle):
         expected_valid = torch.tensor(case["valid"], dtype=torch.bool)
         # Bit-exact: the adapter performs no arithmetic of its own, so any difference is a
         # conversion defect rather than a numerical one.
-        assert torch.equal(normals, expected_normals), case["name"]
-        assert torch.equal(areas, expected_areas), case["name"]
-        assert torch.equal(valid, expected_valid), case["name"]
+        for label,actual,expected in [('normals',normals,expected_normals),
+                                      ('areas',areas,expected_areas),('validity',valid,expected_valid)]:
+            with (inspection.check(case['name']+' / '+label) if inspection else nullcontext()) as check:
+                if check:
+                    check.record('actual vs expected',{'actual':actual.tolist(),'expected':expected.tolist(),
+                                 'comparison':'bit-exact equality to committed C oracle'})
+                    if label=='normals':check.mesh('input mesh',vertices,faces)
+                assert torch.equal(actual,expected),case['name']
 
 
 def test_ta02_vertex_dtypes(oracle):

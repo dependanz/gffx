@@ -11,6 +11,7 @@ from __future__ import annotations
 from ._client import Control, Dashboard, Queue, connect
 from ._framing import ArrayView, ProtocolError, as_array
 from ._page import PageConnection
+from ._limits import ResourceLimits
 from ._server import DEFAULT_PORT, PROTOCOL, BindRefused, Server, tailscale_address
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "PageConnection",
     "ProtocolError",
     "Queue",
+    "ResourceLimits",
     "Server",
     "as_array",
     "connect",

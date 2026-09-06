@@ -70,6 +70,7 @@ def test_development_dependency_groups_are_explicit_and_do_not_leak_to_runtime()
         "framework",
         "packaging",
         "test",
+        "testing-dashboard",
         "visualization",
     }
     assert groups["test"] == [
@@ -77,6 +78,7 @@ def test_development_dependency_groups_are_explicit_and_do_not_leak_to_runtime()
         "tomli==2.2.1; python_version < '3.11'",
     ]
     assert groups["packaging"] == ["build==1.3.0", "cibuildwheel==4.2.0"]
+    assert groups["testing-dashboard"] == ["coverage==7.10.7"]
     assert groups["development"] == [
         {"include-group": "test"},
         {"include-group": "packaging"},

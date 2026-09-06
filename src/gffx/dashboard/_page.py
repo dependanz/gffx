@@ -12,34 +12,45 @@ from ._ws import ConnectionClosed, WebSocket, client_connect
 
 
 def split_address(address: str) -> tuple[str, int]:
-    if address.startswith("ws://") or address.startswith("http://"):
-        address = address.split("://", 1)[1]
+    host, port, _ = parse_address(address)
+    return host, port
+
+
+def parse_address(address: str) -> tuple[str, int, bool]:
+    """``host``, ``port`` and whether the address asks for TLS (``https://`` or ``wss://``)."""
+    tls = False
+    if "://" in address:
+        scheme, address = address.split("://", 1)
+        tls = scheme in ("https", "wss")
     address = address.rstrip("/")
     if ":" not in address:
         from ._server import DEFAULT_PORT
-        return address, DEFAULT_PORT
+        return address, DEFAULT_PORT, tls
     host, port = address.rsplit(":", 1)
-    return host, int(port)
+    return host, int(port), tls
 
 
 class PageConnection:
     """One page session: ``open`` yields the snapshot; updates, replies and history follow."""
 
-    def __init__(self, address: str, *, run: str, timeout: float = 10.0) -> None:
+    def __init__(self, address: str, *, run: str, timeout: float = 10.0, verify: bool = True) -> None:
         self.address = address
         self.run = run
         self.timeout = timeout
+        self.verify = verify
         self._ws: WebSocket | None = None
         self._ids = itertools.count(1)
         self._pending: list[dict[str, Any]] = []
         self.snapshot: dict[str, Any] | None = None
 
-    def open(self, layout: str | None = None) -> dict[str, Any]:
-        host, port = split_address(self.address)
-        self._ws = client_connect(host, port, timeout=self.timeout)
+    def open(self, layout: str | None = None, *, view: dict | None = None) -> dict[str, Any]:
+        host, port, tls = parse_address(self.address)
+        self._ws = client_connect(host, port, timeout=self.timeout, tls=tls, verify=self.verify)
         envelope: dict[str, Any] = {"t": "open", "id": next(self._ids), "run": self.run}
         if layout is not None:
             envelope["layout"] = layout
+        if view is not None:
+            envelope["view"] = view
         self._ws.send_text(encode_text(envelope))
         reply = self._wait(lambda message: message.get("t") in ("snapshot", "error"), self.timeout)
         if reply.get("t") == "error":
@@ -101,6 +112,10 @@ class PageConnection:
         if step is not None:
             envelope["step"] = step
         return self._request(envelope, ("history",))
+
+    def checkpoints(self, path: str, *, before: int | None = None, limit: int = 100) -> dict[str, Any]:
+        """List sparse durable steps separately from the recent in-memory window."""
+        return self._request({"t": "checkpoints", "path": path, "before": before, "limit": limit}, ("checkpoints",))
 
     def layout_save(self, spec: dict[str, Any]) -> str:
         return str(self._request({"t": "layout_save", "spec": spec}, ("ack",))["name"])

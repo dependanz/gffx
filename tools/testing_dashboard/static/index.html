@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gffx testing</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('gffx.testing.theme')==='dark'?'dark':'light';}catch{document.documentElement.dataset.theme='light';}</script>
+<link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/testing/app.css">
+</head><body data-gffx-app="testing">
+<header class="bar"><button id="menu" aria-expanded="true" aria-controls="navigation">☰ pages</button>
+<strong>gffx testing</strong><span class="workspace-label">Development workspace</span>
+<a href="/">general dashboard ↗</a><button id="theme" aria-label="Switch to dark mode">Dark mode</button><span id="connection" role="status">Connecting</span></header>
+<div class="workspace">
+<aside id="navigation"><nav aria-label="Testing pages">
+<button data-page="overview">Project overview</button>
+<button data-page="newest">Newest pages</button>
+<button data-page="coverage">Coverage</button><div id="page-groups"></div></nav>
+<p>Persistent pages. Latest relevant evidence.<br>Demonstrations are not passing tests.</p>
+</aside>
+<main id="content">
+<section class="reference-bar"><span id="reference-label">Page overview</span>
+<button id="copy">copy page reference</button>
+<button id="copy-details">copy evidence details</button>
+<textarea id="reference-fallback" readonly hidden aria-label="Reference to copy manually"></textarea></section>
+<div id="error" role="alert" hidden></div>
+<p id="eyebrow">GFFX / DEVELOPMENT</p><h1 id="title">Project overview</h1>
+<p id="description"></p><div id="summary"></div>
+<section id="explanation" hidden aria-label="About this test"></section>
+<div id="filters" hidden><label>Find a test<input id="search" type="search" placeholder="Filter this feature’s tests"></label>
+<label>Outcome<select id="outcome"><option value="">All outcomes</option><option>failed</option><option>passed</option><option>pending</option><option>skipped</option><option>xfailed</option><option>xpassed</option></select></label></div>
+<div id="evidence-context"></div>
+<div id="evidence" class="grid"></div>
+<section id="details"></section><div id="pager"></div>
+<section id="provenance"></section>
+</main></div><script type="module" src="/testing/app.js"></script></body></html>

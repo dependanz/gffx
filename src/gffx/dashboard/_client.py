@@ -9,6 +9,7 @@ watches misreports the process, so nothing here blocks the caller unless it aske
 from __future__ import annotations
 
 import itertools
+import math
 import os
 import queue
 import socket
@@ -22,6 +23,45 @@ from ._server import DEFAULT_PORT, PROTOCOL
 from ._ws import ConnectionClosed, WebSocket, client_connect
 
 _SENTINEL = object()
+_UNSET = object()
+
+
+class ByteQueue(queue.Queue):
+    """Queue count and payload-byte bounds; Queue's mutex protects both counters."""
+    def __init__(self, maxsize, *, max_bytes=8 * 1024 * 1024):
+        super().__init__(maxsize)
+        self.max_bytes = max_bytes
+        self.bytes = 0
+
+    @staticmethod
+    def size(item):
+        if item is _SENTINEL:
+            return 0
+        frame = item[1]
+        return sum(len(part) for part in frame) if isinstance(frame, list) else len(frame.encode("utf-8"))
+
+    def _put(self, item):
+        size = self.size(item)
+        if self.bytes + size > self.max_bytes:
+            raise queue.Full
+        super()._put(item)
+        self.bytes += size
+
+    def _get(self):
+        item = super()._get()
+        self.bytes -= self.size(item)
+        return item
+
+    def discard_live(self):
+        """Evict one ordinary pending frame, never a selected checkpoint."""
+        with self.mutex:
+            for item in self.queue:
+                if item is not _SENTINEL and (len(item) < 3 or not item[2]):
+                    self.queue.remove(item)
+                    self.bytes -= self.size(item)
+                    self.not_full.notify()
+                    return item
+        raise queue.Empty
 
 
 def _resolve_address(address: str | None) -> str | None:
@@ -66,20 +106,51 @@ class Control:
 
 
 class Queue:
-    """A bounded path the server assigns steps to; ``push`` is one send like any other."""
+    """Recent live window plus sparse snapshots; step is the producer's step, not page count."""
 
-    __slots__ = ("_dashboard", "path", "kind", "bound")
-
-    def __init__(self, dashboard: "Dashboard", path: str, kind: str, bound: int) -> None:
+    def __init__(self, dashboard: "Dashboard", path: str, kind: str, recent_window: int,
+                 snapshot_every: int, max_hz: float | None) -> None:
         self._dashboard = dashboard
         self.path = path
         self.kind = kind
-        self.bound = bound
+        self._next_step = 0
+        self._last_send = None
+        self.throttled = 0
+        self.configure(recent_window=recent_window, snapshot_every=snapshot_every, max_hz=max_hz)
 
-    def push(self, *args: Any, **kwargs: Any) -> None:
+    @property
+    def bound(self):
+        return self.recent_window
+
+    def configure(self, *, recent_window=_UNSET, snapshot_every=_UNSET, max_hz=_UNSET):
+        """Change this producer's policy for subsequent pushes; existing checkpoints stay intact."""
+        from ._state import check_window_policy
+        window = getattr(self, "recent_window", 100) if recent_window is _UNSET else recent_window
+        interval = getattr(self, "snapshot_every", 1000) if snapshot_every is _UNSET else snapshot_every
+        rate = getattr(self, "max_hz", None) if max_hz is _UNSET else max_hz
+        check_window_policy(window, interval)
+        if rate is not None and (isinstance(rate, bool) or not isinstance(rate, (int, float))
+                                 or not math.isfinite(rate) or rate <= 0):
+            raise ValueError("max_hz must be a finite positive number or None")
+        self.recent_window, self.snapshot_every, self.max_hz = window, interval, rate
+
+    def push(self, *args: Any, step: int | None = None, **kwargs: Any) -> None:
+        if not self._dashboard.connected:
+            return
+        step = self._next_step if step is None else step
+        if isinstance(step, bool) or not isinstance(step, int) or step < self._next_step:
+            raise ValueError("queue step must be a strictly increasing integer >= 0")
+        checkpoint = bool(self.snapshot_every and step % self.snapshot_every == 0)
+        now = time.monotonic()
+        self._next_step = step + 1
+        if not checkpoint and self.max_hz is not None and self._last_send is not None and now - self._last_send < 1 / self.max_hz:
+            self.throttled += 1
+            return
         fields, arrays = _build(self.kind, args, kwargs)
-        envelope = {"t": "push", "path": self.path, "kind": self.kind, "bound": self.bound, **fields}
+        envelope = {"t": "push", "path": self.path, "kind": self.kind, "bound": self.recent_window,
+                    "snapshot_every": self.snapshot_every, "step": step, **fields}
         self._dashboard._send(envelope, arrays)
+        self._last_send = now
 
 
 def _build(kind: str, args: tuple, kwargs: dict) -> tuple[dict[str, Any], list[tuple[str, ArrayView]]]:
@@ -158,12 +229,13 @@ class Dashboard:
         self.timeout = timeout
         self.connected = False
         self.dropped = 0
+        self.checkpoint_dropped = 0
         self.errors = 0
         self.last_error: str | None = None
         self._default_step = 0
         self._ids = itertools.count(1)
         self._controls: dict[str, Control] = {}
-        self._queue: queue.Queue = queue.Queue(maxsize=max(1, queue_bound))
+        self._queue = ByteQueue(maxsize=max(1, queue_bound))
         self._ws: WebSocket | None = None
         self._sender: threading.Thread | None = None
         self._reader: threading.Thread | None = None
@@ -174,18 +246,22 @@ class Dashboard:
         self._inflight_lock = threading.Lock()
         self._inflight_zero = threading.Condition(self._inflight_lock)
         self._closing = False
+        self.provenance = None
 
     # -- lifecycle -------------------------------------------------------------------------------
 
     def _open(self) -> None:
         assert self.address is not None
-        host, port = _split(self.address)
+        from ._page import parse_address
+        host, port, tls = parse_address(self.address)
+        verify = os.environ.get("GFFX_DASHBOARD_INSECURE") != "1"  # a self-signed server certificate
         try:
-            self._ws = client_connect(host, port, timeout=self.timeout)
+            self._ws = client_connect(host, port, timeout=self.timeout, tls=tls, verify=verify)
         except (OSError, ProtocolError) as error:
             raise ConnectionError("gffx.dashboard could not reach %s: %s" % (self.address, error)) from None
         hello_id = next(self._ids)
-        self._ws.send_text(encode_text({"t": "hello", "id": hello_id, "run": self.run, "name": self.name, "protocol": PROTOCOL}))
+        self._ws.send_text(encode_text({"t": "hello", "id": hello_id, "run": self.run, "name": self.name,
+                                        "protocol": PROTOCOL, "provenance": self.provenance}))
         opcode, payload = self._ws.recv(timeout=self.timeout)
         reply = decode_text(payload)
         if reply.get("t") != "ack" or reply.get("id") != hello_id:
@@ -238,6 +314,15 @@ class Dashboard:
         message_id = next(self._ids)
         envelope["id"] = message_id
         frame: list[bytes] | str = encode_binary_parts(envelope, arrays) if arrays else encode_text(envelope)
+        interval = envelope.get("snapshot_every", 0)
+        protected = bool(envelope.get("t") == "push" and interval and envelope["step"] % interval == 0)
+        if self._queue.size((message_id, frame)) > self._queue.max_bytes:
+            self.errors += 1; self.dropped += 1
+            self.checkpoint_dropped += int(protected)
+            self.last_error = "dashboard frame exceeds 8 MiB sender byte budget"
+            if self.wait_acks:
+                raise ProtocolError(self.last_error)
+            return
         event: threading.Event | None = None
         if self.wait_acks:
             event = threading.Event()
@@ -247,15 +332,22 @@ class Dashboard:
             self._inflight += 1
         while True:
             try:
-                self._queue.put_nowait((message_id, frame))
+                self._queue.put_nowait((message_id, frame, protected))
                 break
             except queue.Full:
                 try:
-                    dropped_id, _ = self._queue.get_nowait()
+                    discarded = self._queue.discard_live()
                 except queue.Empty:
-                    continue
+                    # A bounded nonblocking queue cannot promise lossless delivery under overload.
+                    # Refuse the new frame visibly rather than silently evicting a checkpoint.
+                    self.dropped += 1
+                    self.checkpoint_dropped += int(protected)
+                    error = "dashboard queue full of protected checkpoints; frame not sent"
+                    self.errors += 1; self.last_error = error
+                    self._drop_ack(message_id, error)
+                    break
                 self.dropped += 1
-                self._finish(dropped_id)
+                self._drop_ack(discarded[0], "dashboard pending frame dropped before send")
         if event is not None:
             if not event.wait(self.timeout):
                 raise TimeoutError("no ack for message %d within %.1fs" % (message_id, self.timeout))
@@ -263,6 +355,14 @@ class Dashboard:
                 error = self._ack_errors.pop(message_id, None)
             if error is not None:
                 raise ProtocolError(error)
+
+    def _drop_ack(self, message_id, error):
+        with self._acks_lock:
+            event = self._acks.pop(message_id, None)
+            if event is not None:
+                self._ack_errors[message_id] = error
+                event.set()
+        self._finish(message_id)
 
     def _finish(self, message_id: int) -> None:
         with self._inflight_zero:
@@ -277,7 +377,7 @@ class Dashboard:
             item = self._queue.get()
             if item is _SENTINEL:
                 return
-            message_id, frame = item
+            message_id, frame = item[:2]
             try:
                 if isinstance(frame, list):
                     self._ws.send_binary(frame)
@@ -374,8 +474,19 @@ class Dashboard:
         if self.connected:
             self._send({"t": "delete", "path": path}, [])
 
-    def queue(self, path: str, kind: str, *, bound: int = 256) -> Queue:
-        return Queue(self, path, kind, int(bound))
+    def queue(self, path: str, kind: str, *, recent_window: int | None = None,
+              snapshot_every: int = 1000, max_hz: float | None = None,
+              bound: int | None = None) -> Queue:
+        """Keep 100 recent updates and snapshot every 1000 source steps by default.
+
+        ``snapshot_every=0`` disables persistence. ``max_hz`` throttles non-checkpoint
+        updates before copying arrays. ``bound`` is a compatibility alias for recent_window.
+        Pass ``step=`` to push when the producer has its own simulation/training step.
+        """
+        if bound is not None and recent_window is not None:
+            raise ValueError("use recent_window or bound, not both")
+        window = bound if bound is not None else (100 if recent_window is None else recent_window)
+        return Queue(self, path, kind, window, snapshot_every, max_hz)
 
     def control(self, path: str, default: Any, *, kind: str | None = None, range: Any = None, options: Any = None, label: str | None = None) -> Control:
         existing = self._controls.get(path)
@@ -402,7 +513,8 @@ class Dashboard:
 
 
 def connect(address: str | None = None, run: str | None = None, name: str | None = None, *,
-            wait_acks: bool = False, queue_bound: int = 64, timeout: float = 10.0) -> Dashboard:
+            wait_acks: bool = False, queue_bound: int = 64, timeout: float = 10.0,
+            provenance: dict | None = None) -> Dashboard:
     """Open a run on a dashboard server, or return a no-op dashboard when no address resolves.
 
     ``address`` defaults to ``GFFX_DASHBOARD``, then to this machine's Tailscale address on the
@@ -412,6 +524,8 @@ def connect(address: str | None = None, run: str | None = None, name: str | None
     """
     resolved = _resolve_address(address)
     dashboard = Dashboard(resolved, run or _default_run(), name or _default_name(), wait_acks=wait_acks, queue_bound=queue_bound, timeout=timeout)
+    from ._server import check_provenance
+    dashboard.provenance = check_provenance(provenance)
     if resolved is not None:
         dashboard._open()
     return dashboard

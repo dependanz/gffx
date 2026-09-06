@@ -142,7 +142,9 @@ def test_db06_layouts_round_trip(server):
     ]}
     page.layout_save(spec)
     assert "fit" in page.layout_list()
-    assert page.layout_load("fit") == spec
+    loaded = page.layout_load("fit")
+    assert loaded.pop("page_id")
+    assert loaded == spec
     page.close()
 
 

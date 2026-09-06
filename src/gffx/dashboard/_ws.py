@@ -19,7 +19,7 @@ from ._framing import ProtocolError
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OP_CONT, OP_TEXT, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
-_MAX_MESSAGE = 1 << 31
+_MAX_MESSAGE = 8 * 1024 * 1024
 
 
 def accept_key(key: str) -> str:
@@ -169,6 +169,7 @@ class WebSocket:
             self._sock.settimeout(timeout)
             message_opcode: int | None = None
             parts: list[bytes] = []
+            total = 0
             while True:
                 fin, opcode, payload = self._read_frame()
                 if opcode == OP_PING:
@@ -192,15 +193,30 @@ class WebSocket:
                         raise ProtocolError("continuation frame without a message")
                 else:
                     raise ProtocolError("unknown opcode %d" % (opcode,))
+                total += len(payload)
+                if total > _MAX_MESSAGE:
+                    raise ProtocolError("fragmented message exceeds the message limit")
                 parts.append(payload)
                 if fin:
                     return message_opcode, b"".join(parts)
 
 
-def client_connect(host: str, port: int, path: str = "/ws", *, timeout: float = 10.0) -> WebSocket:
-    """Open a client WebSocket to ``host:port`` with the opening handshake of RFC 6455 section 4."""
+def client_connect(host: str, port: int, path: str = "/ws", *, timeout: float = 10.0, tls: bool = False, verify: bool = True) -> WebSocket:
+    """Open a client WebSocket to ``host:port`` with the opening handshake of RFC 6455 section 4.
+
+    ``tls`` speaks ``wss``; ``verify=False`` accepts a self-signed server certificate, which is what
+    ``python -m gffx.dashboard --self-signed`` produces.
+    """
     key = base64.b64encode(os.urandom(16)).decode("ascii")
-    connection = http.client.HTTPConnection(host, port, timeout=timeout)
+    if tls:
+        import ssl
+        context = ssl.create_default_context()
+        if not verify:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        connection = http.client.HTTPSConnection(host, port, timeout=timeout, context=context)
+    else:
+        connection = http.client.HTTPConnection(host, port, timeout=timeout)
     connection.putrequest("GET", path, skip_host=True, skip_accept_encoding=True)
     connection.putheader("Host", "%s:%d" % (host, port))
     connection.putheader("Upgrade", "websocket")
