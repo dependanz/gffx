@@ -93,7 +93,7 @@ cmake.define.GFFX_ENABLE_CUDA = "OFF"
 # so one artifact serves 3.10+ and the abi3 tag in PYTORCH_SUPPORT_MATRIX_V0_1.md is accurate.
 wheel.py-api = "cp310"
 
-sdist.exclude = ["build", "dist", "*.egg-info", "__pycache__", ".pytest_cache"]
+sdist.exclude = ["build", "dist", "*.egg-info", "__pycache__", ".pytest_cache", "tools/testing_dashboard/demo_assets"]
 
 [tool.cibuildwheel]
 # One abi3 wheel per platform serves CPython 3.10+, so only the 3.10 build is needed.

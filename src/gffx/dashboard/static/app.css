@@ -64,6 +64,8 @@ table.tests td.dur { text-align: right; color: var(--mute); }
 
 /* Reserve gestures before pointerdown; capture alone cannot stop browser pointercancel. */
 .mesh-canvas, .panel.editing > .head, .panel.editing .resize { touch-action: none; }
+.panel .display-error {position:absolute;inset:0;background:var(--panel);color:var(--fg);z-index:2;padding:20px}
+.panel .tools button[hidden],.panel .scrub[hidden] {display:none}
 .mesh-canvas { user-select: none; -webkit-user-select: none; }
 .panel.editing > .head { -webkit-user-select: none; }
 input[type=range] { touch-action: pan-y; }

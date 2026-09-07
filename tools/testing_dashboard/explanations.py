@@ -15,6 +15,131 @@ def _add(path, limits, rows):
         GUIDES[key] = dict(purpose=purpose, method=method, limits=limits)
 
 
+_add('python/test_material_budget_sharp',
+     'Scalar CPU float64 development reference, finite sampled sharp cases only. No public material, fast-table extension, whole-domain proof, CUDA/export or image-convergence acceptance.', '''
+sharp_reference_has_exact_rough_limit|Check the new coordinates against a case with an exact answer.|At roughness and Fresnel reflectance one, compare three directional energies and view derivatives with the independent logarithmic formula.
+sharp_reference_resolves_values_and_gradients|Resolve the narrow reflections of polished surfaces without increasing their roughness.|Compare two transformed-reference resolutions at sixty triples, retaining strict value and three-gradient refinement limits. Independently compare tail-dense VNDF values and require that comparison to converge too.
+sharp_reference_agrees_with_direct_derivatives|Cross-check the new integration coordinates where the older method is reliable.|Compare values and all three derivatives against direct hemisphere quadrature at two overlapping-domain cases, using unchanged reference limits.
+sharp_reference_keeps_moving_boundary_gradients|Ensure optimization can see changes to the reflection boundary.|Differentiate through mapped quadrature nodes and bounds; compare with finite differences, repeat calls exactly and verify affine Fresnel dependence. Internal gradcheck alone is not physical accuracy.
+sharp_reference_approaches_mirror_without_roughness_clamp|Check that very smooth surfaces approach the expected mirror reflection.|At roughness 0.001, compare energy to Schlick reflectance at the view angle and require a finite roughness derivative. This limit example does not establish every tiny-roughness derivative.
+sharp_reference_rejects_invalid_and_unrepresentable_inputs|Reject unsupported inputs and arithmetic overflow instead of silently changing the material.|Check scalar CPU float64, finite physical domains, resolution caps, roughness underflow and an unrepresentable near-horizon integration boundary.
+sharp_independent_rule_retains_legacy_nonconvergence|Keep the failed comparison method reproducible while testing its repair.|Require the three measured uniform-radial convergence failures, then verify tail-dense sampling with the same node count and limits. Check normalization and invalid rule names; uniform remains the legacy default.
+sharp_average_has_exact_control_and_work_cap|Verify the total directional budget and keep its integration work bounded.|Compare the roughness-one mean to an exact integral, then reject unsupported view counts and more than 2097152 light samples before constructing a graph.
+sharp_average_refines_values_and_gradients|Check average energy and its fitting derivatives on polished materials.|Refine light and view quadrature at four roughness values, recording the mean and roughness/Fresnel derivatives. Retain the original reference error limits.
+sharp_coupling_keeps_independent_furnace_limits|Ensure adding matte reflection does not create energy on shiny materials.|Across 108 sharp configurations combine independent VNDF specular with separately integrated coupled matte. The denominator uses 32 view nodes and the residual integral 64; retain the 1.001 ceiling and 0.001 white-error limit.
+sharp_demo_exposes_surfaces_and_reference_limits|Show polished surfaces without treating their appearance as scientific acceptance.|Check the four-sphere RGB plate, sixteen energy/gradient measurements, per-tile visible variation and the explicit 512-sample preview disclaimer. High-precision scalar tests provide separate numerical evidence.
+sharp_publisher_obeys_real_dashboard_protocol|Catch integration errors that numerical rendering tests cannot find.|Publish a tiny synthetic fixture through a real temporary testing server and installed dashboard client; require valid paths, six registered artifacts and successful completion. This reproduces the original rejected equals sign without repeating costly rendering.
+''')
+
+_add('python/test_material_budget',
+     'Finite scalar CPU reference checks. The legacy grid remains reproducible; this does not establish uniform accuracy for every positive roughness or a public shading runtime.', '''
+budget_grazing_reference_is_resolved|Check whether the measuring stick now resolves a glossy reflection seen at a shallow angle.|Compare the retained uniform angular rule with a fixed Gauss rule at two resolutions over twelve triples. Require unchanged value/gradient convergence and independent VNDF value agreement before judging any table.
+budget_azimuth_choice_is_explicit_and_bounded|Keep reference refinement explicit and prevent hidden work growth or lost gradients.|Reject unknown rules, preserve the average-work cap for both rules and check the new rule against finite differences. Fixed sample coordinates are independent of material parameters.
+budget_angular_demo_explains_reference_convergence|Show why changing where we sample can matter more than simply adding samples.|Compare old and new angular rules at five resolutions in one glossy/grazing configuration, with energy and two gradient curves. Check the independent energy comparison and retain the legacy nonconvergence control; not table acceptance.
+''')
+
+_add('python/test_material_budget_table',
+     'Experimental CPU table on explicit roughness 0.2..1, finite acceptance fixtures only; not complete material, all-domain derivatives, public support-floor change or deployment/performance acceptance.', '''
+table_held_out_values_and_derivatives|Make the approximation earn both brightness and gradient accuracy.|Compare three held-out table queries to independent differentiable quadrature, preserving fixed value, derivative and coarse/fine limits.
+table_average_is_its_exact_cosine_weighted_mean|Keep directional and average energy accounting consistent.|Integrate each quadratic-cosine segment times the cosine weight with exact two-node quadrature and compare both mean values and parameter gradients.
+table_keeps_the_existing_independent_furnace_gate|Prevent a fast approximation from weakening the energy requirement.|Integrate the original specular BRDF independently and the table-coupled matte term across 108 existing parameter combinations; retain the 1.001 ceiling and 0.001 white/refinement limits.
+table_preserves_tensor_shapes_fresnel_linearity_and_gradcheck|Keep query coordinates connected to optimization and Fresnel interpolation exact.|Test shared-input gradcheck away from knots, affine F0 dependence, float32 output and empty layouts.
+table_range_errors_never_silently_clamp|Avoid changing unsupported materials to make the table appear to work.|Reject roughness outside the candidate range, invalid cosine/F0, ambiguous shapes and dtype/device mismatches; check both cosine endpoints explicitly.
+table_generation_is_bounded_and_reproducible|Keep offline generation explicit, bounded and reproducible.|Reject invalid generation sizes and injected out-of-range energy, then repeat a small higher-precision generation exactly. The original low-precision roundoff rejection remains historical evidence.
+table_average_agrees_with_independent_differentiable_reference|Check that a self-consistent table mean also approximates the original integral.|Compare average values and roughness/F0 derivatives at a held-out point against nested fixed-hemisphere quadrature.
+table_demo_exposes_value_and_derivative_approximation|Make approximation limits inspectable instead of showing only a smooth-looking value curve.|Check 41 roughness reference/table pairs and six grazing-angle value/gradient pairs, finite slopes, exact tensor payload size and the textbook's explicit roughness boundary explanation.
+table_expanded_directional_accuracy|Find where the table gives inaccurate brightness or fitting directions, including glossy and grazing cases.|Sweep ten view cosines, four roughnesses and three Fresnel values: 120 triples, including extra grazing points. First compare two reference resolutions; only then judge the table against unchanged screening limits. Records distinguish an unresolved reference from a table failure.
+table_knot_one_sided_derivatives|Check what happens when a query reaches a table boundary.|At both endpoints and two internal knots on each axis, compare autodiff with a finite difference into the declared right or final cell; also check continuity. This checks the interpolant, not physical derivative accuracy.
+table_float32_values_and_gradients|Check that reduced precision preserves the same approximation and its gradients.|Compare float32 with float64 at three points away from knots, retaining values and derivatives for both directional and average budgets. Agreement between dtypes is not agreement with physics.
+table_sharper_materials_are_explicitly_unsupported|Make the glossy-material coverage gap visible rather than silently rounding materials up.|Query four positive roughnesses below 0.2 and require explicit rejection. A passing rejection test does not mean the material is supported.
+table_full_material_gradients|Check fitting gradients through the complete shiny-plus-matte material, not only its energy table.|Compare twelve derivatives through normalized normal, view, light and material fields against refined quadrature in three cases. Check internal finite differences and a deliberately detached-budget negative control. Shared specular algebra isolates the budget error; it is not independent lobe validation.
+table_paired_endpoints_match_original_integrator|Ensure sharing integration work does not change the material model.|Evaluate both Fresnel endpoints from the same geometric samples and compare each to the unchanged scalar oracle at horizon, normal and interior configurations. This is equivalence evidence, not independent physical accuracy.
+table_paired_generation_counts_actual_work|Keep the denser table inside the explicit generation-work cap.|Check the new default angle count, invalid inputs, one paired call per knot, two endpoint outputs per geometric sample and rejection of oversized work before integration. Sample reuse does not mean every arithmetic operation costs half as much.
+table_retains_old_grid_gradient_failure|Prove that the refined table addresses the measured error without erasing it.|Rebuild the old linear 129-angle grid explicitly, require its known cosine-gradient failure, and compare the quadratic 257-angle candidate to the same reference and unchanged limit. The complete expanded sweep is still required.
+table_roughness_grid_is_explicit_and_concentrates_sharp_materials|Keep a rejected experiment reproducible without making it the default.|Check explicit sharp-dense knot placement, fine/coarse nesting, retained uniform defaults and rejection of unknown selectors. The sharp-dense linear trial failed physical checks; correct construction does not imply accurate physics.
+table_quadratic_reproduces_known_values_gradients_and_mean|Test interpolation against a problem whose exact answer is known.|Sample a known polynomial, then compare interpolated values, all query gradients and its exact cosine-weighted mean to analytic answers within 1e-12. This isolates the interpolation code from numerical BRDF integration.
+table_quadratic_dense_range_screen|Look for unphysical interpolated energy between stored knots.|Screen both Fresnel endpoints on a 65 by 513 roughness/cosine grid, recording finite directional and mean extrema. Quadratic weights can be negative: passing this finite screen is not a proof of shape preservation or energy bounds everywhere.
+''')
+
+
+_add('python/test_material_inputs',
+     'Phase-0 field/quadrature recipes and local installed CPU texture/interpolation evidence, not complete material, scene, all-domain energy, CUDA or compiler/export acceptance.', '''
+material_fields_expand_only_declared_axes|Prevent point, scene and colour axes from being confused.|Check float32/64 classic and principled schemas, explicit uniform grey parameters, per-point one-channel fields, and output ranks.
+material_fields_preserve_shared_gradients_and_noncontiguous_inputs|Keep a shared material learnable across points and scenes.|Expand strided layouts, differentiate every field, and compare exact accumulation counts without input mutation.
+material_fields_reject_invalid_or_ambiguous_parameters|Reject wrong material settings before shading instead of guessing their meaning.|Try unknown models, wrong-model or missing fields, invalid values, incompatible batches and ambiguous grey point arrays, including empty calls.
+environment_radiance_is_not_cosine_convolved_irradiance|Keep raw incoming SH lighting separate from Lambert's integration shortcut.|Evaluate a constant plus linear-z environment at three directions with known RGB values, including a retained negative channel.
+environment_integral_uses_solid_angle_weights_and_cosine_once|Get the units and geometric angle factor right.|Sum three known weighted directions with a Lambert BRDF; compare an independent formula and require doubled solid-angle weights to double the result.
+environment_interior_gradients_and_shared_batches|Keep normals, directions, light, response and quadrature weights differentiable.|Run gradcheck for every input and SH coefficients, then verify shared lighting gradients add across two independent scenes.
+environment_horizon_masks_have_zero_gradients|Make horizon and behind-surface branches explicit and NaN-free.|Use tangent and back-facing light samples; require zero radiance and zero first derivatives to every input.
+environment_empty_repeat_and_validation_contracts|Handle empty work predictably and reject invalid integration data.|Check deterministic repeats, empty points/samples, wrong shapes/devices/dtypes, negative weights/BRDFs, zero vectors, nonfinite input and overflow.
+full_coupled_environment_matches_analytic_nonconstant_light|Catch applying Lambert-only environment factors to the complete material.|Integrate the exact roughness-one unit-Fresnel coupled model under 1+0.5*z light and compare independently integrated analytic moments; retain the incorrect shortcut as a negative comparison.
+native_vertex_and_constant_texture_material_fields_agree|Connect existing native geometry/texture inputs to the same material contract.|Interpolate constant face-corner values and sample separate 3/1/1-channel maps; compare fields and require gradients to native source inputs.
+native_texture_to_material_field_gradients|Ensure fitting can update both texture pixels and UV coordinates.|Gradcheck through native level-zero pyramid sampling into albedo, roughness and reflectance fields on a nonconstant texture away from texel boundaries.
+material_environment_demo_and_lesson_are_finite_and_explicit|Make the environment integration distinction inspectable and understandable.|Check 33 samples, four finite response curves, a visible difference from the wrong shortcut, and textbook statements about level zero and solid-angle units.
+''')
+
+
+_add('python/test_material_budget',
+     'Scalar float64 CPU quadrature at stated interior fixtures only; not production material, all-domain accuracy, endpoint/world-normal derivatives, CUDA, export or speed acceptance.', '''
+budget_has_independent_analytic_value_and_view_derivative|Check reflected energy and view-angle sensitivity against exact mathematics.|At roughness one and unit Fresnel use E(c)=1-c log((1+c)/c) and its analytic derivative at three held-out view cosines.
+average_budget_has_independent_analytic_integral|Check the average energy budget without trusting its own numerical sum.|Compare roughness-one unit-Fresnel cosine-weighted average to the exact 4(1-log(2))/3.
+budget_held_out_values_and_gradients_against_independent_oracles|Prevent self-consistent but physically inaccurate derivatives from passing.|At three new parameter combinations compare Gauss quadrature to visible-normal integration and compare autodiff to refined direct-grid central differences for view, roughness and Fresnel reflectance.
+schlick_budget_is_affine_in_f0_without_detaching|Keep Fresnel and roughness connected to the optimizer.|Compare directional and average budgets to exact interpolation between F0 zero and one; require the corresponding derivative and a nonzero roughness gradient.
+coupled_matte_gradients_include_all_three_computed_budgets|Make the matte part respond when the shiny part changes.|Recompute both directional budgets and their average inside gradcheck; verify gradients through all five inputs and reciprocity after swapping view and light.
+budget_quadrature_refines_average_values_and_gradients|Check that increasing integration precision stabilizes the average and its derivatives.|Compare 32 versus 64 view nodes with 128 by 256 light samples, at a held-out roughness and F0, without relaxing the 1e-5 limit.
+budget_rejects_invalid_domain_type_device_and_work_size|Keep the reference scope and computational cost explicit.|Reject invalid values, endpoints outside this reference, wrong shapes/dtypes/devices, underflow and a request exceeding 2097152 light samples.
+budget_repeats_without_mutation_or_retained_parameter_cache|Avoid stale values or freed-autograd-graph reuse between calculations.|Run backward twice on fresh reference calls, checking exact repeat output, unchanged inputs and finite gradients.
+budget_demo_is_finite_and_explains_energy_and_gradient_limits|Make energy accounting inspectable without mistaking a constructed identity for proof.|Check 33 finite energy/gradient samples, the explicitly labelled white-matte complement, and textbook links and explanation.
+''')
+
+
+_add('python/test_shade_contract',
+     'Phase-0 independent recipes, not public shader/material, hardware parity, compile/export or full-domain gradient acceptance.', '''
+lobe_closed_form_values_and_dtype|Fix the exact meaning of each elementary shading term.|Compare float32/64 results to explicit Lambert, Blinn, roughness-one GGX/Smith and Schlick values.
+blinn_half_vector_is_not_reflected_vector_phong|Prevent two similarly named highlight models from being confused.|Use a 60-degree light and normal-facing view: the half-vector angle is 30 degrees, not 60.
+blinn_approximate_scaling_is_not_energy_conservation|Keep an appearance approximation from acquiring an unsupported energy claim.|Numerically integrate exponent-two Blinn at normal view and compare to the analytic overreflection 25/24.
+ggx_projected_distribution_integrates_to_one|Normalize the microfacet distribution by projected area, not radiance.|Integrate D times surface cosine with 65536 midpoint samples at three roughness settings.
+microfacet_product_matches_independent_furnace|Check the full D-times-visibility-times-Fresnel product without duplicating its implementation.|Integrate the roughness-one unit-Fresnel case and compare to the analytic 1-log(2).
+lobe_interior_gradients|Make all five functions usable in later optimization.|Compare autodiff for each cosine and parameter against central finite differences in the smooth interior.
+masked_boundaries_have_finite_zero_gradients|Keep horizon and zero-base exponent conventions explicit and NaN-free.|Differentiate Blinn zero-cosine corners and Smith horizon masks, requiring exactly zero finite gradients.
+schlick_endpoint_derivatives_are_not_clamped|Preserve the polynomial's endpoint derivatives for future fitting.|Compare cosine and shared RGB gradients at zero and one against exact derivatives.
+lobe_batches_and_shared_gradients_do_not_mix|Prevent one scene's shading parameters from leaking into another.|Compare batched versus independent calls and exact shared-parameter gradient accumulation.
+empty_strided_inputs_are_deterministic_and_unchanged|Support tensor views and empty point sets without hidden copies or mutation.|Check repeated strided results, source preservation, empty output shapes and invalid scalar validation even when empty.
+lobe_invalid_domains_are_explicit|Reject invalid physical inputs instead of clipping them silently.|Pass out-of-range and nonfinite cosines and roughness values; require explicit ValueError.
+lobe_rejects_ambiguous_shapes_types_and_devices|Keep scalar, point and scene sharing unambiguous.|Reject wrong ranks, point counts, additional batches, Python numbers, dtype/device mismatches and invalid albedo/exponents.
+small_roughness_is_not_silently_floored|Avoid changing a sharp material to hide numerical trouble.|Check the exact sharp normal-incidence GGX value and reject an underflowed positive denominator parameter.
+lobe_demo_and_textbook_explain_model_boundaries|Make the new mathematics visible and understandable.|Check the bounded four-sphere illustration and textbook discussion of half-vectors, energy and Smith visibility.
+''')
+
+
+_add('python/test_cinematic_demo',
+     'Finite synthetic presentation fixtures, not public subdivision/material acceptance, correspondence-free inverse rendering or a sustained performance claim.', '''
+showcase_refinement_preserves_valid_triangles_and_increases_detail|Improve display mesh detail without replacing the attributed source fixture.|Refine a known triangle and check finite coordinates, four child triangles and valid indices.
+demo_highlight_is_reciprocal_and_has_conservative_energy_bound|Keep the demonstration highlight inside an explicit energy budget.|Integrate the shared Phong recipe over 8192 deterministic hemisphere samples at three view angles and check reciprocity.
+cinematic_camera_fit_changes_pose_and_focal_and_converges|Recover a rendered shot with actual optimization, not invented camera motion.|Fit 96 known 3D landmarks, require position/orientation and focal changes, and verify small final reprojection error.
+png_presentation_assets_round_trip_without_image_dependencies|Save high-resolution visuals without external codecs or unbounded histories.|Decode PNG chunks with stdlib zlib, verify CRCs and pixels, deduplicate assets and enforce a byte cap.
+presentation_route_is_confined_and_missing_assets_are_explicit|Keep presentation URLs from exposing arbitrary server files.|Read one content-addressed PNG, then refuse traversal and missing digests with HTTP 404.
+cinematic_composition_has_finite_distinct_lighting|Require the showcase to respond to lighting and avoid the observed behind-camera stage failure.|Compare deterministic images under changed lights and check the stage remains in front of both endpoint cameras.
+''')
+
+_add('python/test_demo_showcase',
+     'Finite local demo and archival fixtures, not public shader/animation acceptance, exhaustive concurrency or sustained performance evidence.', '''
+showcase_provenance_obeys_dashboard_contract|Keep demonstration source identity compatible with the dashboard protocol.|Validate revision, dirty state and a source-artifact SHA-256 using the installed dashboard validator.
+invalid_demo_provenance_returns_a_json_client_error|Make malformed metadata fail clearly without abruptly disconnecting the caller.|Send an unsupported provenance field and require an HTTP 400 JSON explanation.
+archived_demo_can_be_reopened_after_idle_capacity|Keep saved demonstrations viewable after more pages have been visited than can fit in memory.|Open three completed executions with a two-tree limit, revisit the first, and check saved files remain.
+archive_capacity_does_not_discard_active_or_unsaved_state|Prevent archive browsing from discarding a live session or unsaved queue frame.|Fill a one-tree server with protected state and require a second execution to be refused.
+showcase_scene_uses_offline_meshes_and_valid_topology|Build a recognizable room without adding asset downloads or invalid mesh indices.|Inspect bundled scene sizes, tensor types, finite positions and face-index bounds.
+camera_paths_are_finite_and_distinct|Make each named camera demonstration actually change the intended camera state.|Compare finite endpoint transforms and projections for orbit, pan, dolly, zoom and dolly-zoom.
+dolly_zoom_keeps_reference_plane_scale_not_background|Explain the dolly-zoom illusion without claiming an entire deep object keeps its shape.|Project foreground-plane and background points at both endpoints; only the foreground matches.
+showcase_render_changes_with_light_and_has_depth_normals|Ensure the studio images really respond to light and expose inspectable geometry buffers.|Render a small scene repeatedly, compare changed lights, exact repeat output, depth validity and normal-image shape.
+bunny_fit_has_recognizable_subject_and_bounded_convergence|Make the fitting demonstration show an actual object and its optimization progress.|Fit known bunny landmarks for 300 steps and verify 61 distinct-endpoint saved frames and small final pixel error.
+depth_reconstruction_reprojects_only_visible_samples|Verify the depth point cloud is reconstructed from the displayed camera, not invented geometry.|Unproject a bounded visible pixel sample and require its reprojection to return the original pixel centers.
+ball_energy_breakdown_sums_to_the_reported_mechanical_energy|Explain where the illustrative ball's reported mechanical energy is stored.|Check gravitational, kinetic and spring terms add to the recorded energy and that the energy difference closes the initial balance; this is not independently measured heat.
+classic_inspection_uses_native_face_measurements|Make triangle inspection display actual gffx geometry results.|Compute native face areas/normals and vertex-normal colors for the bundled teapot and check shape and area bounds.
+depth_demo_publishes_points_through_shared_mesh_panel|Prevent a valid point cloud from being rejected by the testing page catalog.|Publish a small real depth scene and require its four artifacts to bind the point cloud to the shared mesh/points viewer.
+''')
+
+
 _add('packaging/test_ci_contract',
      'A pass confirms these local configuration checks, not a successful GitHub run, a secure third-party tool, or a working graphics operation.', """
 action_pins_are_exact_and_immutable|Keep our build tools locked to the revisions we approved, so they cannot silently change underneath us.|Compare five saved GitHub action names, version labels and exact commit IDs with an explicit approved list.
@@ -138,11 +263,38 @@ cam14_unproject_recovers_interpolated_world_positions_from_a_rendered_depth_buff
 cam15_unproject_points_inverts_project|Recover original 3D points from their image coordinates and depth.|Project known points and unproject them through the supported depth paths, comparing within the fixture tolerance.
 cam16_stack_builds_a_rig_that_equals_the_single_camera_runs|Make a batch of cameras behave like the same cameras used individually.|Stack two cameras and compare each batch result exactly with its separate projection.
 cam17_gradcheck_reaches_every_intrinsic_and_the_pose_of_each_rig_camera|Allow optimization of camera lens parameters and positions.|Compare analytic and numerical gradients for focal lengths, image centres and both camera poses, and check nonzero gradient flow.
-cam17_cuda_gradcheck_on_device|Check camera differentiation while the computation runs on a GPU.|Run the focal-length numerical gradient fixture on CUDA when the required device is available.
+cam17_cuda_gradcheck_on_device|Check camera differentiation while the computation runs on a GPU.|Gradcheck all four independent intrinsic tensors and the full extrinsic matrix on CUDA in float64 when the required device is available.
 cam18_invalid_construction_is_rejected|Reject camera settings that violate the public contract.|Try the parameterized invalid-construction case and require the documented exception.
 cam19_unproject_of_an_infinite_background_is_zero_valid_false_and_free_of_nan|Handle empty depth-image background without poisoning coordinates or gradients.|Unproject infinite background depths; require invalid flags, zero background coordinates and gradients, and no NaNs.
 cam20_the_facade_computes_nothing|Keep the convenient camera API consistent with the framework-specific API.|Run equivalent calls through gffx.camera and gffx.torch.camera and require exact output equality.
+camera_plain_numbers_and_inert_hooks|Construct a basic camera without creating tensors by hand.|Project an optical-axis point and check image coordinates, batch size and inactive future camera features.
+camera_additional_construction_errors|Reject invalid image sizes, focal lengths, poses and tensor types before computing.|Try each explicitly invalid constructor input and require a ValueError or TypeError.
+camera_packed_rig_matches_single_cameras|Let different cameras have different numbers of input points without padding.|Project a packed two-camera batch and compare every output exactly with separate camera calls; reject missing or invalid offsets.
+camera_empty_dense_and_packed_batches|Make an empty set of points an ordinary result, not a crash.|Project empty dense and packed camera batches and check that output shapes preserve the empty dimensions.
+camera_unprojection_mask_and_invalid_kind|Keep missing depth samples out of coordinates and gradients.|Unproject a masked depth grid, check zero gradients for the rejected sample, and reject invalid depth labels, shapes and masks.
+camera_projection_dtype_cast_and_input_immutability|Preserve the caller's point precision and original data.|Project float32 points through float64 camera parameters; check output precision and device and compare saved input copies.
+camera_mixed_devices_are_rejected|Avoid secretly copying camera data from CPU to GPU.|Give a CPU camera GPU points and require a same-device error; this check skips if no CUDA device is available.
+camera_stack_rejects_incompatible_clipping_and_empty_list|Keep a camera rig's shared settings unambiguous.|Require errors when stacking cameras with incompatible clipping settings or when no cameras were supplied.
+camera_front_filter_preserves_projection_validity_not_visibility|Offer an optional behind-camera rejection without confusing mathematical projection with what is visible.|Compare default and front-only masks for front, behind, camera-plane, off-screen and beyond-far points on the selected device; check unchanged accepted outputs and zero rejected gradients.
 """)
+_add('python/test_testing_dashboard',
+     'These tests cover local presentation routing and a finite demo producer, not physical-phone acceptance or graphics correctness.', """
+demo_pages_do_not_borrow_another_pages_artifacts|Keep each demonstration page attached to its own visual evidence.|Publish distinct panel and camera demos, check page selection and reject switching an execution to another page or a test page.
+camera_demonstration_is_finite_and_reports_its_own_page|Provide bounded, inspectable camera examples without a continuous stream.|Publish labelled landmarks, depth reconstruction and two-view illustrations to a temporary server; require ten artifacts, labelled image dimensions and a finished non-test execution on the camera demo page only.
+""")
+
+for _test,_name,_purpose,_method in (
+    ('cam10_world_to_clip_is_bit_identical_to_the_hand_assembled_matrix','matrix convention','Keep one world-to-image matrix convention.','Compare projection, inverse pose and combined matrices exactly with the manual reference; display expected and actual entries.'),
+    ('cam16_stack_builds_a_rig_that_equals_the_single_camera_runs','rig equals separate cameras','Give each camera in a batch exactly its own projection.','Compare both batched pixel arrays with their separate camera calls bit-for-bit and display a small sample and maximum error.'),
+    ('cam19_unproject_of_an_infinite_background_is_zero_valid_false_and_free_of_nan','background outputs and gradients','Keep empty depth-image pixels harmless during reconstruction and optimization.','Unproject an 8 by 8 grid with nine finite samples; require zero background coordinates and gradients and display mask counts and maximum background gradient.'),
+    ('cam15_unproject_points_inverts_project','metric depth round trip','Recover points from pixel positions and ordinary camera depth.','Project and reconstruct 256 points, record the maximum world-coordinate error and require at most 1e-9 absolute error.'),
+    ('cam15_unproject_points_inverts_project','NDC depth round trip','Recover points using normalized renderer depth.','Project and reconstruct the same 256 points via NDC depth, record the maximum world-coordinate error and require at most 1e-9 absolute error.'),
+    ('camera_front_filter_preserves_projection_validity_not_visibility','mathematical validity','Keep behind-camera projections valid when their division is mathematically defined.','Compare the default mask with the existing manual transform/divide chain for five named point categories.'),
+    ('camera_front_filter_preserves_projection_validity_not_visibility','optional front filter','Reject behind-camera points only when explicitly requested.','Require the front-only mask and zero rejected outputs while keeping off-screen and beyond-far front points valid.'),
+    ('camera_front_filter_preserves_projection_validity_not_visibility','rejected point gradients','Prevent filtered-out finite points from affecting optimization.','Backpropagate through all returned numeric fields; display gradients and require finite, exactly zero gradients on rejected points.'),
+):
+    CHECK_GUIDES[('tests/python/test_camera.py::test_'+_test,_name)]=dict(purpose=_purpose,method=_method,
+        limits='This named fixture is not occlusion, raster clipping, compilation/export acceptance or a general proof for all scenes; hardware claims apply only to the recorded device.')
 _add('python/test_dashboard',
      'A pass covers the local server/client fixture. It is not physical-phone acceptance, a sustained resource benchmark or proof of visual rendering conformance; skipped display checks remain unmeasured.', """
 db01_set_reaches_a_page_as_snapshot_then_update|Show a page its initial value and subsequent live changes.|Connect a client and page, send values, and compare the snapshot and update messages.
@@ -253,6 +405,105 @@ for _mesh in ('tetrahedron', 'degenerate_face'):
             method='Compare the actual PyTorch '+_field+' tensor bit-for-bit with the committed C reference tensor. The comparison record shows both; normal checks also display the input mesh.',
             limits='A pass means this field matches the C reference for this fixture. It does not independently validate the reference, other fields, gradients, rendering, or all meshes.')
 
+
+_add('python/test_testing_dashboard',
+     'These are importer and evidence-isolation fixtures, not coverage measurements of the fixture repository or GPU kernels.', """
+coverage_uses_statement_summary_not_raw_execution_lines|Use the executable-statement denominator reported by Python instrumentation.|Provide extra raw executed-line entries and assert the authoritative summary defines the displayed numerator and denominator.
+lcov_layers_preserve_independent_reports_and_unknown_gaps|Keep languages and executions separate instead of presenting a false repository-wide percentage.|Import synthetic JavaScript LCOV with missing lines and branches beside Python evidence; verify coexistence, historical selection and no fallback for an unmeasured native layer.
+coverage_inventory_never_calls_uninstrumented_files_zero_coverage|List source files that lack instrumentation without inventing executable-line counts.|Inventory a small repository with Python, JavaScript and CUDA source and reject a path outside its root.
+""")
+
+
+_add('python/test_camera',
+     'Smooth synthetic fixtures away from validity boundaries. Passing derivatives do not imply visibility derivatives, real-data identifiability, export support or camera performance guarantees.', """
+camera_phase3_unprojection_gradients|Check how reconstructed 3D positions change when camera settings, depth or image coordinates change.|Compare autodiff with central finite differences for all four intrinsics, the pose matrix and depth, plus scattered pixel coordinates, for view and NDC depth on CPU and CUDA.
+camera_phase3_stacked_rig_gradients_are_independent|Ensure one optimization can adjust each camera independently.|Backpropagate a combined two-camera loss through Camera.stack, compare each gradient with independent single-camera computations and require zero cross-camera influence for the first camera's loss.
+camera_phase2_cuda_project_unproject_preserves_device|Verify camera compositions actually execute with GPU tensors and retain their device.|Compare CPU and CUDA projection/unprojection for float32 and float64 and inspect every returned tensor's device; no new camera CUDA kernel is claimed.
+""")
+_add('python/test_testing_dashboard',
+     'This checks a deterministic, identifiable synthetic intrinsic fit with fixed geometry and pose. It is not real-data calibration or the gffit optimization engine.', """
+camera_fitting_demo_has_bounded_history_and_correct_derivative_curve|Make sure the camera fitting demonstration actually improves and remains finite.|Run 300 steps, require 61 retained scalar checkpoints, compare recovered intrinsics to known targets and compare 21 inverse derivatives with central finite differences.
+""")
+for _test,_checks in {
+    'camera_phase3_unprojection_gradients':['dense inverse derivatives','scattered inverse derivatives'],
+    'camera_phase3_stacked_rig_gradients_are_independent':['independent rig backward'],
+    'camera_phase2_cuda_project_unproject_preserves_device':['inherited CUDA composition'],
+}.items():
+    _node='tests/python/test_camera.py::test_'+_test
+    for _name in _checks:CHECK_GUIDES[(_node,_name)]=dict(GUIDES[_node])
+
+
+_add('python/test_testing_dashboard',
+     'Synthetic demo/data-lifecycle checks only: not animation-operator correctness, rendering conformance or a playback performance guarantee.', """
+mesh_animation_demo_is_finite_and_replays_frames|Ensure mesh and animation examples publish a fixed amount of data and survive a server restart.|Publish nine artifacts, inspect both endpoints of a 24-frame clip, reject a nonexistent next frame and restart the server to read retained 2D and 3D frames again.
+mesh_animation_geometry_has_valid_topology_and_changes_over_time|Ensure the examples contain connected triangle meshes with valid indices and actual movement.|Check finite vertices, distinct triangle corners, stable topology, changing positions and a strictly planar Z coordinate for the 2D example.
+""")
+
+
+_add('python/test_testing_dashboard',
+     'Developer demo fixtures only. No general physics, commercial data permission, browser FPS, mesh validity or differentiability guarantee is inferred.', """
+classic_demo_assets_are_offline_bounded_and_attributed|Keep recognisable mesh examples lightweight, offline and traceable.|Read both bundled assets, check finite coordinates and triangle indices, size bounds, source and license metadata, and reject unknown asset names.
+elastic_ball_freefall_rebound_energy_and_convergence|Check that the ball illustration follows its stated simple contact model.|Compare pre-contact height with analytic gravity, require rebound and damping, bound compression/energy and compare against a halved integration timestep.
+elastic_ball_scene_squashes_without_floor_penetration|Keep the visible squashing ball above its rigid floor with stable triangles.|Inspect all 181 generated frames for fixed topology, bounded mesh size, changing positions and nonnegative vertical coordinates.
+classic_demo_publishes_finite_assets_physics_and_restart_history|Keep classic meshes and ball playback finite, separate from test acceptance and recoverable after restart.|Publish two demo pages, inspect saved first/last frames, reject an extra frame, confirm producer completion and reload both clip endpoints after server restart.
+""")
+
+
+_add('python/test_shading_contract',
+     'Independent Phase-0 formula diagnostics, not implemented gffx shading, a rendered scene, corpus parity, full parameter gradients or universal physical validation. The old failed gate remains saved in its historical execution.', """
+white_furnace_quadrature_integrates_lambert|Check the integration method against a surface with a known energy result.|Integrate unit-albedo Lambert reflection at three resolutions; each result must equal one within 1e-12.
+white_furnace_checks_single_scattering_ggx_separately|Check the microfacet contribution separately from the problematic diffuse mixture.|For a roughness-one reflector at normal view with Fresnel fixed to one, compare its integrated energy to the analytic value 1 minus log(2).
+principled_candidate_satisfies_white_furnace|Historical failed check of the original material proposal.|The original local Fresnel mixture returned 1.427873492 for unit light. This historical test failed; the replacement has separate tests and this old result is not erased.
+rejected_local_fresnel_mixture_still_overreflects|Keep a known bad formula as a control so we cannot hide the original problem.|Reintegrate the original local-Fresnel mixture on two grids and require its known excess of about 42.8 percent. Passing this negative control means the old formula is still rejected, not accepted.
+revised_coupling_retains_energy_and_reciprocity|Check that diffuse reflection uses only the remaining light budget and does not depend on swapping viewer and light.|Use an analytic constant specular budget, three albedos including black and white, and swapped directional budgets; compare to the closed-form diffuse value.
+revised_coupling_has_interior_gradients_and_safe_zero_budget|Keep the coupling usable for fitting and avoid division by zero when no energy remains.|Compare automatic and finite-difference derivatives for the coupling arguments; a fully spent budget must return zero with zero residual derivative. This does not yet test gradients through computed GGX budgets.
+vndf_energy_matches_independent_hemisphere_integral|Cross-check the specular budget using two genuinely different integration methods.|Compare visible-normal quadrature at two resolutions to direct light-hemisphere integration for rough, intermediate and sharp grazing fixtures; require agreement within 0.001.
+revised_principled_satisfies_white_furnace|Check that the revised material does not create light across a stated range of surface settings.|Sweep 108 combinations of roughness, specular reflectance, view angle and albedo at two precisions. Require refinement below 0.001, reflected energy at most 1.001, and white surfaces within 0.001 of one. All measurements are attached; budgets and final specular integration use different parameterizations.
+revised_coupling_rejects_invalid_budgets|Reject broken inputs instead of concealing them with clamping.|Supply negative, over-one, nonfinite and inconsistent zero-residual budgets; each must raise ValueError.
+gauss_quadrature_and_nonconstant_budget_have_known_integrals|Check the new integration weights and a nonconstant energy budget against independent exact answers.|Integrate eight polynomial moments, then an analytic linear directional budget and the zero-specular Lambert limit; require agreement to 1e-14.
+""")
+
+
+_add('python/test_light_contract',
+     'Independent Phase-0 lighting recipes and documentation only. A pass is not a public gffx light API, native/CUDA parity, compilation/export or full material acceptance.', """
+sh_constant_environment_returns_pi_in_every_direction|Check that a uniform environment shines equally on surfaces facing different directions.|Use the analytic constant SH coefficient and normals of different lengths; require pi irradiance in float32 and float64.
+sh_directional_projection_matches_truncated_kernel_not_exact_cosine|Show exactly what the nine-coefficient approximation loses around a sharp light.|Project lights on each coordinate axis; compare the basis evaluation to an independently derived polynomial, including the 17/16 front and 1/16 back values.
+sh_basis_order_and_signed_output_are_preserved|Avoid silently swapping coordinate axes or hiding negative coefficients.|Check the y,z,x first-order ordering and a negative constant environment; no output clamp is allowed.
+sh_batches_do_not_mix_and_shared_inputs_accumulate_gradients|Keep different environments separate while allowing intentional shared lighting.|Use distinct RGB values per batch; then share one environment and require the derivative to accumulate both scenes.
+point_inverse_square_color_direction_and_translation|Check how a point source dims with distance without losing its color or direction.|Compare one- and two-unit distances to exact RGB weights, then translate both source and receiver equally and require unchanged results.
+point_coincidence_masks_only_that_pair_with_finite_zero_gradients|Handle a light exactly on a receiving point without a NaN or invented huge brightness.|Pair one coincident and one separate source; require the invalid pair's zero payload and finite zero gradients while the other pair remains valid.
+point_shared_and_batched_lights_keep_explicit_axes|Keep sample points, light indices and scenes from being accidentally broadcast together.|Evaluate two scenes with four points and one light each, checking shape, masks and the exact one-to-four falloff ratio.
+directional_normalizes_explicitly_without_distance_or_cosine|Make the new light's direction scale-independent and avoid applying the surface cosine twice.|Normalize nonunit directions, preserve the RGB weights, and require no ordinary solid-angle PDF for a delta light.
+light_interior_gradients_match_finite_differences|Make light parameters mathematically usable for optimization away from singularities.|Compare automatic derivatives with central finite differences for SH normals/coefficients, point positions/intensities and directional vectors/weights.
+light_invalid_inputs_fail_explicitly|Reject malformed or physically invalid inputs instead of silently repairing them.|Try wrong shapes/batches, mixed or integer dtypes, NaN, zero directions and negative intensity; check explicit exception categories.
+light_noncontiguous_empty_and_repeat_execution_contract|Accept intentional tensor views and empty work without changing answers between repetitions.|Use strided points, empty point/light sets and repeated inputs; check output shapes and exact repeated values.
+point_unrepresentable_arithmetic_is_not_silently_clamped|Avoid pretending floating-point overflow or underflow is valid physics.|Use extremely tiny and huge nonzero separations and require a representability error rather than a hidden distance floor.
+light_units_and_batch_errors_cover_every_recipe|Check validation consistently across all three light recipes.|Reject non-tensors, mixed devices, zero directions, negative weights, incompatible counts/batches and overflowing point or SH outputs. A meta tensor tests device mismatch without claiming GPU execution.
+lighting_demo_is_finite_and_keeps_negative_sh_values|Make the illustration finite and truthful about approximation error.|Check 16 distance samples, 181 angles, known endpoint values, negative SH ringing, invalid coincidence and the size/type of the analytic sphere image.
+lighting_textbook_examples_and_evidence_links_are_present|Keep the learning explanation synchronized with the light contract.|Require point-light units, worked SH endpoints, the singularity rule and links to current tests and the finite demonstration in the generated lesson.
+lighting_demo_publishes_finite_artifacts_with_honest_scope|Keep demonstrations separate from test acceptance while making them viewable.|Publish once to a temporary local test server; check demo identity, five artifact references and absence of passing-test counts.
+""")
+
+_add('python/test_learning_pages',
+     'Documentation/parser checks only, not a full TeX implementation, physical iOS rendering acceptance, or material correctness.', """
+mathml_subset_has_structural_fractions_scripts_and_operators|Make equations real structured mathematics rather than raw LaTeX text.|Parse fractions, roots, Greek letters, scripts and sums; inspect the MathML namespace and element hierarchy and preserved original source.
+mathml_subset_supports_matrices_alignment_cases_and_text|Render small tabular mathematical expressions consistently.|Convert five environments and check row/cell structure and plain text contents.
+mathml_invalid_or_excessive_input_fails_explicitly|Reject unsupported or malformed math instead of silently showing a wrong equation.|Try file/URL commands, broken groups, scripts, matrices and delimiters, plus input-size and nesting limits; require explicit ValueError results.
+mathml_text_is_escaped_not_executable_markup|Keep text inside an equation from becoming HTML or a script.|Convert an image-like attack string and verify it survives only as text inside valid MathML.
+mathml_styles_use_core_compatible_identifier_characters|Keep bold vectors and upright identifiers compatible with native MathML Core.|Check mathematical bold Unicode characters and the supported normal mathvariant instead of legacy inherited bold styling.
+learning_article_is_generated_reproducibly_and_has_provenance|Prevent the checked-in article from drifting away from its authored source or converter.|Rebuild in memory and compare exact generated content and source hash; verify math, original results, implementation limits and evidence links without active embedded content.
+learning_pages_survive_restart_without_test_execution|Keep learning material independent of experiments and pass/fail claims.|Open the article on a fresh and restarted index, verify its directory entry and date, omit its body from summaries and reject invented historical executions.
+""")
+
+_add('python/test_textbook',
+     'Authored curriculum and small arithmetic checks, not exhaustive graphics correctness, physical browser acceptance or newly implemented operations.', """
+textbook_has_ordered_complete_chapters_and_acyclic_prerequisites|Keep the mini-textbook readable as a connected learning path.|Require fourteen unique chapter identities and prerequisites that already appear earlier in the reading order.
+textbook_chapter_is_substantial_reproducible_and_mathematically_structured|Prevent missing or stale chapters from passing as a finished textbook.|For each new chapter compare generated JSON to authored content, require explanations, exercises, evidence boundaries and parseable MathML, and enforce the article size bound.
+textbook_all_links_resolve_and_assets_are_fixed_not_user_paths|Keep all textbook pages navigable and safe independently of test runs.|Read all fifteen pages from a fresh and restarted index, resolve internal links against the catalog, reject historical runs and unknown/path-traversal-like asset names.
+textbook_worked_examples_match_independent_arithmetic|Catch numerical mistakes in the printed examples without borrowing graphics-kernel answers.|Compute dot product, triangle area, interpolation, camera projection, segment distance, sampling weights, a loss derivative and free fall using small standard-library arithmetic references.
+textbook_index_lists_reading_order_and_implementation_boundaries|Keep the entry page honest about scope and future work.|Require every chapter title, an explicit distinction from implemented features and the future curriculum section.
+textbook_catalog_refresh_preserves_dates_but_updates_titles_and_parents|Keep renamed chapters and newly classified tests in the right navigation locations after a server restart.|Seed old titles and an unassigned test in a temporary index, reload the current catalog, then require current labels and membership while preserving the original creation date.
+""")
 
 def explain(nodeid, check=None):
     """Unknown identifiers are data, never filesystem paths or inferred evidence."""

@@ -695,11 +695,12 @@ class _Handler(BaseHTTPRequestHandler):
             ws.send_text(encode_text({"t": "error", "id": hello.get("id"), "message": "hello needs a plain run name"}))
             ws.close(1002, "bad run")
             return
-        run = self.dashboard._open_run(run_name)
-        with run.lock:
-            if len(run.clients) >= 4:
-                raise ProtocolError("dashboard sender limit reached (4 per run)")
-            run.clients.add(ws)
+        with self.dashboard._run_lock:
+            run = self.dashboard._open_run(run_name)
+            with run.lock:
+                if len(run.clients) >= 4:
+                    raise ProtocolError("dashboard sender limit reached (4 per run)")
+                run.clients.add(ws)
         try:
             with run.lock, run.disk_lock:
                 provenance = check_provenance(hello.get("provenance"))
@@ -785,18 +786,19 @@ class _Handler(BaseHTTPRequestHandler):
             ws.send_text(encode_text({"t": "error", "id": opened.get("id"), "message": "open needs a plain run name"}))
             ws.close(1002, "bad run")
             return
-        run = self.dashboard._open_run(run_name, default=False)
-        session = _PageSession(ws, run)
-        if isinstance(opened.get("view"), dict):
-            session.configure(opened["view"])
-        with run.lock:
-            if len(run.pages) >= 4:
-                raise ProtocolError("dashboard page limit reached (4 per run)")
-            snapshot = run.tree.snapshot()
-            snapshot.update({"t": "snapshot", "id": opened.get("id"), "run": run.name, "controls": run.controls,
-                             "layouts": run.layout_list(), "proposed_layout": run.proposed_layout, "names": run.names})
-            snapshot.update(run.reference_metadata())
-            run.pages.add(session)
+        with self.dashboard._run_lock:
+            run = self.dashboard._open_run(run_name, default=False)
+            session = _PageSession(ws, run)
+            if isinstance(opened.get("view"), dict):
+                session.configure(opened["view"])
+            with run.lock:
+                if len(run.pages) >= 4:
+                    raise ProtocolError("dashboard page limit reached (4 per run)")
+                snapshot = run.tree.snapshot()
+                snapshot.update({"t": "snapshot", "id": opened.get("id"), "run": run.name, "controls": run.controls,
+                                 "layouts": run.layout_list(), "proposed_layout": run.proposed_layout, "names": run.names})
+                snapshot.update(run.reference_metadata())
+                run.pages.add(session)
         try:
             ws.send_text(encode_text(snapshot))
             session.start()

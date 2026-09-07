@@ -1,8 +1,267 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 const base = new URL('../../tools/testing_dashboard/static/', import.meta.url);
 const model = await import(new URL('model.js', base));
+
+test('cinema manifests accept only bounded content-addressed local assets and ordered real steps',async()=>{
+  const {validateFilm}=await import(new URL('cinema.js',base));
+  const asset={url:'/testing/media/'+'a'.repeat(64)+'.png',sha256:'a'.repeat(64),bytes:80};
+  const value={version:1,mode:'fit',width:1280,height:720,target:asset,poster:asset,frames:[{step:0,image:asset,director:asset},{step:10,image:asset,director:asset}]};
+  assert.equal(validateFilm(value),value);
+  for(const bad of [{...value,width:99999},{...value,frames:[]},{...value,frames:[value.frames[1],value.frames[0]]},
+                   {...value,target:{...asset,url:'https://example.com/image.png'}},{...value,target:{...asset,bytes:9*1024*1024}}]){
+    assert.throws(()=>validateFilm(bad));
+  }
+});
+
+test('cinema requests only the current frame pair and releases image resources on exit',async()=>{
+  const {attachCinema}=await import(new URL('cinema.js',base));
+  const {createHash}=await import('node:crypto');
+  const bytes=new Uint8Array(24);bytes.set([137,80,78,71,13,10,26,10]);
+  new DataView(bytes.buffer).setUint32(16,320);new DataView(bytes.buffer).setUint32(20,180);
+  const sha256=createHash('sha256').update(bytes).digest('hex');
+  const asset={sha256,bytes:bytes.length,url:'/testing/media/'+sha256+'.png'};
+  const film={version:1,mode:'fit',title:'Recover the shot',width:320,height:180,target:asset,poster:asset,
+    objective:'known landmarks',frames:[0,5].map(step=>({step,image:asset,director:asset}))};
+  const nodes=[],listeners=new Map(),images=[],requests=[];
+  class Element {
+    constructor(tag){this.tag=tag;this.children=[];this.attributes={};this.classes=new Set();nodes.push(this);
+      this.classList={toggle:key=>{if(this.classes.has(key)){this.classes.delete(key);return false;}this.classes.add(key);return true;}};}
+    append(...items){for(const item of items){if(item.parent)item.parent.children=item.parent.children.filter(x=>x!==item);item.parent=this;this.children.push(item);}}
+    setAttribute(key,value){this.attributes[key]=value;}
+    getContext(){return {drawImage(){},save(){},beginPath(){},rect(){},clip(){},restore(){},fillRect(){}};}
+    remove(){if(this.parent)this.parent.children=this.parent.children.filter(x=>x!==this);}
+  }
+  const saved={document:globalThis.document,fetch:globalThis.fetch,createImageBitmap:globalThis.createImageBitmap};
+  globalThis.document={hidden:false,createElement:tag=>new Element(tag),
+    addEventListener:(type,fn)=>listeners.set(type,fn),removeEventListener:(type,fn)=>{if(listeners.get(type)===fn)listeners.delete(type);}};
+  globalThis.fetch=async(url,options)=>{requests.push({url,...options});return new Response(bytes);};
+  // Browser decoding is mocked: this fixture verifies request and bitmap ownership.
+  globalThis.createImageBitmap=async()=>{const image={width:320,height:180,closed:false,close(){assert.equal(this.closed,false);this.closed=true;}};images.push(image);return image;};
+  const ready=async predicate=>{for(let i=0;i<100&&!predicate();i++)await new Promise(resolve=>setTimeout(resolve,5));assert.ok(predicate());};
+  let dispose;
+  try {
+    const host=new Element('div'),diagnostic=new Element('article');host.append(diagnostic);
+    const app={panels:[],store:{paths:new Map([['presentation/film',{latest:{value:film}}]])}};
+    dispose=attachCinema(app,host);
+    const status=nodes.find(e=>e.tag==='output');
+    await ready(()=>status.textContent.includes('optimizer step 0')&&images.length===3);
+    assert.equal(requests.length,3,'must not prefetch the whole clip or poster');
+    assert.equal(images.filter(x=>!x.closed).length,2,'retain only target and current image');
+    assert.equal(diagnostic.parent.tag,'details');
+    assert.equal(nodes.some(e=>e.tag==='h2'),false,'the page already has a heading');
+    const focus=nodes.find(e=>e.textContent==='Focus view');focus.onclick();
+    assert.equal(focus.attributes['aria-pressed'],'true');
+    const slider=nodes.find(e=>e.attributes['aria-label']==='Cinematic saved timeline');slider.value=1;
+    await slider.oninput();
+    assert.equal(requests.length,5);assert.equal(images.filter(x=>!x.closed).length,2);
+    assert.match(status.textContent,/optimizer step 5/);
+    document.hidden=true;listeners.get('visibilitychange')();
+    assert.ok(requests.at(-1).signal.aborted);
+    dispose();dispose=null;
+    assert.ok(images.every(x=>x.closed));assert.equal(listeners.size,0);assert.equal(host.children.length,0);
+  } finally {
+    dispose?.();
+    for(const [key,value] of Object.entries(saved)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}
+  }
+});
+
+test('tiny image swatches receive a visible display-only outline without modifying source pixels',async()=>{
+  const {highlightSwatch}=await import(new URL('playback.js',base));
+  const previous=globalThis.document,calls=[];
+  const context={drawImage(){},strokeRect(...args){calls.push(args);}};
+  const canvas={width:2,height:2,getContext:()=>context};
+  const source={arrays:{data:new Uint8Array([1,2,3])}};
+  const panel={canvas,image:source,overlay:{},show(value){assert.equal(value,source);canvas.width=canvas.height=2;}};
+  try{
+    globalThis.document={createElement:()=>({getContext:()=>context})};
+    highlightSwatch(panel,2);
+    assert.equal(canvas.width,128);assert.equal(context.lineWidth,4);
+    assert.deepEqual(calls,[[4,68,56,56]]);assert.deepEqual([...source.arrays.data],[1,2,3]);
+    highlightSwatch(panel,8);assert.equal(calls.length,1);
+    highlightSwatch({canvas},0);
+  }finally{globalThis.document=previous;}
+});
+
+test('demo selectors group shared timelines without confusing unrelated frame indices',()=>{
+  assert.deepEqual(model.demoClipGroup('studio/orbit/color'),{group:'orbit',view:'color'});
+  assert.deepEqual(model.demoClipGroup('studio/dolly-zoom/director'),{group:'dolly-zoom',view:'director'});
+  assert.equal(model.demoClipGroup('camera-fit/derivative'),null);
+  assert.equal(model.demoClipGroup('untrusted/not-a-studio/color'),null);
+});
+
+test('synchronized demo selection keeps only common exact saved steps',()=>{
+  assert.deepEqual(model.commonClipSteps([[0,1,2,3],[0,2,3],[0,2,4]]),[0,2]);
+  assert.deepEqual(model.commonClipSteps([]),[]);
+  assert.deepEqual(model.commonClipSteps([[1,2],[]]),[]);
+});
+
+test('studio selector cancels old playback, synchronizes both views and disposes visibility hooks',async()=>{
+  class Element{
+    constructor(tag){this.tag=tag;this.children=[];this.value='';this.classList={add(){},toggle(){}};}
+    append(...items){this.children.push(...items);if(this.tag==='select'&&!this.value)this.value=items[0].value;}
+    prepend(...items){this.children.unshift(...items);}replaceChildren(){this.children=[];this.value='';}
+    setAttribute(k,v){this[k]=v;}remove(){this.removed=true;}closest(){return null;}
+  }
+  const old=globalThis.document,listeners=new Map(),calls=[];
+  globalThis.document={createElement:tag=>new Element(tag),addEventListener:(k,v)=>listeners.set(k,v),removeEventListener:k=>listeners.delete(k)};
+  const panel=path=>({spec:{path},el:new Element('panel'),_showRequest:0,visibleSteps:()=>[0,1,2],async showStep(step){this.shown=step;calls.push([path,step]);}});
+  const app={panels:[panel('studio/lights/color'),panel('studio/orbit/color'),panel('studio/orbit/director'),panel('studio/light-z')]},host=new Element('host');
+  let dispose;
+  try{
+    dispose=model.attachShowcase(app,host);await new Promise(resolve=>setImmediate(resolve));
+    const [choose,view,play,slider]=host.children[0].children;
+    choose.value='orbit';await choose.onchange();
+    assert.ok(app.panels[0].el.hidden);assert.ok(!app.panels[1].el.hidden&&!app.panels[2].el.hidden);
+    assert.ok(app.panels[3].el.hidden);
+    const css=await readFile(new URL('app.css',base),'utf8');
+    assert.match(css,/\.static-artifact\[hidden\]\s*\{display:none!important;/);
+    slider.value='2';await slider.oninput();
+    assert.deepEqual(calls.slice(-2),[['studio/orbit/color',2],['studio/orbit/director',2]]);
+    await play.onclick();globalThis.document.hidden=true;listeners.get('visibilitychange')();
+    dispose();dispose=null;assert.equal(listeners.size,0);
+  }finally{dispose?.();globalThis.document=old;}
+});
+
+test('article section links require an existing portable local target',()=>{
+  const targets=new Set(['energy-intuition','light-recipes','light-sh','future_section_2']);
+  for(const href of ['#energy-intuition','#light-recipes','#light-sh','#future_section_2',
+                    '/testing/?page=learn/index','https://example.org/paper']){
+    assert.equal(model.articleLinkAllowed(href,targets),true,href);
+  }
+  for(const href of ['#missing','#energy-missing','#','#light-sh extra','#light-sh?x=1',
+                    '#light%2Dsh','javascript:alert(1)','data:text/html,x','//example.org',
+                    '/other','http://example.org',' https://example.org']){
+    assert.equal(model.articleLinkAllowed(href,targets),false,href);
+  }
+});
+
+test('all generated textbook links pass the reader policy and fragments resolve',async()=>{
+  const root=new URL('learn/',base);
+  const names=(await readdir(root)).filter(name=>name.endsWith('.json'));
+  assert.equal(names.length,15);
+  for(const name of names){
+    const {html}=JSON.parse(await readFile(new URL(name,root),'utf8'));
+    // Extract fixtures from trusted generated source; this is not an HTML sanitizer.
+    // Runtime validation continues to inspect the browser-parsed DOM.
+    const targets=new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(match=>match[1]));
+    for(const [,href] of html.matchAll(/\bhref="([^"]+)"/g)){
+      assert.equal(model.articleLinkAllowed(href,targets),true,`${name}: ${href}`);
+    }
+  }
+});
+
+test('article reader accepts forward section references without bypassing validation',()=>{
+  const originalParser=globalThis.DOMParser, originalDocument=globalThis.document;
+  const link={localName:'a',attributes:[{name:'href',value:'#light-sh'}]};
+  const target={localName:'h2',attributes:[{name:'id',value:'light-sh'}]};
+  const content={append(){},querySelector(){return null;}};
+  try{
+    globalThis.document={createElement:()=>content,importNode:n=>n};
+    globalThis.DOMParser=class{parseFromString(){return {body:{querySelectorAll:()=>[link,target],childNodes:[]}};}};
+    assert.equal(model.learningArticle('<a href="#light-sh">SH</a><h2 id="light-sh">SH</h2>'),content);
+    link.attributes[0].value='#missing';
+    assert.throws(()=>model.learningArticle('fixture'),/Unsafe article link/);
+    link.attributes[0].value='javascript:alert(1)';
+    assert.throws(()=>model.learningArticle('fixture'),/Unsafe article link/);
+  }finally{globalThis.DOMParser=originalParser;globalThis.document=originalDocument;}
+});
+
+test('learning articles are not unmeasured tests and energy calculator stays bounded',()=>{
+  assert.equal(model.pageLabel({kind:'article',evidence:null}),'Learning article');
+  for(const e of [0,.3,1])for(const a of [0,.5,1]){
+    const budget=model.energyBudget(e,a);
+    assert.ok(budget.reflected>=0&&budget.reflected<=1);
+    assert.ok(Math.abs(budget.reflected+budget.absorbed-1)<1e-12);
+  }
+  assert.throws(()=>model.energyBudget(NaN,.5));assert.throws(()=>model.energyBudget(.5,2));
+});
+test('learning markup rejects active content and unsafe attributes before import',()=>{
+  const original=globalThis.DOMParser;
+  try{
+    for(const element of [
+      {localName:'script',attributes:[]},
+      {localName:'p',attributes:[{name:'onclick',value:'attack()'}]},
+      {localName:'a',attributes:[{name:'href',value:'javascript:attack()'}]},
+    ]){
+      globalThis.DOMParser=class{parseFromString(){return {body:{querySelectorAll(){return [element];}}};}};
+      assert.throws(()=>model.learningArticle('<p>bad</p>'));
+    }
+  }finally{if(original)globalThis.DOMParser=original;else delete globalThis.DOMParser;}
+});
+test('learning reader scopes equation overflow and preserves article state on polling',async()=>{
+  const app=await readFile(new URL('app.js',base),'utf8'),css=await readFile(new URL('app.css',base),'utf8');
+  assert.match(app,/cached\.source_sha256/);assert.match(app,/if\(this\.contentKey!==key\).*learningArticle/);
+  assert.match(css,/\.lesson-equation \{overflow-x:auto/);assert.match(css,/\.energy-playground input.*min-height:44px/);
+});
+
+test('playback supports 60 fps targets and subtracts display time without catch-up queues',async()=>{
+  const {ClipPlayer,PLAYBACK_RATES}=await import(new URL('playback.js',base));
+  assert.deepEqual(PLAYBACK_RATES,[4,8,12,24,30,60]);
+  let time=0;const pending=[],delays=[];
+  const player=new ClipPlayer([0,1,2],async()=>{time+=5;},{now:()=>time,
+    schedule:(f,ms)=>{pending.push(f);delays.push(ms);},cancel:()=>{}});
+  player.setRate(60);await player.play();
+  assert.ok(Math.abs(delays[0]-(1000/60-5))<1e-6);
+  player.show=async()=>{time+=40;};await pending.shift()();
+  assert.equal(delays[1],0);assert.equal(pending.length,1);
+  assert.throws(()=>player.setRate(61));player.dispose();
+});
+
+test('finite playback is opt-in, serial and stops at the final frame',async()=>{
+  const {ClipPlayer}=await import(new URL('playback.js',base));
+  const shown=[],pending=[];
+  const player=new ClipPlayer([0,1,2],async step=>shown.push(step),{schedule:f=>{pending.push(f);return f;},cancel:()=>{}});
+  assert.deepEqual(shown,[]);assert.equal(player.running,false);
+  await player.play();assert.deepEqual(shown,[0]);
+  await pending.shift()();assert.deepEqual(shown,[0,1]);
+  await pending.shift()();assert.deepEqual(shown,[0,1,2]);
+  assert.equal(player.running,false);assert.equal(pending.length,0);
+});
+
+test('playback pause/dispose cancel late work and frame seeking is bounded',async()=>{
+  const {ClipPlayer}=await import(new URL('playback.js',base));
+  let release;const pending=[];
+  const player=new ClipPlayer([3,7],()=>new Promise(resolve=>{release=resolve;}),{schedule:f=>pending.push(f),cancel:()=>{}});
+  const active=player.play();player.pause();release();await active;
+  assert.equal(pending.length,0);assert.equal(player.running,false);
+  assert.throws(()=>player.setRate(0),/rate/);
+  await assert.rejects(player.seek(2),/frame/);
+  player.dispose();await player.play();assert.equal(pending.length,0);
+});
+
+test('playback errors stop the clip instead of silently claiming a displayed frame',async()=>{
+  const {ClipPlayer}=await import(new URL('playback.js',base));
+  let message;
+  const player=new ClipPlayer([0,1],async()=>{throw new Error('frame expired');},{onError:e=>{message=e.message;}});
+  await player.play();assert.equal(player.running,false);assert.equal(player.index,-1);assert.equal(message,'frame expired');
+});
+
+test('browser timers are called without a ClipPlayer receiver',async()=>{
+  const {ClipPlayer}=await import(new URL('playback.js',base));
+  const original=globalThis.setTimeout,clear=globalThis.clearTimeout;let scheduled=0;
+  globalThis.setTimeout=function(){assert.equal(this,undefined);scheduled++;return 7;};
+  globalThis.clearTimeout=function(){assert.equal(this,undefined);};
+  try {const player=new ClipPlayer([0,1],async()=>{});await player.play();assert.equal(scheduled,1);player.pause();}
+  finally {globalThis.setTimeout=original;globalThis.clearTimeout=clear;}
+});
+
+test('clip controls retain touch targets and pause on hidden/disposed pages',async()=>{
+  const source=await readFile(new URL('playback.js',base),'utf8'),css=await readFile(new URL('app.css',base),'utf8');
+  assert.match(source,/visibilitychange/);assert.match(source,/document\.hidden\)pause\(\)/);
+  assert.match(source,/panel\.destroy=.*player\.dispose\(\)/);
+  assert.match(source,/stopImmediatePropagation/);assert.match(source,/player\.seek\(0\)/);
+  assert.match(css,/\.clip-controls button.*min-height:44px/);
+  assert.match(css,/\.static-artifact:has\(\.clip-controls\)/);
+});
+test('tablet navigation responds to breakpoint changes and static panels are explicit',async()=>{
+  const app=await readFile(new URL('app.js',base),'utf8'),css=await readFile(new URL('app.css',base),'utf8');
+  assert.match(app,/addEventListener\("change",.*navigation/);
+  assert.match(css,/@media\s*\(max-width:\s*1000px\)/);
+  assert.match(css,/position:fixed/);assert.match(app,/staticEvidence/);
+  assert.match(css,/artifact-section/);assert.match(css,/min-width:44px/);
+});
 test('readable references keep stable IDs in links, not in the display label', () => {
   assert.equal(model.referenceLabel('test/abcdef','Build tools use approved revisions'),'gffx · Build tools use approved revisions');
   assert.equal(model.referenceLabel('test/abcdef',null),'gffx · Test page');
@@ -174,14 +433,40 @@ test('mobile page selection clears old evidence, collapses navigation and return
   globalThis.history={pushState:(_s,_t,url)=>{href=url;}};
   try {
     const app=Object.create(TestingApp.prototype);
-    Object.assign(app,{selected:{run:'old',page:'mesh/face-geometry',path:'mesh',step:0},generation:0,
+    Object.assign(app,{tablet:{matches:true},selected:{run:'old',page:'mesh/face-geometry',path:'mesh',step:0},generation:0,
       closePanels:()=>{closed=true;},poll:()=>{polled=true;}});
     app.navigate('camera/projection');
     assert.deepEqual(app.selected,{run:'',page:'camera/projection',path:null,step:null});
     assert.equal(new URL(href).searchParams.get('run'),null);
     assert.ok(elements.get('navigation').hidden && closed && polled);
     assert.ok(scrolled,'navigation must not leave the phone scrolled past its menu');
+    app.navigationState(true);
+    assert.equal(elements.get('nav-backdrop').hidden,false);
+    app.tablet.matches=false;app.navigationState(true);
+    assert.equal(elements.get('navigation').hidden,false);
+    assert.equal(elements.get('nav-backdrop').hidden,true);
+    app.tablet.matches=true;app.navigationState(false);
+    assert.equal(elements.get('navigation').hidden,true);
   } finally {for(const key of ['document','window','location','history'])delete globalThis[key];}
+});
+
+test('coverage layers and scalar-prefix plots have explicit display contracts',async()=>{
+  const source=await readFile(new URL('app.js',base),'utf8');
+  assert.match(source,/Coverage layers/);assert.match(source,/unmeasured_files/);
+  assert.match(source,/cov\.layer,cov\.layers/);
+  assert.match(source,/spec\.kind==='plot'.*path\.startsWith/);
+});
+
+test('grouped scalar artifacts bind all child curves without matching siblings',async()=>{
+  const {pathToFileURL}=await import('node:url');const {join}=await import('node:path');
+  const {Store,PANEL_KINDS}=await import(pathToFileURL(join(process.env.GFFX_DASHBOARD_STATIC,'app.js')));
+  const store=new Store();
+  for(const name of ['fx','fy','cx','cy'])store.paths.set('fit/parameters/'+name,{kind:'scalar',values:[[0,1],[1,2]]});
+  store.paths.set('fit/parameters-other',{kind:'scalar',values:[[0,99]]});
+  const panel=Object.create(PANEL_KINDS.plot.prototype);
+  panel.store=store;panel.spec=model.panelBinding(store,{kind:'plot',path:'fit/parameters'});
+  assert.equal(panel.series().length,4);
+  assert.equal(model.panelBinding(store,{kind:'image',path:'fit/parameters'}).path,'fit/parameters');
 });
 
 test('coverage percentages distinguish zero, empty, unknown and invalid measurements', () => {
@@ -267,6 +552,13 @@ test('slow refresh never collapses visible filters and unchanged results retain 
     await app.poll();
     assert.equal(elements.get('summary').children.length,0,'unknown references must still fail closed');
   } finally {release?.(detail);await pending;delete globalThis.document;}
+});
+
+test('learning articles hide execution details and tests link to their lesson', async () => {
+  const source=await readFile(new URL('app.js',base),'utf8');
+  assert.match(source,/\$\("copy-details"\)\.hidden=this\.selected\.page\.startsWith\('learn\/'\)/);
+  assert.match(source,/detail\.learning_article/);
+  assert.match(source,/Read the mathematics behind these checks/);
 });
 
 test('unchanged pagination preserves button identity and focus targets', async () => {

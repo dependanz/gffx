@@ -19,6 +19,174 @@ def module(name):
 def start(index, run='one', kind='tests'):
     index.accept({'event': 'start', 'run': run, 'kind': kind, 'provenance': {}})
 
+
+def test_classic_demo_assets_are_offline_bounded_and_attributed():
+    import math
+    D=module('classic_demo')
+    for name in ('bunny','teapot'):
+        mesh=D.load_asset(name)
+        assert 100 < len(mesh['vertices']) < 5000
+        assert 100 < len(mesh['faces']) < 10000
+        assert mesh['source_url'].startswith('https://') and mesh['license_note']
+        assert all(math.isfinite(x) for p in mesh['vertices'] for x in p)
+        assert all(len(set(f))==3 and all(0<=i<len(mesh['vertices']) for i in f) for f in mesh['faces'])
+    with pytest.raises(ValueError):D.load_asset('../escape')
+
+
+def test_elastic_ball_freefall_rebound_energy_and_convergence():
+    D=module('classic_demo');states=D.simulate();fine=D.simulate(substeps=80)
+    assert len(states)==181 and states[0]['t']==0 and states[-1]['t']==3
+    # Analytic free fall before contact; first-order integrator tolerance is explicit.
+    assert abs(states[24]['height']-(2-9.81*.4**2/2)) < .002
+    assert any(s['velocity']>2 and s['height']>.4 for s in states[40:])
+    assert min(s['height'] for s in states) > .12
+    assert max(s['energy'] for s in states) <= states[0]['energy']*1.01
+    assert states[-1]['energy'] < states[0]['energy']*.8
+    assert max(abs(a['height']-b['height']) for a,b in zip(states,fine)) < .015
+    with pytest.raises(ValueError):D.simulate(substeps=0)
+
+
+def test_elastic_ball_scene_squashes_without_floor_penetration():
+    D=module('classic_demo');states=D.simulate();frames=[D.scene(s) for s in states]
+    vertices,faces,colors=frames[0]
+    assert len(vertices)<400 and len(faces)<800 and len(colors)==len(vertices)
+    assert all(f[1]==faces for f in frames)
+    assert all(min(p[1] for p in v)>=-1e-7 for v,_,_ in frames)
+    assert vertices!=frames[45][0]
+
+
+def test_classic_demo_publishes_finite_assets_physics_and_restart_history(tmp_path):
+    D=module('classic_demo');Server=module('server').TestingServer
+    with Server(tmp_path,port=0,allow_loopback_for_tests=True) as server:
+        D.publish('http://'+server.address,'classics')
+        page=server.index.page('geometry/classic-meshes-demo')
+        assert len(page['artifacts'])==4 and page['state']=='demonstration'
+        page=server.index.page('simulation/elastic-ball-demo')
+        assert len(page['artifacts'])==4 and page['collected']==0
+        first=server.state.get('ball/motion',step=0,run='classics-ball')
+        last=server.state.get('ball/motion',step=180,run='classics-ball')
+        assert first['vertices'].data!=last['vertices'].data
+        with pytest.raises(KeyError):server.state.get('ball/motion',step=181,run='classics-ball')
+        assert server.index.summary('classics')['state']=='finished'
+        assert server.index.summary('classics-ball')['state']=='finished'
+    with Server(tmp_path,port=0,allow_loopback_for_tests=True) as replay:
+        replay.replay('classics-ball')
+        assert replay.state.get('ball/motion',step=0,run='classics-ball')['vertices'].data==first['vertices'].data
+        assert replay.state.get('ball/motion',step=180,run='classics-ball')['vertices'].data==last['vertices'].data
+
+
+def test_coverage_uses_statement_summary_not_raw_execution_lines():
+    raw={'files':{'a.py':{'executed_lines':[1,2,3], 'missing_lines':[4],
+         'summary':{'covered_lines':2,'num_statements':3}}}}
+    report=module('model').coverage_report(raw)
+    assert (report['covered'],report['total'])==(2,3)
+    assert report['layer']=='python'
+
+
+def test_mesh_animation_demo_is_finite_and_replays_frames(tmp_path):
+    D=module('mesh_animation_demo');Server=module('server').TestingServer
+    root=tmp_path/'server'
+    with Server(root,port=0,allow_loopback_for_tests=True) as server:
+        D.publish('http://'+server.address,'mesh-animation')
+        page=server.index.page('geometry/mesh-animation-demo')
+        assert page['state']=='demonstration' and page['collected']==0
+        assert len(page['artifacts'])==9
+        assert server.index.summary('mesh-animation')['state']=='finished'
+        first=server.state.get('gallery/animation-3d',step=0,run='mesh-animation')
+        last=server.state.get('gallery/animation-3d',step=23,run='mesh-animation')
+        assert first['vertices'].shape==(192,3) and first['faces'].shape==(384,3)
+        assert first['vertices'].data!=last['vertices'].data
+        assert first['faces'].data==last['faces'].data
+        image=server.state.get('gallery/animation-2d',step=0,run='mesh-animation')
+        assert image['data'].shape==(180,240,3)
+        with pytest.raises(KeyError):server.state.get('gallery/animation-3d',step=24,run='mesh-animation')
+    with Server(root,port=0,allow_loopback_for_tests=True) as replay:
+        replay.replay('mesh-animation')  # Viewer runs are deliberately opened lazily.
+        assert replay.state.get('gallery/animation-3d',step=0,run='mesh-animation')['vertices'].data==first['vertices'].data
+        assert replay.state.get('gallery/animation-2d',step=23,run='mesh-animation')['data'].shape==(180,240,3)
+
+
+def test_mesh_animation_geometry_has_valid_topology_and_changes_over_time():
+    import math
+    D=module('mesh_animation_demo')
+    for planar in (True,False):
+        initial,faces,colors=D.geometry(planar,0)
+        moved,other_faces,_=D.geometry(planar,7)
+        assert initial!=moved and faces==other_faces
+        assert len(colors)==len(initial)
+        assert all(math.isfinite(x) for row in initial for x in row)
+        assert all(len(set(face))==3 and all(0<=i<len(initial) for i in face) for face in faces)
+        if planar:assert all(v[2]==0 for v in initial+moved)
+
+
+def test_camera_fitting_demo_has_bounded_history_and_correct_derivative_curve():
+    demo=module('camera_fit_demo');result=demo.solve();curve=demo.derivatives()
+    assert len(result['history'])==61 and result['history'][-1][0]==300
+    assert result['history'][-1][1]<1e-8
+    assert max(abs(a-b) for a,b in zip(result['target'],result['recovered']))<.001
+    assert len(curve)==21 and max(row[3] for row in curve)<1e-8
+
+
+def test_lcov_layers_preserve_independent_reports_and_unknown_gaps(tmp_path):
+    M=module('model');C=module('coverage_formats');index=M.Index(tmp_path/'index.sqlite');start(index)
+    raw='SF:src/a.js\nDA:1,2\nDA:2,0\nBRDA:1,0,0,1\nBRDA:1,0,1,-\nFNDA:1,main\nend_of_record\n'
+    js=C.lcov_report(raw,layer='javascript')
+    assert (js['covered'],js['total'])==(1,2)
+    assert js['files'][0]['missing_lines']==[2]
+    assert js['files'][0]['covered_branches']==1 and js['files'][0]['branches']==2
+    repeated=C.lcov_report(raw.replace('FNDA:1,main','FNDA:1,constructor\nFNDA:0,constructor'),layer='javascript')
+    assert repeated['files'][0]['functions']==2 and repeated['files'][0]['covered_functions']==1
+    index.accept({'event':'coverage','run':'one','coverage':js})
+    py=M.coverage_report({'files':{'a.py':{'executed_lines':[1],'missing_lines':[]}}})
+    index.accept({'event':'coverage','run':'one','coverage':py})
+    assert index.coverage('one',layer='javascript')['covered']==1
+    assert index.coverage('one',layer='python')['total']==1
+    assert not index.coverage('one',layer='native')['measured']
+    start(index,'two');assert not index.latest_coverage(layer='javascript')['measured']
+    assert index.latest_coverage(run='one',layer='javascript')['measured']
+    with pytest.raises(ValueError):C.lcov_report('SF:a\nDA:-1,0\nend_of_record\n',layer='native')
+    with pytest.raises(ValueError):C.lcov_report(raw,layer='made-up')
+    duplicate='SF:src\\a.js\nDA:1,1\nend_of_record\nSF:src/a.js\nDA:1,1\nend_of_record\n'
+    with pytest.raises(ValueError):C.lcov_report(duplicate,layer='javascript')
+    assert M.Index(tmp_path/'index.sqlite').coverage('one',layer='javascript')['covered']==1
+    js['files'][0]['covered_functions']=2
+    with pytest.raises(ValueError):index.accept({'event':'coverage','run':'one','coverage':js})
+
+
+def test_coverage_inventory_never_calls_uninstrumented_files_zero_coverage(tmp_path):
+    C=module('coverage_formats');(tmp_path/'a.py').write_text('pass\n');(tmp_path/'b.cu').write_text('// kernel\n')
+    (tmp_path/'c.js').write_text('// unused\n')
+    inventory=C.inventory(tmp_path,['a.py','b.cu','c.js'])
+    assert inventory=={'python':['a.py'],'cuda':['b.cu'],'javascript':['c.js']}
+    with pytest.raises(ValueError):C.inventory(tmp_path,['../outside.py'])
+
+
+def test_demo_pages_do_not_borrow_another_pages_artifacts(tmp_path):
+    index=module('model').Index(tmp_path/'index.sqlite')
+    start(index,'panels','demo')
+    index.accept({'event':'demo','run':'panels','artifacts':[{'kind':'text','path':'panels/info'}]})
+    start(index,'camera','demo')
+    index.accept({'event':'demo','run':'camera','page':'camera/pinhole-demo',
+                  'artifacts':[{'kind':'text','path':'camera/info'}]})
+    assert index.page('dashboard/panel-demo')['evidence']['run']=='panels'
+    assert index.page('camera/pinhole-demo')['evidence']['run']=='camera'
+    with pytest.raises(KeyError):index.page('camera/pinhole-demo',run='panels')
+    with pytest.raises(ValueError):index.accept({'event':'demo','run':'camera','page':'camera/projection'})
+    with pytest.raises(ValueError):index.accept({'event':'demo','run':'camera','page':'dashboard/panel-demo'})
+
+
+def test_camera_demonstration_is_finite_and_reports_its_own_page(tmp_path):
+    Server=module('server').TestingServer
+    with Server(tmp_path,port=0,allow_loopback_for_tests=True) as server:
+        module('camera_demo').publish('http://'+server.address,'camera-example')
+        page=server.index.page('camera/pinhole-demo')
+        assert page['evidence']['run']=='camera-example' and page['evidence']['state']=='finished'
+        assert page['collected']==0 and len(page['artifacts'])==10
+        assert {a['kind'] for a in page['artifacts']}=={'mesh','image','text'}
+        assert server.state.get('camera-demo/rig-camera-plan',run='camera-example')['data'].shape==(180,240,3)
+        assert server.state.get('camera-demo/landmarks-projected',run='camera-example')['data'].shape==(180,240,3)
+        assert server.index.page('dashboard/panel-demo')['state']=='not measured'
+
 def test_every_repository_test_has_an_authored_explanation():
     import ast
     guide=module('explanations')
@@ -105,7 +273,7 @@ def test_named_check_lifecycle_and_quotas_fail_closed(tmp_path):
     with pytest.raises(ValueError):send('check_finish',outcome='passed')
     page=index.page('test/'+M.test_id('a'))
     assert len(page['checks'])==2
-    assert index.directory(limit=1)['total']==16  # 13 features + test + two checks
+    assert index.directory(limit=1)['total']==len(module('catalog').PAGES)+3  # catalog + test + two checks
     assert len(index.directory(limit=1)['items'])==1
 
 def test_named_check_fixture_reports_failure_without_swallowing_assertion(monkeypatch):
@@ -260,7 +428,7 @@ def test_testing_frontend_contracts():
     if not node: pytest.skip('Node is optional development tooling')
     import gffx.dashboard
     result = subprocess.run([node, '--experimental-default-type=module', '--test',
-        str(ROOT / 'tests/dashboard/testing.test.mjs')], capture_output=True, text=True, timeout=30,
+        str(ROOT / 'tests/dashboard/testing.test.mjs')], capture_output=True, text=True, encoding='utf-8', timeout=30,
         env={**os.environ,'GFFX_DASHBOARD_STATIC':str(Path(gffx.dashboard.__file__).parent/'static')})
     assert result.returncode == 0, result.stdout + result.stderr
 

@@ -45,6 +45,12 @@ exactly; a faster atomic path exists but is reached only when the caller sets
 this README were produced by calling it from Python with `ctypes` and nothing else — see
 [`docs/showcase/`](docs/showcase/).
 
+The working camera implementation is documented in [Eager pinhole cameras](docs/CAMERAS.md):
+`gffx.camera.Camera` projects points, reconstructs positions from depth, and batches cameras
+using the existing transforms. Its optional `in_front_only=True` filter keeps behind-camera
+rejection separate from mathematical projection validity and visibility. It adds no native
+primitive and makes no compilation/export or real-time performance claim.
+
 ## What does not work yet
 
 - **The PyTorch adapter requires PyTorch 2.10 or newer.** On an older PyTorch it refuses to load
@@ -121,6 +127,7 @@ Do not call the full CUDA capability probe from a real-time frame or audio callb
 - [Isolated CUDA provider recipes](docs/CUDA_PLUGIN_BUILD.md)
 - [The CUDA hardware test lane](docs/CUDA_HARDWARE_LANE.md)
 - [Capability figures and how they are generated](docs/showcase/)
+- [Testing-dashboard learning pages and dependency-free mathematics](docs/LEARNING_PAGES.md)
 
 ## Source boundaries
 

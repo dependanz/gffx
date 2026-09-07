@@ -1,6 +1,6 @@
 // The developer shell composes the installed general-purpose viewer objects.
 import { Store, Connection, PANEL_KINDS } from "/app.js";
-import { selection, reference, coverageLabel, pageLabel, testTitle, coveragePercent, coverageFile, lineRanges, newestPages, creationLabel, setupTheme, pageArtifacts, referenceLabel } from "./model.js";
+import { selection, reference, coverageLabel, pageLabel, testTitle, coveragePercent, coverageFile, lineRanges, newestPages, creationLabel, setupTheme, pageArtifacts, referenceLabel, panelBinding, attachPlayback, learningArticle, attachShowcase, demoClipGroup, enhanceDemoPanels, attachCinema } from "./model.js";
 const $ = id => document.getElementById(id);
 const node = (tag,text="",attrs={}) => {
   const element = document.createElement(tag); element.textContent = text;
@@ -15,8 +15,14 @@ export class TestingApp {
     setupTheme(document.documentElement,$("theme"),storage);
     this.selected=selection(new URL(location.href)); this.offset=0; this.panels=[]; this.renderKey=null;
     this.generation=0; this.busy=false; this.provenance={}; this.catalogKey=null; this.contentKey=null;
-    $("menu").onclick=()=>{const hidden=$("navigation").hidden=!$("navigation").hidden; $("menu").setAttribute("aria-expanded",String(!hidden));};
-    if(window.matchMedia("(max-width:760px)").matches){$("navigation").hidden=true;$("menu").setAttribute("aria-expanded","false");}
+    this.tablet=window.matchMedia("(max-width:1000px)");
+    this.navigationState(!this.tablet.matches);
+    this.tablet.addEventListener("change",()=>this.navigationState(!this.tablet.matches));
+    $("menu").onclick=()=>this.navigationState($("navigation").hidden);
+    $("nav-backdrop").onclick=()=>this.navigationState(false);
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&this.tablet.matches&&!$("navigation").hidden){this.navigationState(false);$("menu").focus();}});
+    this.headerObserver=new ResizeObserver(()=>document.documentElement.style.setProperty('--toolbar-height',document.querySelector('.bar').getBoundingClientRect().height+'px'));
+    this.headerObserver.observe(document.querySelector('.bar'));
     document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>this.navigate(b.dataset.page));
     for(const id of ["search","outcome"]) $(id).onchange=()=>{this.offset=0;this.generation++;this.contentKey=null;this.poll();};
     $("copy").onclick=()=>this.copyReference();
@@ -31,7 +37,7 @@ export class TestingApp {
   navigate(page, run="") {
     this.selected={run,page,path:null,step:null};this.offset=0;this.generation++;this.renderKey=null;this.contentKey=null;
     $("search").value="";$("outcome").value="";
-    if(window.matchMedia("(max-width:760px)").matches){$("navigation").hidden=true;$("menu").setAttribute("aria-expanded","false");}
+    if(this.tablet.matches)this.navigationState(false);
     history.pushState(null,"",reference(location.href,this.selected));this.closePanels();window.scrollTo({top:0,behavior:"instant"});this.poll();
   }
   async get(route, params={}) {
@@ -42,6 +48,10 @@ export class TestingApp {
       if(!response.ok){const error=Error(value.error||"Request failed");error.status=response.status;throw error;}
       return value;
     } finally {clearTimeout(timer);}
+  }
+  navigationState(open) {
+    $("navigation").hidden=!open;$("menu").setAttribute('aria-expanded',String(open));
+    $("nav-backdrop").hidden=!(open&&this.tablet.matches);
   }
   async poll() {
     if(document.hidden||this.busy)return;
@@ -74,7 +84,7 @@ export class TestingApp {
       } else if(page==="newest"){
         const directory=await this.get('directory',{offset:this.offset});if(generation!==this.generation)return;
         $("filters").hidden=true;this.closePanels();this.execution(null);
-        this.header("Newest pages","Test and demonstration pages, newest creation date first. This is when the page was created—not when its tests last ran.","GFFX / PAGE DIRECTORY");
+        this.header("Newest pages","Learning, test and demonstration pages, newest creation date first. This is when the page was created—not when its tests last ran.","GFFX / PAGE DIRECTORY");
         this.replaceSummary(['newest',directory.total],()=>[this.metric("Pages",String(directory.total))]);
         $("evidence-context").textContent="Same-day pages are alphabetical; unknown dates appear last. Original creation times were not recorded for the initial pages.";
         const key=JSON.stringify(['newest',directory,this.offset]);
@@ -83,17 +93,27 @@ export class TestingApp {
       } else if(page==="coverage"){
         $("filters").hidden=true;
         this.closePanels();
-        const cov=await this.get("latest-coverage",{...(this.selected.run?{run:this.selected.run}:{}),offset:this.offset});
+        const cov=await this.get("latest-coverage",{...(this.selected.run?{run:this.selected.run}:{}),offset:this.offset,layer:this.coverageLayer||'python'});
         if(generation!==this.generation)return;
-        this.header("Code coverage","How much Python code did the tests exercise? Coverage measures execution, not correctness.","GFFX / EVIDENCE");
-        $("evidence-context").textContent="Python only · Native C/CUDA and per-test attribution are not measured. Showing the selected execution, never an older fallback.";
+        this.header("Code coverage","What code did the instrumented tests exercise? Select a layer; there is no misleading whole-repository percentage.","GFFX / EVIDENCE");
+        $("evidence-context").textContent="Coverage measures execution, not correctness. A Python or host test does not measure GPU device code. Uninstrumented files and missing layers are not zero-percent coverage. Reports stay attached to their execution.";
         this.execution(cov.evidence);
         this.coverageView(cov);
         if(cov.measured)this.pager(cov.total_files);else this.pager(null);
       } else {
-        const detail=await this.get("page",{page,...(this.selected.run?{run:this.selected.run}:{}),offset:this.offset,search:$("search").value,outcome:$("outcome").value});
+        const cached=this.articleDetail;
+        const detail=cached?.id===page && cached.source_sha256===pages.find(p=>p.id===page)?.source_sha256 && !this.selected.run ? cached :
+          await this.get("page",{page,...(this.selected.run?{run:this.selected.run}:{}),offset:this.offset,search:$("search").value,outcome:$("outcome").value});
         if(generation!==this.generation)return;
         this.header(detail.title,detail.description,"GFFX / "+detail.group.toUpperCase());
+        if(detail.kind==='article'){
+          if(this.selected.path)throw Error('Learning articles do not have execution artifacts');
+          this.articleDetail=detail;this.closePanels();this.execution(null);this.pager(null);$("filters").hidden=true;
+          this.replaceSummary([page,detail.updated_on],()=>[node('span','Learning article · updated '+detail.updated_on,{class:'badge'})]);
+          $("evidence-context").textContent='Authored explanation, not test acceptance. Measurements are dated; linked test pages may show newer evidence.';
+          const key=JSON.stringify([page,detail.source_sha256]);
+          if(this.contentKey!==key){$("details").replaceChildren(learningArticle(detail.article_html));this.contentKey=key;}
+        }else{
         this.explanation(detail);
         this.replaceSummary([page,pageLabel(detail),detail.counts],()=>[
           node("div",pageLabel(detail),{class:"badge",'data-state':detail.state}),
@@ -102,6 +122,7 @@ export class TestingApp {
           "Evidence covers the collected checks for this page in one execution, not the entire feature contract. Visuals appear below when published; no fabricated figures.";
         this.execution(detail.evidence,detail.history);
         if(detail.evidence){
+          this.staticEvidence=detail.kind==='demo';
           const visible=pageArtifacts(detail,this.selected.path);this.artifacts(detail.evidence.run,visible);
           const hint='Check-owned visuals are available on the named check pages below each test.';
           if(!visible.length&&detail.artifacts.length&&$("evidence").textContent!==hint)$("evidence").textContent=hint;
@@ -131,6 +152,7 @@ export class TestingApp {
           this.contentKey=key;
         }
         if(detail.kind==="tests"&&detail.evidence)this.pager(detail.total);else this.pager(null);
+        }
       }
       this.displayedSelection=JSON.stringify(this.selected);this.lastSuccess=new Date().toLocaleTimeString();
       $("error").hidden=true;
@@ -156,12 +178,14 @@ export class TestingApp {
     for(const page of newestPages(pages).slice(0,limit)){
       const item=node("li"),b=button("",()=>this.navigate(page.id));
       b.append(node("span",creationLabel(page),{class:"creation-date"}),node("strong",page.title),
-        node("span",page.group+" · "+({demo:'Demonstration',test:'Test',check:'Named check',tests:'Feature'}[page.kind]||page.kind),{class:"creation-kind"}));
+        node("span",page.group+" · "+({article:'Learning article',demo:'Demonstration',test:'Test',check:'Named check',tests:'Feature'}[page.kind]||page.kind),{class:"creation-kind"}));
       item.append(b);list.append(item);
     }
     return list;
   }
   header(title,description,eyebrow) {
+    $("description").hidden=false;
+    $("copy-details").hidden=this.selected.page.startsWith('learn/');
     this.pageTitle=title;this.titlePage=this.selected.page;
     $("reference-label").textContent=referenceLabel(this.selected.page,title);
     if(!this.selected.page.startsWith('test/')&&!this.selected.page.startsWith('check/')){
@@ -171,18 +195,24 @@ export class TestingApp {
   }
   explanation(detail) {
     const box=$("explanation"),guide=detail.explanation;
+    if(!guide&&detail.learning_article){
+      box.hidden=false;
+      const key='lesson:'+detail.learning_article;
+      if(this.guideKey!==key){box.replaceChildren(node('a','Read the mathematics behind these checks',
+        {href:reference(location.href,{page:detail.learning_article})}));this.guideKey=key;}
+      return;
+    }
     box.hidden=!guide;if(!guide)return;
+    $("description").hidden=true;
     const key=JSON.stringify([detail.id,guide,detail.nodeid]);if(this.guideKey===key)return;
     this.guideKey=key;
     const sections=[['What this checks',guide.purpose],['How it checks it',guide.method],
       ['What a pass means — and does not mean',guide.limits]];
-    box.replaceChildren(...sections.map(([label,text])=>{
-      const section=node('section');section.append(node('h2',label),node('p',text));return section;
+    box.replaceChildren(...sections.map(([label,text],i)=>{
+      const section=node(i?'details':'section');section.append(node(i?'summary':'h2',label),node('p',text));return section;
     }));
-    box.append(node('p','Current author guide · explains today’s test source, not a description captured during the selected historical execution.',{class:'guide-note'}));
-    box.append(node('p','Read the result separately: passed = assertions succeeded; failed = at least one failed; xfailed = expected failure, not acceptance; skipped = not exercised; pending/incomplete = no complete result.',{class:'guide-note'}));
     const technical=node('details');technical.append(node('summary','Technical identifiers'),
-      node('p','Test source'),node('code',detail.nodeid||''),node('p','Stable page ID'),node('code',detail.id));box.append(technical);
+      node('p','Current author guide, separate from historical execution evidence. A skipped or expected-failure result is not acceptance.'),node('p','Test source'),node('code',detail.nodeid||''),node('p','Stable page ID'),node('code',detail.id));box.append(technical);
   }
   coverageMeter(label,covered,total,unit) {
     const percent=coveragePercent(covered,total), meter=node("div","",{class:"coverage-meter"});
@@ -196,20 +226,24 @@ export class TestingApp {
     return meter;
   }
   coverageView(cov) {
-    const key=JSON.stringify(['coverage',cov.evidence?.run,cov.artifact_sha256,cov.items,this.offset,cov.measured]);
+    const key=JSON.stringify(['coverage',cov.evidence?.run,cov.artifact_sha256,cov.items,this.offset,cov.measured,cov.layer,cov.layers]);
     if(this.contentKey===key)return;
     this.contentKey=key;
     const opened=new Set([...$("details").querySelectorAll("details[open]")].map(d=>d.dataset.file));
     const overview=node("section","",{class:"coverage-overview"});
-    overview.append(this.coverageMeter("Overall line coverage",cov.measured?cov.covered:null,cov.measured?cov.total:null,"lines"));
-    if(cov.measured)overview.append(node("p",(cov.total-cov.covered).toLocaleString('en-US')+" uncovered lines · "+cov.total_files+" Python files",{class:"coverage-count"}));
+    const layers=node('div','',{class:'coverage-layers','aria-label':'Coverage layers'});
+    for(const layer of cov.layers||[]){const b=button(layer.label+(layer.measured?'':' · not measured')+(layer.source_files?' · '+layer.source_files+' source files':''),()=>{this.coverageLayer=layer.id;this.offset=0;this.generation++;this.contentKey=null;this.poll();});b.setAttribute('aria-pressed',String((cov.layer||'python')===layer.id));layers.append(b);}
+    overview.append(layers,this.coverageMeter("Reported line coverage",cov.measured?cov.covered:null,cov.measured?cov.total:null,"lines"));
+    if(cov.unmeasured_files?.length){const gaps=node('details');gaps.append(node('summary',cov.unmeasured_files.length+' source files not represented in this report'),node('p','This includes tests, headers or files outside the instrumented build; executable-line counts are unknown, not zero.'),node('pre',cov.unmeasured_files.join('\n')));overview.append(gaps);}
+    if(cov.measured)overview.append(node("p",(cov.total-cov.covered).toLocaleString('en-US')+" uncovered lines · "+cov.total_files+" instrumented files · "+cov.source,{class:"coverage-count"}));
     this.summaryKey=null;$("summary").replaceChildren(overview);
     if(!cov.measured){$("details").replaceChildren(node("p","No coverage report for this execution yet."));return;}
     const files=node("div","",{class:"coverage-files"});
     for(const f of cov.items){
       const label=coverageFile(f.path), card=node("article","",{class:"coverage-file"});
-      card.append(node("p",label.directory||"Python module",{class:"coverage-directory"}),node("h3",label.name));
+      card.append(node("p",label.directory||"Source file",{class:"coverage-directory"}),node("h3",label.name));
       card.append(this.coverageMeter("Lines",f.covered,f.total,"lines"),this.coverageMeter("Branches",f.covered_branches,f.branches,"branches"));
+      if(f.functions!=null)card.append(this.coverageMeter('Functions',f.covered_functions,f.functions,'functions'));
       const details=node("details","",{class:"coverage-diagnostics"});details.dataset.file=f.path;details.open=opened.has(f.path);
       details.append(node("summary","Source & missing lines"),node("p","Full measured path"),node("code",label.full),
         node("p","Missing lines (ranges)"),node("code",lineRanges(f.missing_lines)));
@@ -226,7 +260,7 @@ export class TestingApp {
         const b=button(p.title,()=>this.navigate(p.id));b.dataset.page=p.id;b.setAttribute("aria-label",p.title);b.append(node("span","",{'data-page-status':p.id,class:"nav-status"}));groups.get(p.group).append(b);}
       this.catalogKey=key;
     }
-    for(const p of pages){const badge=[...document.querySelectorAll("[data-page-status]")].find(b=>b.dataset.pageStatus===p.id);badge.textContent=p.evidence?(p.evidence.stale?"stale":p.state):"not measured";badge.setAttribute("data-state",p.state);}
+    for(const p of pages){const badge=[...document.querySelectorAll("[data-page-status]")].find(b=>b.dataset.pageStatus===p.id);badge.textContent=p.kind==='article'?'article':p.evidence?(p.evidence.stale?"stale":p.state):"not measured";badge.setAttribute("data-state",p.state);}
   }
   execution(evidence, historyItems=[]) {
     this.evidenceRun=evidence?.run||"";this.provenance=evidence?.provenance||{};
@@ -260,6 +294,8 @@ export class TestingApp {
     $("pager").replaceChildren(prev,node("span",total? (this.offset+1)+"–"+Math.min(total,this.offset+50)+" of "+total:"No entries"),next);
   }
   closePanels() {
+    this.disposeCinema?.();this.disposeCinema=null;
+    this.disposeShowcase?.();this.disposeShowcase=null;
     for(const panel of this.panels)panel.destroy();this.panels=[];
     this.connection?.close();this.connection=null;this.renderKey=null;
     $("evidence").replaceChildren();
@@ -280,22 +316,43 @@ export class TestingApp {
     this.connection.viewOptions={fps:2,bytes_per_second:131072,mesh_deltas:true,paused:false};
     this.connection.onSnapshot=()=>{
       if(this.connection!==connection)return;
+      this.disposeCinema?.();this.disposeCinema=null;
+      this.disposeShowcase?.();this.disposeShowcase=null;
       for(const panel of this.panels)panel.destroy();
       this.panels=[];$("evidence").replaceChildren();
+      let section=null,grid=null;
       for(const spec of this.layout.panels){
-        const panel=new PANEL_KINDS[spec.kind](this,spec);this.panels.push(panel);$("evidence").append(panel.el);
+        if(this.staticEvidence && (spec.kind==='text'||!section)){
+          section=node('section','',{class:'artifact-section'});grid=node('div','',{class:'artifact-pair'});
+          const title=(spec.label||spec.path.split('/').at(-1)).replace(/-explained$/,'').replace(/-/g,' ');
+          section.append(node('h2',title),grid);$("evidence").append(section);
+        }
+        const panel=new PANEL_KINDS[spec.kind](this,panelBinding(this.store,spec));this.panels.push(panel);
+        panel.el.dataset.kind=spec.kind;
+        if(this.staticEvidence){
+          panel.el.classList.add('static-artifact');
+          if(spec.kind==='text'){
+            const explanation=node('details','',{class:'demo-explanation'});
+            explanation.append(node('summary','Explanation, mathematics & limits'),panel.el);section.append(explanation);
+          }else grid.append(panel.el);
+        }else $("evidence").append(panel.el);
         if(spec.label){const label=panel.head.querySelector('.path');if(label)label.textContent=spec.label;}
-        if(!this.store.paths.has(spec.path))panel.body.replaceChildren(node("p","Artifact unavailable: not retained or not delivered."));
+        const available=this.store.paths.has(spec.path)||(spec.kind==='plot'&&[...this.store.paths.keys()].some(path=>path.startsWith(spec.path+'/')));
+        if(!available)panel.body.replaceChildren(node("p","Artifact unavailable: not retained or not delivered."));
+        if(available&&this.staticEvidence&&this.selected.step===null&&typeof panel.visibleSteps==='function'&&!demoClipGroup(spec.path))attachPlayback(panel);
         if(this.selected.path===spec.path && this.selected.step!==null){
           if(typeof panel.showStep==="function"){panel.following=false;panel.showStep(this.selected.step);}
           else{panel.unsubscribe();panel.body.replaceChildren(node("p","Pinned steps unsupported for this panel; no latest-value substitute."));}
         }
       }
+      if(this.staticEvidence&&this.selected.step===null){enhanceDemoPanels(this);this.disposeShowcase=attachShowcase(this,$("evidence"));}
+      if(this.staticEvidence&&!this.selected.path&&this.selected.step===null){try{this.disposeCinema=attachCinema(this,$("evidence"));}catch(error){$("error").hidden=false;$("error").textContent=error.message;}}
       if(this.selected.path&&!artifacts.some(a=>a.path===this.selected.path)){this.closePanels();$("evidence").textContent="Referenced artifact is not on this page.";}
     };
     this.connection.connect();
   }
   async copyReference(path=this.selected.path,step=this.selected.step,detailed=false) {
+    path=path?.replace(/\/$/,'')??path;
     const url=reference(location.href,{...this.selected,run:path?this.evidenceRun:this.selected.run,path,step});
     const text=referenceLabel(this.selected.page,this.titlePage===this.selected.page?this.pageTitle:null)+"\n"+url+((detailed||path||this.selected.run)?"\n"+(path?"Pinned artifact execution: "+this.evidenceRun:this.selected.run?"Selected historical execution: "+this.selected.run:"Live page; evidence may update")+"\nProducer provenance: "+JSON.stringify(this.provenance)+"\nArtifacts may expire; demos are not test acceptance.":"");
     try{await navigator.clipboard.writeText(text);}

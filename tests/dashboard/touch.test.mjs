@@ -31,6 +31,56 @@ function mesh() {
   const picks = []; view._pickAt = (...args) => picks.push(args);
   return { canvas, view, picks };
 }
+test('point clouds keep their own geometry kind, radii and empty-safe framing', () => {
+  const {view}=mesh();
+  view.setPoints({positions:new Float32Array([0,0,0,1,1,1]),radii:new Float32Array([.02,.03])});
+  assert.equal(view.mesh.kind,'points');assert.equal(view.mesh.count,2);
+  assert.deepEqual([...view.mesh.radii],[...new Float32Array([.02,.03])]);
+  assert.throws(()=>view.setPoints({positions:new Float32Array([1,2])}),/positions/);
+  view.setPoints({positions:new Float32Array()});
+  assert.ok(Number.isFinite(view.orbit.radius));
+});
+test('point rendering has a dedicated instanced pipeline and visible error boundary', async()=>{
+  const mesh=await source('mesh.js'),wgsl=await source('mesh.wgsl'),app=await source('app.js');
+  assert.match(mesh,/pointPipeline/);assert.match(mesh,/draw\(6, this.mesh.count\)/);
+  assert.match(wgsl,/fn vs_point/);assert.match(app,/setPoints\(/);
+  assert.match(app,/Unable to display artifact/);
+});
+test('point frames submit instanced discs, never indexed mesh triangles',()=>{
+  const {view:v,canvas}=mesh(),calls=[];
+  v.setPoints({positions:new Float64Array([0,0,0,1,1,1])});
+  assert.ok(v.mesh.positions instanceof Float32Array);
+  Object.assign(canvas,{clientWidth:100,clientHeight:100,width:100,height:100});
+  const pass={setBindGroup(){},setVertexBuffer(){},setPipeline:p=>calls.push(p),draw:(...a)=>calls.push(a),end(){}};
+  v.device={queue:{writeBuffer(){},submit(){}},createCommandEncoder:()=>({beginRenderPass:()=>pass,finish(){}})};
+  v.depth={createView(){}};v.context={getCurrentTexture:()=>({createView(){}})};
+  v.buffers={};v.pointPipeline='points';v._matrices=()=>({view:new Float32Array(16),mvp:new Float32Array(16)});
+  const previous=globalThis.window;globalThis.window={devicePixelRatio:1};
+  try{v.render();assert.deepEqual(calls,['points',[6,2]]);}finally{globalThis.window=previous;}
+});
+test('panels wait for initialization, expose failures and recover on a later frame',async()=>{
+  const {SteppedPanel}=await moduleFrom('app.js'),p=Object.create(SteppedPanel.prototype);
+  let ready,seen=[],removed=false;const entry={cache:new Map([[1,{}],[2,{}]])};
+  p.entry=()=>entry;p.stepLabel={};p.ready=new Promise(resolve=>{ready=resolve;});
+  p.show=()=>seen.push('shown');p.body={append(){}};
+  const previous=globalThis.document;
+  globalThis.document={createElement:()=>({setAttribute(){},remove(){removed=true;}})};
+  try{
+    const pending=p.showStep(1);assert.deepEqual(seen,[]);ready(true);await pending;
+    assert.deepEqual(seen,['shown']);
+    p.show=()=>{throw Error('bad positions');};await p.showStep(2);
+    assert.match(p.displayError.textContent,/Unable to display artifact: bad positions/);assert.equal(p.shown,null);
+    p.show=()=>{};await p.showStep(2);assert.equal(p.displayError,null);assert.ok(removed);
+  }finally{globalThis.document=previous;}
+});
+test('static single-frame controls hide but streaming and multi-frame controls remain',async()=>{
+  const {SteppedPanel}=await moduleFrom('app.js'),p=Object.create(SteppedPanel.prototype);
+  const entry={steps:[0]};p.entry=()=>entry;p.app={staticEvidence:true};p.scrubBar={};p.range={};
+  p.onUpdate();assert.equal(p.scrubBar.hidden,true);
+  entry.bound=100;p.onUpdate();assert.equal(p.scrubBar.hidden,false);
+  entry.bound=0;entry.steps=[0,1];p.onUpdate();assert.equal(p.scrubBar.hidden,false);
+  entry.steps=[0];p.app.staticEvidence=false;p.onUpdate();assert.equal(p.scrubBar.hidden,false);
+});
 test("one finger orbits, captures, and a drag never picks", () => {
   const { canvas: c, view: v, picks } = mesh(), yaw = v.orbit.yaw;
   c.emit("pointerdown"); assert.ok(c.captured.has(1));

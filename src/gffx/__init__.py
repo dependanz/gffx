@@ -14,7 +14,7 @@ No public graphics or geometry operation is advertised in Phase 1.
 from __future__ import annotations
 
 __all__ = [
-    "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch"
+    "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch", "camera"
 ]
 
 
@@ -28,6 +28,11 @@ def __getattr__(name: str):
         from . import _capabilities
 
         return getattr(_capabilities, name)
+    if name == "camera":
+        from importlib import import_module
+        facade = import_module(".camera", __name__)
+        globals()[name] = facade
+        return facade
     if name == "cuda":
         # Importing the namespace is still inert. Only cuda.capabilities() explicitly loads a
         # plugin/driver and enumerates devices.

@@ -27,10 +27,15 @@ def main(argv=None):
     run.add_argument("--address",required=True)
     run.add_argument("--run",default=None)
     run.add_argument("--coverage",action="store_true")
+    run.add_argument('--coverage-source',action='append',help='Python source package/directory (repeatable); defaults to gffx and repository tooling')
     run.add_argument("--output",default="build/testing-runs")
     run.add_argument("pytest_args",nargs=argparse.REMAINDER)
     cov = sub.add_parser("coverage")
     cov.add_argument("--address",required=True); cov.add_argument("--run",required=True)
+    cov.add_argument('--format',choices=['python','lcov'],default='python')
+    cov.add_argument('--layer',choices=['python','native','javascript','cuda','shader','other'],default='python')
+    cov.add_argument('--inventory-root',help='Attach tracked/nonignored source paths from this Git repository')
+    cov.add_argument('--path-map',nargs=2,action='append',default=[],metavar=('FROM','TO'),help='Explicit report-path prefix mapping for installed artifacts')
     cov.add_argument("report")
     demo = sub.add_parser("demo")
     demo.add_argument("--address", required=True)
@@ -51,8 +56,23 @@ def main(argv=None):
     if args.command == "coverage":
         raw = Path(args.report)
         if raw.stat().st_size > 8*1024*1024: parser.error("coverage input exceeds 8 MiB")
-        result = coverage_report(json.loads(raw.read_text(encoding="utf-8")))
+        if args.format=='lcov':
+            from .coverage_formats import lcov_report
+            result=lcov_report(raw.read_text(encoding='utf-8'),layer=args.layer)
+        else:
+            if args.layer!='python':parser.error('Python JSON only measures the Python layer')
+            result = coverage_report(json.loads(raw.read_text(encoding="utf-8")))
         result["artifact_sha256"] = hashlib.sha256(raw.read_bytes()).hexdigest()
+        for file in result['files']:
+            path=file['path'].replace('\\','/')
+            for old,new in args.path_map:
+                old=old.replace('\\','/').rstrip('/');new=new.replace('\\','/').rstrip('/')
+                if path.startswith(old+'/'):path=new+path[len(old):];break
+            file['path']=path
+        result['path_mappings']=args.path_map
+        if args.inventory_root:
+            from .coverage_formats import repository_inventory
+            result['inventory']=repository_inventory(args.inventory_root)
         return 0 if Reporter(args.address,args.run).send("coverage",coverage=result) else 1
     runid = args.run or "pytest-" + uuid.uuid4().hex
     from .model import run_name
@@ -76,7 +96,7 @@ def main(argv=None):
         print("coverage.py is not installed: coverage will be NOT MEASURED",file=sys.stderr)
     if coverage:
         output.mkdir(parents=True,exist_ok=False)
-        command = [sys.executable,"-m","coverage","run","--branch","--source=gffx",
+        command = [sys.executable,"-m","coverage","run","--branch","--source="+','.join(args.coverage_source or ['gffx','tools']),
                    "--data-file",str(output/".coverage"),"-m","pytest",
                    "-p","tools.testing_dashboard.pytest_plugin",*pytest_args]
     print("Testing run:",runid,flush=True)
@@ -89,6 +109,15 @@ def main(argv=None):
                 if report.stat().st_size > 8*1024*1024: raise ValueError("coverage input exceeds 8 MiB")
                 value = coverage_report(json.loads(report.read_text()))
                 value["artifact_sha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
+                from .coverage_formats import repository_inventory
+                value['inventory']=repository_inventory(Path.cwd())
+                # Attribute installed-wheel package paths to their repository source paths.
+                import gffx
+                package=Path(gffx.__file__).resolve().parent
+                for file in value['files']:
+                    path=Path(file['path']).resolve()
+                    if path.is_relative_to(package):file['path']='src/gffx/'+path.relative_to(package).as_posix()
+                    elif path.is_relative_to(Path.cwd()):file['path']=path.relative_to(Path.cwd()).as_posix()
                 Reporter(args.address,runid).send("coverage",coverage=value)
             except Exception as error:
                 print("Coverage unavailable:",error,file=sys.stderr)

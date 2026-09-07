@@ -26,6 +26,6 @@ def test_dashboard_touch_contracts():
     result = subprocess.run(
         [node, "--experimental-default-type=module", "--test", str(script)],
         env={**os.environ, "GFFX_DASHBOARD_STATIC": str(static)},
-        text=True, capture_output=True, timeout=60,
+        text=True, encoding='utf-8', capture_output=True, timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr

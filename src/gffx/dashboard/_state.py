@@ -295,6 +295,13 @@ class Runs:
         with self._lock:
             return name in self._runs
 
+    def unregister(self, name: str) -> None:
+        """Release a loaded tree only; its owner checks leases and durability first."""
+        with self._lock:
+            del self._runs[name]
+            if self._default == name:
+                self._default = next(reversed(self._runs), None)
+
     def runs(self) -> list[str]:
         with self._lock:
             return list(self._runs)

@@ -119,6 +119,8 @@ export class MeshView {
     this.context.configure({ device: this.device, format: this.format, alphaMode: "opaque" });
     const code = await (await fetch("/mesh.wgsl", { cache: "no-store" })).text();
     const module = this.device.createShaderModule({ code });
+    const errors=(await module.getCompilationInfo()).messages.filter(message=>message.type==='error');
+    if(errors.length)throw Error('Viewport shader: '+errors.map(message=>message.message).join('; '));
     this.uniformBuffer = this.device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.bindGroupLayout = this.device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }] });
     this.bindGroup = this.device.createBindGroup({ layout: this.bindGroupLayout, entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }] });
@@ -139,6 +141,14 @@ export class MeshView {
       fragment: { module, entryPoint: "fs_main", targets: [{ format: this.format }] },
       primitive: { topology: "line-list" }, depthStencil,
     });
+    this.pointPipeline = this.device.createRenderPipeline({
+      layout, vertex: {module, entryPoint:"vs_point", buffers:[
+        ...vertexBuffers.map(b=>({...b,stepMode:"instance"})),
+        {arrayStride:4,stepMode:"instance",attributes:[{shaderLocation:3,offset:0,format:"float32"}]},
+      ]},
+      fragment:{module,entryPoint:"fs_point",targets:[{format:this.format}]},
+      primitive:{topology:"triangle-list"},depthStencil,
+    });
     this._resizeObserver = new ResizeObserver(() => this.requestRender());
     this._resizeObserver.observe(this.canvas);
     return true;
@@ -151,11 +161,19 @@ export class MeshView {
     this.device = null;
   }
 
-  setMesh({ vertices, faces, colors, normals }, { keepCamera = true } = {}) {
+  setPoints({positions, colors, radii}, options = {}) {
+    if (!positions || positions.length%3 || !Array.from(positions).every(Number.isFinite)) throw Error("Invalid point positions");
+    const count=positions.length/3;
+    if(radii && (radii.length!==count || !Array.from(radii).every(r=>Number.isFinite(r)&&r>=0))) throw Error("Invalid point radii");
+    this.setMesh({vertices:new Float32Array(positions),faces:new Uint32Array(),colors,kind:"points",radii:radii?new Float32Array(radii):undefined},options);
+  }
+
+  setMesh({ vertices, faces, colors, normals, kind="mesh", radii }, { keepCamera = true } = {}) {
+    if(!vertices || !faces || vertices.length%3 || faces.length%3) throw Error("Invalid mesh vertices or faces");
     const count = vertices.length / 3;
     const previous = this.mesh;
     this.mesh = {
-      positions: vertices, faces, count,
+      positions: vertices, faces, count, kind, radii,
       normals: normals || vertexNormals(vertices, faces, count),
       colors: toFloat32Colors(colors, count),
       edges: null,
@@ -168,8 +186,9 @@ export class MeshView {
     for (let i = 0; i < count; i++) for (let k = 0; k < 3; k++) {
       const v = vertices[i * 3 + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v;
     }
-    const center = scale(add(min, max), 0.5);
-    const radius = Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, 1e-6);
+    const center = count ? scale(add(min, max), 0.5) : [0,0,0];
+    const radius = count ? Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, 1e-6) : 1;
+    if(kind==="points"&&!radii)this.mesh.radii=new Float32Array(count).fill(radius*.012);
     if (!keepCamera || !previous || Math.abs(radius - this.orbit.radius) / this.orbit.radius > 0.5) {
       this.orbit.target = center; this.orbit.radius = radius; this.orbit.distance = radius * 2.8;
     }
@@ -197,6 +216,7 @@ export class MeshView {
       index: make(m.faces, GPUBufferUsage.INDEX),
       edges: make(m.edges, GPUBufferUsage.INDEX),
     };
+    if(m.kind==="points")this.buffers.radius=make(m.radii,GPUBufferUsage.VERTEX);
   }
 
   _matrices() {
@@ -245,6 +265,11 @@ export class MeshView {
       pass.setVertexBuffer(0, this.buffers.position);
       pass.setVertexBuffer(1, this.buffers.normal);
       pass.setVertexBuffer(2, this.buffers.color);
+      if(this.mesh.kind==="points"){
+        pass.setVertexBuffer(3,this.buffers.radius);pass.setPipeline(this.pointPipeline);
+        pass.draw(6, this.mesh.count);
+        pass.end();this.device.queue.submit([encoder.finish()]);this._drawOverlay(mvp);return;
+      }
       pass.setPipeline(this.surfacePipeline);
       pass.setIndexBuffer(this.buffers.index, "uint32");
       pass.drawIndexed(this.mesh.faces.length);
@@ -363,7 +388,7 @@ export class MeshView {
     on("contextmenu", (e) => e.preventDefault());
     on("wheel", (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.0012)); this.requestRender(); }, { passive: false });
     on("dblclick", () => {
-      if (this.mesh) this.setMesh({ vertices: this.mesh.positions, faces: this.mesh.faces, colors: this.mesh.colors, normals: this.mesh.normals }, { keepCamera: false });
+      if (this.mesh) this.setMesh({ ...this.mesh, vertices: this.mesh.positions }, { keepCamera: false });
     });
     this._unbindEvents = () => {
       for (const [name, fn, options] of listeners) c.removeEventListener(name, fn, options);
@@ -375,6 +400,17 @@ export class MeshView {
   _pickAt(clientX, clientY) {
     if (!this.mesh) return;
     const rect = this.canvas.getBoundingClientRect();
+    if(this.mesh.kind==="points"){
+      const {mvp}=this._matrices();let best=12*12,index=-1;
+      for(let i=0;i<this.mesh.count;i++){
+        const p=this.mesh.positions.slice(i*3,i*3+3),c=transformPoint(mvp,p);
+        if(c[3]<=0 || c[2]<0 || c[2]>c[3])continue;
+        const x=rect.left+(c[0]/c[3]*.5+.5)*rect.width,y=rect.top+(1-(c[1]/c[3]*.5+.5))*rect.height;
+        const d=(x-clientX)**2+(y-clientY)**2;if(d<best){best=d;index=i;}
+      }
+      this.picked=index;this.requestRender();
+      this.onPick?.(index<0?null:{index,face:null,position:Array.from(this.mesh.positions.slice(index*3,index*3+3))});return;
+    }
     const nx = ((clientX - rect.left) / rect.width) * 2 - 1, ny = 1 - ((clientY - rect.top) / rect.height) * 2;
     const { view, eye } = this._matrices();
     const aspect = rect.width / rect.height, t = Math.tan(Math.PI / 8);

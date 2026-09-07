@@ -45,9 +45,12 @@ def coverage_report(raw):
         branches, covered_branches = summary.get("num_branches"), summary.get("covered_branches")
         if branches is not None and (type(branches) is not int or type(covered_branches) is not int or not 0 <= covered_branches <= branches):
             raise ValueError("invalid branch counts")
-        files.append({"path": path, "covered": len(executed), "total": len(executed) + len(missing),
+        covered=summary.get('covered_lines',len(executed));total=summary.get('num_statements',len(executed)+len(missing))
+        if type(covered) is not int or type(total) is not int or not 0<=covered<=total or total-covered!=len(missing):
+            raise ValueError('invalid statement summary')
+        files.append({"path": path, "covered": covered, "total": total,
                       "missing_lines": sorted(missing), "branches": branches, "covered_branches": covered_branches})
-    return {"source": "coverage.py JSON (Python only)", "files": files,
+    return {"source": "coverage.py JSON (Python only)", "layer":"python", "files": files,
             "covered": sum(f["covered"] for f in files), "total": sum(f["total"] for f in files),
             "artifact_sha256": hashlib.sha256(json.dumps(raw, sort_keys=True).encode()).hexdigest()}
 
@@ -67,6 +70,7 @@ class Index:
               phases TEXT, artifacts TEXT, PRIMARY KEY(run,id));
             CREATE INDEX IF NOT EXISTS tests_run ON tests(run);
             CREATE TABLE IF NOT EXISTS page_bindings(id TEXT PRIMARY KEY, page TEXT);
+            CREATE TABLE IF NOT EXISTS demo_pages(run TEXT PRIMARY KEY, page TEXT);
             CREATE INDEX IF NOT EXISTS bindings_page ON page_bindings(page);
             CREATE TABLE IF NOT EXISTS checks(
               run TEXT, test TEXT, id TEXT, name TEXT, outcome TEXT, duration REAL,
@@ -79,6 +83,8 @@ class Index:
             for page in PAGES:
                 db.execute('INSERT OR IGNORE INTO inspection_pages VALUES(?,?,?,?,?,?)',
                            (page['id'],None,page['title'],page['kind'],page['group'],page['created_on']))
+                db.execute('UPDATE inspection_pages SET title=?,kind=?,group_name=? WHERE id=?',
+                           (page['title'],page['kind'],page['group'],page['id']))
             # Rebuild only the derived bindings on startup so catalog edits also apply to old
             # evidence. Never rewrite test outcomes, artifacts, or producer provenance.
             for row in db.execute("SELECT DISTINCT id,nodeid FROM tests WHERE id!='demo'"):
@@ -96,6 +102,9 @@ class Index:
         parent=page_for(nodeid)
         self._register_page(db,'test/'+test_id(nodeid),parent,nodeid.split('::')[-1].removeprefix('test_').replace('_',' '),
                             'test',definition(parent)['group'])
+        # Catalog membership is a current derived view; creation dates and saved outcomes stay intact.
+        db.execute('UPDATE inspection_pages SET parent=?,group_name=? WHERE id=?',
+                   (parent,definition(parent)['group'],'test/'+test_id(nodeid)))
 
     def _db(self):
         # One short-lived connection per operation; serial writer, transactional quota rejection.
@@ -194,15 +203,30 @@ class Index:
                     db.execute("UPDATE tests SET artifacts=? WHERE run=? AND id=?", (json.dumps(artifacts),run,item["id"]))
             elif kind == "demo":
                 if row["kind"] != "demo": raise ValueError("not a demo run")
+                page=event.get('page','dashboard/panel-demo')
+                if definition(page)['kind']!='demo': raise ValueError('demo requires a demonstration page')
+                previous=db.execute('SELECT page FROM demo_pages WHERE run=?',(run,)).fetchone()
+                if previous and previous['page']!=page: raise ValueError('demo page cannot change within an execution')
                 artifacts = [self._artifact(a) for a in event.get("artifacts", [])]
                 if len(artifacts) > 32: raise ValueError("demo artifact limit")
-                # Single explicitly non-test page, never contributes to test counts.
+                db.execute('INSERT OR REPLACE INTO demo_pages VALUES(?,?)',(run,page))
+                # One explicitly non-test page per execution, never part of test counts.
                 db.execute("INSERT OR REPLACE INTO tests VALUES(?,?,?,?,?,?,?)",
                            (run,"demo",str(event.get("title","Demonstration"))[:200],"demo",0,"{}",json.dumps(artifacts)))
             elif kind == "coverage":
                 coverage = event.get("coverage")
-                if not isinstance(coverage, dict) or coverage.get("source") != "coverage.py JSON (Python only)":
+                from .coverage_formats import LAYERS
+                if not isinstance(coverage, dict) or coverage.get("source") not in ("coverage.py JSON (Python only)","LCOV"):
                     raise ValueError("unsupported coverage source")
+                layer=coverage.get('layer','python')
+                if layer not in LAYERS:raise ValueError('unknown coverage layer')
+                if coverage['source'].startswith('coverage.py') and layer!='python':raise ValueError('Python report cannot measure native code')
+                inventory=coverage.get('inventory',{})
+                if not isinstance(inventory,dict) or set(inventory)-set(LAYERS):raise ValueError('invalid inventory')
+                if sum(len(v) for v in inventory.values() if isinstance(v,list))>10000:raise ValueError('inventory limit')
+                for paths in inventory.values():
+                    if not isinstance(paths,list):raise ValueError('invalid inventory')
+                    for path in paths:plain(path)
                 files = coverage.get("files")
                 if not isinstance(files, list) or len(files) > 10000: raise ValueError("invalid coverage files")
                 for f in files:
@@ -216,11 +240,19 @@ class Index:
                     branches, covered_branches = f.get("branches"), f.get("covered_branches")
                     if branches is not None and (type(branches) is not int or type(covered_branches) is not int or not 0 <= covered_branches <= branches):
                         raise ValueError("invalid branch counts")
+                    functions,covered_functions=f.get('functions'),f.get('covered_functions')
+                    if functions is not None and (type(functions) is not int or type(covered_functions) is not int or not 0<=covered_functions<=functions):
+                        raise ValueError('invalid function counts')
                 if coverage.get("covered") != sum(f["covered"] for f in files) or coverage.get("total") != sum(f["total"] for f in files):
                     raise ValueError("coverage totals disagree")
                 if not re.fullmatch(r"[a-f0-9]{64}",str(coverage.get("artifact_sha256",""))):
                     raise ValueError("coverage needs an artifact hash")
-                db.execute("UPDATE runs SET coverage=? WHERE id=?", (json.dumps(coverage),run))
+                existing=db.execute('SELECT coverage FROM runs WHERE id=?',(run,)).fetchone()[0]
+                old=json.loads(existing) if existing else None
+                reports={r.get('layer','python'):r for r in (old.get('reports',[old]) if old else [])}
+                reports[layer]={k:v for k,v in coverage.items() if k!='reports'}
+                combined={**reports.get('python',reports[layer]),'reports':list(reports.values())}
+                db.execute("UPDATE runs SET coverage=? WHERE id=?", (json.dumps(combined),run))
             elif kind == "diagnostic":
                 db.execute("UPDATE runs SET diagnostic=? WHERE id=?", (str(event.get("message",""))[:4000],run))
             elif kind == "finish":
@@ -257,7 +289,9 @@ class Index:
             result["run"] = result.pop("id")
             result["provenance"] = json.loads(result["provenance"])
             result["coverage"] = json.loads(result["coverage"]) if result["coverage"] else None
-            if result["coverage"]: result["coverage"].pop("files", None)
+            if result["coverage"]:
+                result["coverage"].pop("files", None)
+                result["coverage"].pop("reports", None)
             counts = db.execute("SELECT outcome,count(*) FROM tests WHERE run=? AND outcome!='demo' GROUP BY outcome", (run,)).fetchall()
             result["counts"] = dict(counts)
             # Fail closed for older stored runs accepted before this report-integrity guard.
@@ -292,14 +326,22 @@ class Index:
             result["artifacts"] = json.loads(result["artifacts"])
             return result
 
-    def coverage(self, run, *, offset=0):
+    def coverage(self, run, *, offset=0, layer='python'):
+        from .coverage_formats import LAYERS
+        if layer not in LAYERS:raise ValueError('unknown coverage layer')
         if not 0 <= int(offset) <= 10000: raise ValueError("invalid offset")
         with self.lock, self._db() as db:
             row = db.execute("SELECT coverage FROM runs WHERE id=?", (run,)).fetchone()
             if row is None: raise KeyError("unknown run")
-            if row[0] is None: return {"items": [], "total": 0, "measured": False}
-            result = json.loads(row[0]); files = result.pop("files")
-            return {**result, "items":files[int(offset):int(offset)+50], "total_files":len(files), "measured":True}
+            stored=json.loads(row[0]) if row[0] else None
+            reports={r.get('layer','python'):r for r in (stored.get('reports',[stored]) if stored else [])}
+            inventory=stored.get('inventory',{}) if stored else {}
+            layers=[{'id':key,'label':label,'measured':key in reports,'source_files':len(inventory.get(key,[]))} for key,label in LAYERS.items()]
+            if layer not in reports:return {'items':[],'total':0,'measured':False,'layer':layer,'layers':layers,'unmeasured_files':inventory.get(layer,[])}
+            result={**reports[layer]};files=result.pop('files');result.pop('reports',None)
+            result.pop('inventory',None)
+            missing=sorted(set(inventory.get(layer,[]))-{f['path'] for f in files})
+            return {**result,'layer':layer,'layers':layers,'unmeasured_files':missing,"items":files[int(offset):int(offset)+50], "total_files":len(files), "measured":True}
 
     def pages(self):
         """Small permanent catalog with page-local summaries, not run navigation."""
@@ -345,15 +387,25 @@ class Index:
         if identifier.startswith(('test/','check/')):
             return self.detail_page(identifier,run=run)
         page = definition(identifier)
+        if page['kind']=='article':
+            if run:raise KeyError('Learning articles have no execution history')
+            from pathlib import Path
+            from .build_lessons import asset_name
+            content=json.loads((Path(__file__).parent/'static/learn'/asset_name(identifier)).read_text(encoding='utf-8'))
+            if content['id']!=identifier:raise KeyError('Article content does not match its page')
+            return {**page,'state':'article','evidence':None,'counts':{},'collected':0,
+                    'completed':0,'items':[],'total':0,'artifacts':[],'history':[],
+                    'updated_on':content['updated_on'],'source_sha256':content['source_sha256'],
+                    **({} if summary_only else {'article_html':content['html']})}
         offset = int(offset)
         if not 0 <= offset <= self.max_tests: raise ValueError('invalid offset')
         # Selection is by execution start, not last update/coverage import or last success.
         # A newer collected-but-pending subset supersedes old success on the same page.
         with self.lock, self._db() as db:
-            condition = ("r.kind='demo' AND EXISTS(SELECT 1 FROM tests t WHERE t.run=r.id AND t.id='demo')"
+            condition = ("r.kind='demo' AND EXISTS(SELECT 1 FROM tests t WHERE t.run=r.id AND t.id='demo') AND COALESCE((SELECT page FROM demo_pages d WHERE d.run=r.id),'dashboard/panel-demo')=?"
                          if page['kind'] == 'demo' else
                          "r.kind='tests' AND EXISTS(SELECT 1 FROM tests t JOIN page_bindings b ON b.id=t.id WHERE t.run=r.id AND b.page=?)")
-            args = () if page['kind'] == 'demo' else (identifier,)
+            args = (identifier,)
             if run:
                 condition += ' AND r.id=?'; args += (run_name(run),)
             rows = db.execute('SELECT r.id FROM runs r WHERE '+condition+' ORDER BY r.started DESC,r.rowid DESC LIMIT 10',args).fetchall()
@@ -394,11 +446,11 @@ class Index:
             result['artifacts'] = result['artifacts'][:32]
             return result
 
-    def latest_coverage(self, *, run=None, offset=0):
+    def latest_coverage(self, *, run=None, offset=0, layer='python'):
         with self.lock, self._db() as db:
             row = db.execute("SELECT id FROM runs WHERE kind='tests'" + (' AND id=?' if run else '') +
                              ' ORDER BY started DESC,rowid DESC LIMIT 1', (run,) if run else ()).fetchone()
             if row is None:
                 if run: raise KeyError('Referenced execution not found')
                 return {'measured':False,'items':[],'evidence':None}
-            return {**self.coverage(row['id'],offset=offset),'evidence':self.summary(row['id'])}
+            return {**self.coverage(row['id'],offset=offset,layer=layer),'evidence':self.summary(row['id'])}

@@ -64,5 +64,6 @@ if not hasattr(_torch_framework.ops.gffx_internal, "_foundation_probe"):
     )
 
 from . import io, mesh, points, render, stream, transforms  # noqa: E402
+from . import camera  # noqa: E402
 
-__all__: list[str] = ["io", "mesh", "points", "render", "stream", "transforms"]
+__all__: list[str] = ["io", "mesh", "points", "render", "stream", "transforms", "camera"]

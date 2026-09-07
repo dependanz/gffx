@@ -359,6 +359,7 @@ export class SteppedPanel extends Panel {
   onUpdate() {
     const entry = this.entry();
     if (!entry || this.scrubSteps) return;
+    if(this.scrubBar)this.scrubBar.hidden=Boolean(this.app.staticEvidence && entry.steps.length<=1 && !entry.bound);
     if (this.archiveSteps) return;
     if (this.policyLabel) this.policyLabel.textContent = entry.bound ? `recent ${entry.history_limit || entry.bound} · save ${entry.snapshot_every ? "every " + entry.snapshot_every + " steps" : "off"}` : "";
     this.range.max = Math.max(0, entry.steps.length - 1);
@@ -403,7 +404,18 @@ export class SteppedPanel extends Panel {
       this.store?.trimCaches();
     }
     if (request !== this._showRequest) return;
-    if (this.shown !== step || this.dirty) { this.shown = step; this.dirty = false; this.show(value); }
+    try {
+      if(this.ready && !(await this.ready))return;
+      if(request!==this._showRequest)return;
+      if (this.shown !== step || this.dirty) {
+        this.show(value);this.shown=step;this.dirty=false;
+        this.displayError?.remove();this.displayError=null;
+      }
+    } catch(error) {
+      this.shown=null;
+      if(!this.displayError){this.displayError=el('div',{class:'note display-error',role:'alert'});this.body.append(this.displayError);}
+      this.displayError.textContent='Unable to display artifact: '+error.message;
+    }
   }
   show() {}
 }
@@ -415,8 +427,8 @@ class ImagePanel extends SteppedPanel {
     this.canvas.style.imageRendering = "pixelated"; this.canvas.style.objectFit = "contain";
     this.body.append(this.canvas, this.overlay);
     this.exposure = 0;
-    this.tool("ev−", "darker (float images)", () => { this.exposure -= 0.5; this.dirty = true; this.showStep(this.shown); });
-    this.tool("ev+", "brighter (float images)", () => { this.exposure += 0.5; this.dirty = true; this.showStep(this.shown); });
+    this.darker=this.tool("ev−", "darker (float images)", () => { this.exposure -= 0.5; this.dirty = true; this.showStep(this.shown); });
+    this.brighter=this.tool("ev+", "brighter (float images)", () => { this.exposure += 0.5; this.dirty = true; this.showStep(this.shown); });
     this.canvas.addEventListener("pointerdown", (e) => this.probe(e));
     this.canvas.addEventListener("pointermove", (e) => this.probe(e));
     this.canvas.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") this.overlay.textContent = this.caption || ""; });
@@ -424,6 +436,7 @@ class ImagePanel extends SteppedPanel {
   }
   show(value) {
     const { height, width, channels, dtype } = value, data = value.arrays.data;
+    if(this.darker)this.darker.hidden=this.brighter.hidden=dtype==='uint8';
     this.image = value;
     this.canvas.width = width; this.canvas.height = height;
     const ctx = this.canvas.getContext("2d"), out = ctx.createImageData(width, height), gain = Math.pow(2, this.exposure);
@@ -465,7 +478,7 @@ class MeshPanel extends SteppedPanel {
     this.wireButton = this.tool("wire", "wireframe", () => { this.view.setOptions({ wireframe: !this.view.options.wireframe }); this.wireButton.classList.toggle("on", this.view.options.wireframe); });
     this.colorButton = this.tool("colour", "per-vertex colour", () => { this.view.setOptions({ vertexColors: !this.view.options.vertexColors }); this.colorButton.classList.toggle("on", this.view.options.vertexColors); });
     this.colorButton.classList.add("on");
-    this.tool("frame", "frame the mesh (double-click does too)", () => { if (this.mesh) this.view.setMesh(this.mesh, { keepCamera: false }); });
+    this.tool("frame", "frame geometry (double-click does too)", () => { if (this.mesh) this.view[this.mesh.positions?'setPoints':'setMesh'](this.mesh, { keepCamera: false }); });
     this.ready = this.view.init().then((ok) => {
       if (!ok) {
         const why = !window.isSecureContext
@@ -480,14 +493,17 @@ class MeshPanel extends SteppedPanel {
   }
   show(value) {
     const a = value.arrays;
-    this.mesh = { vertices: a.vertices, faces: a.faces, colors: a.colors || null, normals: a.normals || null };
-    this.view.setMesh(this.mesh);
+    const points=Boolean(a.positions);
+    this.head.querySelector('.kind').textContent=points?'points':'mesh';
+    this.mesh = points ? {positions:a.positions,colors:a.colors||null,radii:a.radii||null} : { vertices: a.vertices, faces: a.faces, colors: a.colors || null, normals: a.normals || null };
+    this.wireButton.hidden=points;
+    if(points)this.view.setPoints(this.mesh);else this.view.setMesh(this.mesh);
     this.caption();
   }
   caption() {
     const m = this.mesh; if (!m) return;
-    let text = `${m.vertices.length / 3} vertices · ${m.faces.length / 3} faces`;
-    if (this.pick) text += `\nvertex ${this.pick.index} (${this.pick.position.map((v) => v.toFixed(4)).join(", ")}) face ${this.pick.face}`;
+    let text = m.positions ? `${m.positions.length/3} points` : `${m.vertices.length / 3} vertices · ${m.faces.length / 3} faces`;
+    if (this.pick) text += `\n${m.positions?'point':'vertex'} ${this.pick.index} (${this.pick.position.map((v) => v.toFixed(4)).join(", ")})`+(m.positions?'':` face ${this.pick.face}`);
     this.overlay.textContent = text;
   }
   destroy() { super.destroy(); this.view.destroy(); }
