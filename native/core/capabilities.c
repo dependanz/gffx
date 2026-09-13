@@ -91,7 +91,9 @@ static const gffx_capability_spec gffx_static_capabilities[] = {
     {GFFX_CAPABILITY_CATEGORY_BUILD, GFFX_CAPABILITY_KEY_DEVICE_MASK,
      GFFX_CAPABILITY_VALUE_U64, 0u, UINT64_C(1) << GFFX_DEVICE_CPU, 0, NULL},
     {GFFX_CAPABILITY_CATEGORY_OPERATION, GFFX_CAPABILITY_KEY_OPERATION_COUNT,
-     GFFX_CAPABILITY_VALUE_U64, 0u, 0u, 0, NULL}
+     /* Linked CPU families: 13 foundation + 5 animation + 1 image transfer. This is an
+      * implementation inventory, not device/derivative qualification. */
+     GFFX_CAPABILITY_VALUE_U64, 0u, 19u, 0, NULL}
 };
 
 #if defined(GFFX_ENABLE_TEST_PROVIDER)

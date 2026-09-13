@@ -2404,3 +2404,6 @@ extern "C" __global__ void gffx_cuda_sample_backward_atomic_##SUFFIX(           
 
 GFFX_CUDA_SAMPLE_SURFACE_BACKWARD(f32, float)
 GFFX_CUDA_SAMPLE_SURFACE_BACKWARD(f64, double)
+
+#include "animation_kernels.cuh"
+#include "image_kernels.cuh"

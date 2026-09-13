@@ -63,6 +63,21 @@ static int test_diagnostic_and_tensor_validation(void) {
     tensor = make_tensor(NULL, (int64_t[2]){0, 3}, strides);
     CHECK(gffx_validate_tensor_view(&tensor, &diagnostic) == GFFX_STATUS_OK);
 
+    /* Empty axes retain positive dense strides, including when not leading. */
+    tensor = make_tensor(NULL, (int64_t[2]){2, 0}, (int64_t[2]){1, 1});
+    CHECK(gffx_validate_tensor_view(&tensor, &diagnostic) == GFFX_STATUS_OK);
+    tensor.rank = 3u;
+    tensor.shape = (int64_t[3]){2, 0, 3};
+    tensor.strides = (int64_t[3]){3, 3, 1};
+    CHECK(gffx_validate_tensor_view(&tensor, &diagnostic) == GFFX_STATUS_OK);
+    tensor.shape = (int64_t[3]){0, 2, 3};
+    tensor.strides = (int64_t[3]){6, 3, 1};
+    CHECK(gffx_validate_tensor_view(&tensor, &diagnostic) == GFFX_STATUS_OK);
+    tensor = make_tensor(NULL, (int64_t[2]){2, 0}, (int64_t[2]){0, 1});
+    CHECK(gffx_validate_tensor_view(&tensor, &diagnostic) == GFFX_STATUS_INVALID_ARGUMENT);
+    tensor.strides = (int64_t[2]){-1, 1};
+    CHECK(gffx_validate_tensor_view(&tensor, &diagnostic) == GFFX_STATUS_INVALID_ARGUMENT);
+
     tensor = make_tensor(values, (int64_t[2]){INT64_MAX, 2}, strides);
     CHECK(gffx_validate_tensor_view(&tensor, &diagnostic) == GFFX_STATUS_OVERFLOW);
 

@@ -19,7 +19,16 @@ target_compile_features(gffx_test_abi_cpp_headers PRIVATE cxx_std_11)
 target_link_libraries(gffx_test_abi_cpp_headers PRIVATE gffx_core)
 add_test(NAME abi.cpp_headers COMMAND gffx_test_abi_cpp_headers)
 
+# Fake Driver API lifecycle controls: no PyTorch, CUDA toolkit or device needed.
+add_executable(gffx_test_cuda_context_scope test_cuda_context_scope.cpp)
+target_compile_features(gffx_test_cuda_context_scope PRIVATE cxx_std_17)
+target_include_directories(gffx_test_cuda_context_scope PRIVATE
+    ${PROJECT_SOURCE_DIR}/adapters/pytorch)
+add_test(NAME adapter.cuda_context_lifecycle COMMAND gffx_test_cuda_context_scope)
+
 add_library(gffx_core_test_provider SHARED
+    ${PROJECT_SOURCE_DIR}/native/core/animation.c
+    ${PROJECT_SOURCE_DIR}/native/core/image.c
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
@@ -82,6 +91,8 @@ endif()
 # The self-test entry point is compiled ONLY into this private build of the core, never into the
 # shipped gffx_core target, so the public ABI v1 export set is unchanged.
 add_library(gffx_core_self_test SHARED
+    ${PROJECT_SOURCE_DIR}/native/core/animation.c
+    ${PROJECT_SOURCE_DIR}/native/core/image.c
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
@@ -138,6 +149,18 @@ add_test(NAME runtime.io_isolation
         -DGFFX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/io_isolation.cmake
 )
+
+# Independent scalar arithmetic can be checked without Torch or a GPU.
+add_executable(gffx_test_image_transfer_scalar test_image_transfer_scalar.c)
+target_include_directories(gffx_test_image_transfer_scalar PRIVATE ${PROJECT_SOURCE_DIR}/native/core)
+target_compile_features(gffx_test_image_transfer_scalar PRIVATE c_std_11)
+if(MSVC)
+    target_compile_options(gffx_test_image_transfer_scalar PRIVATE /fp:strict /UNDEBUG)
+else()
+    target_compile_options(gffx_test_image_transfer_scalar PRIVATE -ffp-contract=off -fno-fast-math -UNDEBUG)
+    target_link_libraries(gffx_test_image_transfer_scalar PRIVATE m)
+endif()
+add_test(NAME runtime.image_transfer_scalar COMMAND gffx_test_image_transfer_scalar)
 
 # Phase 2 Step 5: the committed public surface and its classification must agree with the headers
 # in both directions, so a symbol cannot join the compatibility surface by accident.

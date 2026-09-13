@@ -1,6 +1,10 @@
 # Phase 2 geometry-operation acceptance fixtures. Each suite is dependency-free C linked
 # against the shipped core, mirroring the ABI test conventions.
 
+add_executable(gffx_test_animation test_animation.c)
+target_link_libraries(gffx_test_animation PRIVATE gffx_core)
+add_test(NAME geometry.animation COMMAND gffx_test_animation)
+
 add_executable(gffx_test_face_geometry test_face_geometry.c)
 target_link_libraries(gffx_test_face_geometry PRIVATE gffx_core)
 if(UNIX)
@@ -68,8 +72,17 @@ if(UNIX)
 endif()
 add_test(NAME geometry.validate COMMAND gffx_test_validate)
 
+add_executable(gffx_test_image test_image.c)
+target_link_libraries(gffx_test_image PRIVATE gffx_core)
+if(UNIX)
+    target_link_libraries(gffx_test_image PRIVATE m)
+endif()
+add_test(NAME geometry.image_transfer COMMAND gffx_test_image)
+
 if(WIN32)
     foreach(test_target IN ITEMS
+        gffx_test_animation
+        gffx_test_image
         gffx_test_face_geometry
         gffx_test_vertex_normals
         gffx_test_gather_faces

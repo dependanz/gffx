@@ -55,9 +55,15 @@ def coverage_report(raw):
             "artifact_sha256": hashlib.sha256(json.dumps(raw, sort_keys=True).encode()).hexdigest()}
 
 class Index:
-    def __init__(self, path, *, max_tests=10000, max_runs=100, max_checks=100, max_pages=100000):
+    def __init__(self, path, *, max_tests=10000, max_checks=100, max_pages=100000,
+                 history_keep=100, max_active=32, metadata_bytes=64*1024*1024):
+        for name,value,minimum in (('history_keep',history_keep,0),('max_active',max_active,1),
+                                   ('metadata_bytes',metadata_bytes,1024*1024)):
+            if type(value) is not int or value < minimum:
+                raise ValueError(name+' has an invalid retention limit')
+        self.history_keep, self.max_active, self.metadata_bytes = history_keep,max_active,metadata_bytes
         self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.max_tests, self.max_runs = max_tests, max_runs
+        self.max_tests = max_tests
         self.max_checks, self.max_pages = max_checks, max_pages
         self.lock = threading.RLock()
         with self._db() as db:
@@ -79,6 +85,8 @@ class Index:
               id TEXT PRIMARY KEY, parent TEXT, title TEXT, kind TEXT, group_name TEXT,
               created_on TEXT);
             CREATE INDEX IF NOT EXISTS inspection_parent ON inspection_pages(parent);
+            CREATE TABLE IF NOT EXISTS pins(run TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS retired_runs(id TEXT PRIMARY KEY, retired REAL);
             """)
             for page in PAGES:
                 db.execute('INSERT OR IGNORE INTO inspection_pages VALUES(?,?,?,?,?,?)',
@@ -113,9 +121,18 @@ class Index:
         def connection():
             db = sqlite3.connect(self.path, timeout=2)
             db.row_factory = sqlite3.Row
-            db.execute("PRAGMA max_page_count=16384")  # default SQLite 4 KiB pages: 64 MiB
+            size=db.execute('PRAGMA page_size').fetchone()[0]
+            requested=self.metadata_bytes//size
+            actual=db.execute('PRAGMA max_page_count='+str(requested)).fetchone()[0]
+            if actual > requested:
+                db.close()
+                raise ValueError('metadata storage exceeds configured budget; preserve database and review retention')
             try:
                 with db: yield db
+            except sqlite3.OperationalError as error:
+                if 'full' in str(error).lower():
+                    raise ValueError('metadata storage budget reached; preview eligible history cleanup; protected evidence is not discarded') from error
+                raise
             finally: db.close()
         return connection()
 
@@ -126,11 +143,13 @@ class Index:
         with self.lock, self._db() as db:
             row = db.execute("SELECT * FROM runs WHERE id=?", (run,)).fetchone()
             if kind == "start":
+                if db.execute('SELECT 1 FROM retired_runs WHERE id=?',(run,)).fetchone():
+                    raise ValueError('execution identifier was retired; choose a fresh identifier')
                 if row: raise ValueError("run already exists; choose a fresh identifier")
                 mode = event.get("kind", "tests")
                 if mode not in ("tests", "demo"): raise ValueError("unknown run kind")
-                if db.execute("SELECT count(*) FROM runs").fetchone()[0] >= self.max_runs:
-                    raise ValueError("run quota reached")
+                if db.execute("SELECT count(*) FROM runs WHERE state='running'").fetchone()[0] >= self.max_active:
+                    raise ValueError('active execution limit reached; stale executions are not automatically finished')
                 from gffx.dashboard._server import check_provenance
                 provenance = check_provenance(event.get("provenance")) or {}
                 db.execute("INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?)",
@@ -287,6 +306,7 @@ class Index:
             if row is None: raise KeyError("unknown run")
             result = dict(row)
             result["run"] = result.pop("id")
+            result['pinned'] = bool(db.execute('SELECT 1 FROM pins WHERE run=?',(run,)).fetchone())
             result["provenance"] = json.loads(result["provenance"])
             result["coverage"] = json.loads(result["coverage"]) if result["coverage"] else None
             if result["coverage"]:
@@ -301,10 +321,37 @@ class Index:
             result["stale"] = result["state"] == "running" and (time.time() if now is None else now) - result["updated"] > 15
             return result
 
-    def runs(self):
+    def runs(self, *, offset=0, limit=100):
+        offset=int(offset);limit=int(limit)
+        if offset<0 or not 1<=limit<=100:raise ValueError('invalid history pagination')
         with self.lock, self._db() as db:
-            names = [r[0] for r in db.execute("SELECT id FROM runs ORDER BY started DESC LIMIT 100")]
+            names = [r[0] for r in db.execute("SELECT id FROM runs ORDER BY started DESC,rowid DESC LIMIT ? OFFSET ?",(limit,offset))]
         return [self.summary(name) for name in names]
+
+    def history_status(self):
+        from .retention import plan
+        with self.lock,self._db() as db:
+            result=plan(db,self.history_keep)
+            size=db.execute('PRAGMA page_size').fetchone()[0]
+            pages=db.execute('PRAGMA page_count').fetchone()[0]
+            free=db.execute('PRAGMA freelist_count').fetchone()[0]
+            return dict(result,metadata_file_bytes=pages*size,metadata_used_bytes=(pages-free)*size,
+                        metadata_limit_bytes=self.metadata_bytes,max_active=self.max_active)
+
+    def pin(self, run, value):
+        if type(value) is not bool:raise ValueError('pin must be a boolean')
+        with self.lock,self._db() as db:
+            if not db.execute('SELECT 1 FROM runs WHERE id=?',(run_name(run),)).fetchone():raise KeyError('unknown execution')
+            if value:db.execute('INSERT OR IGNORE INTO pins VALUES(?)',(run,))
+            else:db.execute('DELETE FROM pins WHERE run=?',(run,))
+
+    def retire(self, names):
+        from .retention import retire
+        with self.lock,self._db() as db:retire(db,names,self.history_keep)
+
+    def is_retired(self, run):
+        with self.lock,self._db() as db:
+            return bool(db.execute('SELECT 1 FROM retired_runs WHERE id=?',(run,)).fetchone())
 
     def tests(self, run, *, offset=0, search="", outcome=""):
         offset = int(offset)

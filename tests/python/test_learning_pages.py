@@ -65,7 +65,18 @@ def test_learning_pages_survive_restart_without_test_execution(tmp_path):
     assert page['kind']=='article' and page['state']=='article'
     assert page['evidence'] is None and page['counts']=={} and page['total']==0
     assert page['article_html'] and page['updated_on']=='2026-09-07'
-    assert any(p['id']==identifier for p in index.directory()['items'])
+    # The catalog is intentionally paginated; adding pages must not make this
+    # restart check depend on a lesson staying among the first fifty entries.
+    found=[]
+    offset=0
+    while True:
+        directory=index.directory(offset=offset,limit=7)
+        found.extend(p['id'] for p in directory['items'])
+        offset+=len(directory['items'])
+        if offset>=directory['total']:break
+        assert directory['items'], 'pagination stopped before the declared total'
+    assert len(found)==len(set(found))==directory['total']
+    assert identifier in found
     assert Index(tmp_path/'index.sqlite').page(identifier)==page
     assert 'article_html' not in next(p for p in index.pages() if p['id']==identifier)
     assert index.page('shading/material-contract')['learning_article']==identifier

@@ -500,6 +500,11 @@ def test_explicit_existing_run_refused_before_executing_tests(tmp_path):
         assert 'MUST NOT COLLECT' not in result.stdout
 
 def test_catalog_pages_exist_before_execution_and_reject_unknown_pages(tmp_path):
+    catalog = module('catalog')
+    ids = [page['id'] for page in catalog.PAGES]
+    assert len(ids) == len(set(ids)), 'duplicate page IDs would merge unrelated evidence'
+    articles = {'learn/index'} | {chapter['id'] for chapter in catalog.CHAPTERS}
+    assert all(page.get('learning_article') in articles for page in catalog.PAGES if page.get('learning_article'))
     index = module('model').Index(tmp_path/'index.sqlite')
     pages = index.pages()
     assert any(p['id'] == 'camera/projection' for p in pages)

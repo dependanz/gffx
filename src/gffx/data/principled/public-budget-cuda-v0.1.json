@@ -1,0 +1,44 @@
+{
+  "profile_id": "public-budget-cuda-v0.1",
+  "resource_id": "ggx-smith-loss-cuda-f64-v1",
+  "qualification": "finite empirical CUDA float64 screen; not a continuous-domain or all-device proof",
+  "admission_route": "explicit named bundled resource only; generic transport remains experimental",
+  "model": "ggx-correlated-smith-schlick-reciprocal-matte-v1",
+  "representation": "bounded-cubic-loss-v1",
+  "payload_sha256": "eb9393c7afd6e1a4964019643ee827dff72696896bd05786e8a2ec908ca538e5",
+  "envelope_sha256": "5e095d1aa417dcba460f7cb2a5f72b1cf8c857d793cba1da1b6e77b9fc769cb7",
+  "cpu_parent_record_sha256": "df424fcb92630ccd2bc70f8cf26997bcc3b0929ad1d56d3ca22e6ad1f4b98131",
+  "qualification_wheel_sha256": "c1702a82604698fd791fee9e49f5ab6f3c038546091b9a6b4c543215b03d5590",
+  "measured_environment": {
+    "device": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "compute_capability": [12, 0],
+    "torch": "2.10.0+cu128",
+    "cuda": "12.8",
+    "platform": "Windows x86-64"
+  },
+  "lane": {"device": "cuda", "dtype": "float64", "query_entries": 32},
+  "domain": {"roughness": [0.001, 1.0], "cosine": [0.0, 1.0], "f0": [0.0, 1.0]},
+  "counts": {"chain": 15, "directional": 80, "mean": 16, "furnace": 192, "repeat": 20},
+  "limits": {
+    "directional_absolute": 0.0005,
+    "relative_and_refinement": 0.001,
+    "gradient_absolute": 0.01,
+    "gradient_relative": 0.02,
+    "furnace_energy": [0.0, 1.001],
+    "furnace_white_and_refinement_exclusive": 0.001,
+    "cpu_cuda_parity_absolute": 1e-12,
+    "cpu_cuda_parity_relative": 1e-10,
+    "host_bytes": 2147483648,
+    "cuda_allocated_bytes": 67108864,
+    "cooperative_seconds": 120,
+    "watchdog_seconds": 180
+  },
+  "reports_sha256": {
+    "chain": "e9447b0f797fac01e3438fb7572310e8750ccfdddb2ebe035751e788f4112093",
+    "directional": "84d06b9e193f584e64629f7ea60033e943f3770a28132badb54f4ccca1804105",
+    "mean": "f627ff4c4342f5599825dbf7926fdfc1bc46c0c663d701cba5b6a980b6b82d20",
+    "furnace": "0589cbd04b10cf0b820b054ff59943c8d697ada60e6c346cea304c2fb9ec96ee",
+    "repeat": "d6d2e9d7a21faa257fc29b1d3bf3e941b2635fc7cf5fb8ff972ef9a318eaf8b8"
+  },
+  "not_qualified": ["float32", "other-device measurements", "compilation/export", "whole-image CUDA gradients", "sustained real-time performance", "full M1", "Cycles fidelity"]
+}

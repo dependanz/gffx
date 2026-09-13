@@ -57,6 +57,25 @@ op gffx_render_texture
 op gffx_render_texture_backward
 op gffx_render_texture_workspace
 
+op gffx_mesh_blend_shapes
+op gffx_mesh_blend_shapes_backward
+op gffx_mesh_blend_shapes_workspace
+op gffx_transforms_rodrigues
+op gffx_transforms_rodrigues_backward
+op gffx_transforms_rodrigues_workspace
+op gffx_skeleton_forward_kinematics
+op gffx_skeleton_forward_kinematics_backward
+op gffx_skeleton_forward_kinematics_workspace
+op gffx_mesh_skin_lbs
+op gffx_mesh_skin_lbs_backward
+op gffx_mesh_skin_lbs_workspace
+op gffx_mesh_evaluate_barycentric
+op gffx_mesh_evaluate_barycentric_backward
+op gffx_mesh_evaluate_barycentric_workspace
+op gffx_image_transfer
+op gffx_image_transfer_backward
+op gffx_image_transfer_workspace
+
 setup gffx_mesh_validate
 setup gffx_mesh_validate_workspace
 setup gffx_io_ply_probe

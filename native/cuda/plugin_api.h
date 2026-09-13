@@ -4,6 +4,7 @@
 #include <gffx/capabilities.h>
 #include <gffx/execution.h>
 #include <gffx/tensor.h>
+#include <stddef.h>
 
 /* Private host/plugin ABI. This header is intentionally not installed as public API. */
 #define GFFX_CUDA_PLUGIN_ABI_VERSION_MAJOR UINT32_C(1)
@@ -204,6 +205,33 @@ typedef gffx_status (GFFX_CALL *gffx_cuda_render_interpolate_backward_fn)(
 #define GFFX_CUDA_OP_RENDER_INTERPOLATE UINT32_C(11)
 #define GFFX_CUDA_OP_RENDER_TEXTURE_PYRAMID UINT32_C(12)
 #define GFFX_CUDA_OP_RENDER_TEXTURE UINT32_C(13)
+#define GFFX_CUDA_OP_MESH_BLEND_SHAPES UINT32_C(14)
+#define GFFX_CUDA_OP_TRANSFORMS_RODRIGUES UINT32_C(15)
+#define GFFX_CUDA_OP_SKELETON_FORWARD_KINEMATICS UINT32_C(16)
+#define GFFX_CUDA_OP_MESH_SKIN_LBS UINT32_C(17)
+#define GFFX_CUDA_OP_MESH_EVALUATE_BARYCENTRIC UINT32_C(18)
+#define GFFX_CUDA_OP_IMAGE_TRANSFER UINT32_C(19)
+
+typedef gffx_status (GFFX_CALL *gffx_cuda_animation_three_backward_fn)(
+    const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,
+    const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,gffx_tensor_view *,
+    const gffx_buffer *,gffx_diagnostic_buffer *);
+typedef gffx_status (GFFX_CALL *gffx_cuda_animation_one_fn)(
+    const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,
+    const gffx_buffer *,gffx_diagnostic_buffer *);
+typedef gffx_status (GFFX_CALL *gffx_cuda_animation_four_fn)(
+    const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,
+    const gffx_execution_context *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+typedef gffx_status (GFFX_CALL *gffx_cuda_animation_bary_backward_fn)(
+    const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,
+    const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+
+typedef gffx_status (GFFX_CALL *gffx_cuda_image_transfer_fn)(
+    const gffx_tensor_view *,uint32_t,const gffx_execution_context *,
+    gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+typedef gffx_status (GFFX_CALL *gffx_cuda_image_transfer_backward_fn)(
+    const gffx_tensor_view *,const gffx_tensor_view *,uint32_t,
+    const gffx_execution_context *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
 
 /*
  * Device-side workspace requirement.
@@ -267,7 +295,24 @@ typedef struct gffx_cuda_operations {
     gffx_cuda_render_texture_pyramid_backward_fn render_texture_pyramid_backward;
 
     uint64_t reserved[4];
+    /* Append-only tail: older providers end immediately before these fields. */
+    gffx_cuda_render_interpolate_fn mesh_blend_shapes;
+    gffx_cuda_animation_three_backward_fn mesh_blend_shapes_backward;
+    gffx_cuda_animation_one_fn transforms_rodrigues;
+    gffx_cuda_mesh_gather_faces_fn transforms_rodrigues_backward;
+    gffx_cuda_mesh_gather_faces_fn skeleton_forward_kinematics;
+    gffx_cuda_render_interpolate_fn skeleton_forward_kinematics_backward;
+    gffx_cuda_render_interpolate_fn mesh_skin_lbs;
+    gffx_cuda_animation_three_backward_fn mesh_skin_lbs_backward;
+    gffx_cuda_animation_four_fn mesh_evaluate_barycentric;
+    gffx_cuda_animation_bary_backward_fn mesh_evaluate_barycentric_backward;
+    gffx_cuda_image_transfer_fn image_transfer;
+    gffx_cuda_image_transfer_backward_fn image_transfer_backward;
 } gffx_cuda_operations;
+
+/* Short-circuit the size check before touching a potentially absent tail field. */
+#define GFFX_CUDA_HAS_OPERATION(table, field) \
+    ((table) != NULL && (table)->struct_size >= offsetof(gffx_cuda_operations, field) + sizeof((table)->field) && (table)->field != NULL)
 
 /*
  * The handshake struct.

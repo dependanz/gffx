@@ -4,6 +4,18 @@ import { readFile, readdir } from 'node:fs/promises';
 const base = new URL('../../tools/testing_dashboard/static/', import.meta.url);
 const model = await import(new URL('model.js', base));
 
+test('retention UI separates stable pages, historical evidence and destructive maintenance',async()=>{
+  const app=await readFile(new URL('app.js',base),'utf8');
+  const html=await readFile(new URL('index.html',base),'utf8');
+  assert.match(html,/data-page="history"/);
+  assert.match(app,/history_keep/);
+  assert.match(app,/Pin this evidence/);
+  assert.match(app,/evidence\?\.pinned/);
+  assert.match(app,/\/testing\/api\/pin/);
+  assert.doesNotMatch(app,/\/testing\/api\/history\/prune/);
+  assert.equal(model.selection(new URL('https://local/testing/?page=history')).page,'history');
+});
+
 test('cinema manifests accept only bounded content-addressed local assets and ordered real steps',async()=>{
   const {validateFilm}=await import(new URL('cinema.js',base));
   const asset={url:'/testing/media/'+'a'.repeat(64)+'.png',sha256:'a'.repeat(64),bytes:80};

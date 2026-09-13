@@ -49,3 +49,34 @@ The four-sphere demonstration uses 512 deterministic VNDF environment samples pe
 pixel, gold-colored Fresnel endpoints and two smooth bright windows. It is a
 single-scattering analytic-sphere preview, not the principled material, a mesh
 renderer, a converged image or furnace acceptance. Display tone mapping is separate.
+
+## Coupled boundaries and residual-repair history
+
+The five failures below describe the retained first experiment, not the current
+direct-loss gate. [Direct remaining-light budgets](LOSS_BUDGET_REFERENCE.md) explains
+the repair: account for rejected reflections analytically and integrate valid loss
+stably. The original sharp average and independent sampler remain unchanged; use
+the explicitly returned loss for tiny-budget normalization. This is finite
+reference acceptance, not a fast-table or public-material extension.
+
+The next predeclared screen samples r=.001/.01/.05/.199 and c=k*r² with
+k=.01/.1/1/10, at F0=0/.04/1. All 48 directional triples pass the existing
+256/512 refinement, partial-gradient and independently refined value checks.
+This does not establish uniform accuracy over the full positive domain.
+
+Five of six near-perfect-reflection mean cases fail the stricter 0.001 relative
+remaining-budget refinement target. Four binary-exact synthetic arithmetic
+controls pass. Evidence: `build/boundary-screen-20260907/red.xml` (21 passes,
+five failures). Do not treat small absolute energy errors as resolved denominators.
+
+`tools.material_residual_probe` compares the legacy subtraction, direct residual
+integration, and c=alpha*sinh(u) redistributed view nodes against an independent
+VNDF calculation. Each call retains the 2097152 sample cap. Redistributed
+self-refinement can look good while the independent estimate disagrees. The
+diagnostic is NOT a replacement for `sharp.average` or a new public resource.
+Its independent method is detached and explicitly refuses gradient inputs.
+
+`shading/boundary-contract` shows explained tests and named checks;
+`shading/residual-demo` magnifies all six remaining budgets, reports percentage
+refinement and independent disagreement, and retains exact records. A successful
+demo publication means the evidence is visible, not that the accuracy issue is fixed.

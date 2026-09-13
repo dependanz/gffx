@@ -685,6 +685,26 @@ static gffx_status GFFX_CALL gffx_cuda_op_workspace(
                               "workspace query result pointers must not be null");
     }
     switch (operation) {
+        case GFFX_CUDA_OP_IMAGE_TRANSFER:
+            if(shape==NULL||shape_count!=1||shape[0]<0||
+               (dtype!=GFFX_DTYPE_FLOAT32&&dtype!=GFFX_DTYPE_FLOAT64))
+                return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"CUDA image transfer workspace requires floating [count]");
+            *required_bytes=8;
+            *required_alignment=8;
+            return GFFX_STATUS_OK;
+        case GFFX_CUDA_OP_MESH_BLEND_SHAPES:
+        case GFFX_CUDA_OP_TRANSFORMS_RODRIGUES:
+        case GFFX_CUDA_OP_MESH_SKIN_LBS:
+        case GFFX_CUDA_OP_MESH_EVALUATE_BARYCENTRIC:
+            *required_bytes = 8;
+            *required_alignment = 8;
+            return GFFX_STATUS_OK;
+        case GFFX_CUDA_OP_SKELETON_FORWARD_KINEMATICS:
+            if(shape==NULL||shape_count!=2||shape[0]<0||shape[1]<0)
+                return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"CUDA FK workspace requires [B,J]");
+            *required_bytes=8+(uint64_t)shape[1]*8+(uint64_t)shape[0]*(uint64_t)shape[1]*32*(dtype==GFFX_DTYPE_FLOAT32?4:8);
+            *required_alignment=8;
+            return GFFX_STATUS_OK;
         case GFFX_CUDA_OP_MESH_FACE_GEOMETRY:
             *required_bytes = sizeof(int);
             *required_alignment = sizeof(int);
@@ -2492,6 +2512,9 @@ static gffx_status GFFX_CALL gffx_cuda_op_sample_surface_backward(
     }
 }
 
+#include "animation_plugin.inc"
+#include "image_plugin.inc"
+
 static const gffx_cuda_operations gffx_cuda_operation_table = {
     (uint32_t)sizeof(gffx_cuda_operations),
     0u,
@@ -2511,7 +2534,13 @@ static const gffx_cuda_operations gffx_cuda_operation_table = {
     gffx_cuda_op_texture,
     gffx_cuda_op_texture_backward,
     gffx_cuda_op_texture_pyramid_backward,
-    {0, 0, 0, 0}
+    {0, 0, 0, 0},
+    gffx_cuda_op_blend_shapes,gffx_cuda_op_blend_shapes_backward,
+    gffx_cuda_op_rodrigues,gffx_cuda_op_rodrigues_backward,
+    gffx_cuda_op_fk,gffx_cuda_op_fk_backward,
+    gffx_cuda_op_skin_lbs,gffx_cuda_op_skin_lbs_backward,
+    gffx_cuda_op_bary,gffx_cuda_op_bary_backward,
+    gffx_cuda_op_image_transfer,gffx_cuda_op_image_transfer_backward
 };
 
 GFFX_CUDA_PLUGIN_API gffx_status GFFX_CALL gffx_cuda_plugin_handshake_v1(

@@ -13,6 +13,9 @@ static const char *required_symbols[] = {
     "gffx_validate_buffer",
     "gffx_capabilities_query",
     "gffx_capabilities_probe",
+    "gffx_image_transfer_workspace",
+    "gffx_image_transfer",
+    "gffx_image_transfer_backward",
     /* Phase 2 operation exports: compatible additions per the ABI contract. */
     "gffx_mesh_face_geometry",
     "gffx_mesh_face_geometry_backward",

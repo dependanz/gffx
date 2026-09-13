@@ -130,21 +130,50 @@ int main(int argc, char **argv) {
     CHECK(api.operations->struct_size >= sizeof(*api.operations));
     CHECK(api.operations->mesh_face_geometry != NULL);
     CHECK(api.operations->workspace_query != NULL);
-    /* An unimplemented entry stays NULL rather than pointing at a stub that would report success.
-     * mesh_face_geometry_backward held this role until it was implemented on 2026-09-02; the
-     * property being guarded is that null means absent, so the assertion moved to a slot that is
-     * still genuinely absent rather than being deleted. */
-    /* One slot is still genuinely absent: mesh.build_edge_topology, which has no CUDA forward.
-     * When that lands, this assertion has nowhere left to point, and the property it guards -
-     * that an absent operation is null rather than a stub reporting success - will need a
-     * different check. Counting the table's non-null entries against MODULE_BOUNDARY_V0_1.md
-     * would test it structurally instead of by naming whichever slot happens to be empty. The
-     * assertion must not simply be deleted for want of a target. */
+    /* Current real provider: 24 legacy + 10 animation entries, excluding workspace.
+     * This qualification fixture expects the current full table; legacy short-table
+     * compatibility remains covered separately and is not a new loader minimum. */
+    {
+        unsigned populated = 0;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_face_geometry) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_face_geometry_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_vertex_normals) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_vertex_normals_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_gather_faces) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_gather_faces_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, transforms_transform_points) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, transforms_transform_points_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, transforms_perspective_divide) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, transforms_perspective_divide_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_build_edge_topology) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, points_knn) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, points_knn_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, points_closest_point_on_mesh) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, points_closest_point_on_mesh_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_sample_surface) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_sample_surface_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_rasterize) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_rasterize_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_interpolate) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_interpolate_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_texture_pyramid) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_texture) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_texture_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, render_texture_pyramid_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_blend_shapes) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_blend_shapes_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, transforms_rodrigues) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, transforms_rodrigues_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, skeleton_forward_kinematics) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, skeleton_forward_kinematics_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_skin_lbs) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_skin_lbs_backward) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_evaluate_barycentric) ? 1u : 0u;
+        populated += GFFX_CUDA_HAS_OPERATION(api.operations, mesh_evaluate_barycentric_backward) ? 1u : 0u;
+        CHECK(populated == 34u);
+    }
     CHECK(api.operations->mesh_build_edge_topology == NULL);
     CHECK(api.operations->mesh_sample_surface_backward != NULL);
-    /* mesh.sample_surface is the last pair still genuinely absent, so the null assertions end
-     * here. When it lands there will be nothing left to assert null on, and the property will
-     * have to be checked another way rather than by picking a slot that happens to be empty. */
     CHECK(api.operations->mesh_vertex_normals_backward != NULL);
     /* Conversely, a slot that has been implemented must be populated, so this test fails if a
      * kernel is silently dropped from the table as well as if a stub appears in it. */

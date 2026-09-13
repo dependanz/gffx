@@ -1,25 +1,33 @@
 # The CUDA hardware lane
 
-Every other GFFX workflow runs on a disposable GitHub-hosted runner. None of them has a GPU, and
-`tools/verify_foundation.py` configures `-DGFFX_ENABLE_CUDA=OFF`, so continuous integration has
-never executed a CUDA kernel. This lane is the exception, and it exists because the claim it
-guards cannot be checked anywhere else.
+The hosted foundation workflows build CPU-only with `-DGFFX_ENABLE_CUDA=OFF`.
+The separately dispatched hardware lane requires a real GPU. Historical runs belong to their
+own revisions; the current local M1 checkpoint is not automatically hosted/release evidence.
 
 ## What is missing without it
 
 | Configuration | CTest inventory |
 |---|---|
-| Hosted runner, CUDA off | 25 |
-| Reference host, CUDA on with device tests | 40 |
+| Historical foundation-only CPU inventory | 25; not the current M1 build count |
+| Source7/native7 local CUDA build, 2026-09-09 | 51 passed, no skips |
+| Source10/native10 local CUDA build, 2026-09-09 | 51 passed, no skips; includes empty-gradient sentinels |
 
-Fifteen tests exist that hosted CI has never run. Six of them are load-bearing:
+The working-source verifier requires ten device fixtures and two plugin build fixtures by name.
+The added image-transfer fixture is not yet qualified; the measured native10 artifact
+predates it. Do not apply this new inventory to claim more than the old report measured.
 
 | Test | What it establishes |
 |---|---|
 | `cuda.texture_device_parity` | CPU/CUDA bit-identity for the texture operations |
-| `cuda.backward_device_parity` | 33 comparisons over 13 operations; 26 held by `memcmp` |
+| `cuda.backward_device_parity` | Inherited native operation derivative comparisons |
 | `cuda.plugin.real_device_probe` | the plugin negotiates with a real driver |
 | `cuda.plugin.default_discovery` | the shipped discovery path finds the real provider |
+| `cuda.animation.blend_shapes` | Native blend-shape values and derivatives on the device |
+| `cuda.animation.rodrigues` | Native rotation values and derivatives on the device |
+| `cuda.animation.forward_kinematics` | Native hierarchy values and derivatives on the device |
+| `cuda.animation.skin_lbs` | Native skinning values and derivatives on the device |
+| `cuda.animation.evaluate_barycentric` | Native landmark values and derivatives on the device |
+| `cuda.image_device_parity` | Candidate transfer values/VJPs, repeats, stream, empty and failure-before-write checks; not yet measured |
 | `cuda.binary_plugin_isolation` | the built plugin binary keeps its symbol boundary |
 | `cuda.operation_dispatch` | absent operations are null rather than stubs |
 
@@ -40,7 +48,7 @@ stop reading red. A manual lane you actually run beats an automatic one you lear
 
 ## Why it does not trust its own exit status
 
-Every device-gated fixture in GFFX declines when no usable device is present. So a lane that lost
+Inherited device-gated fixtures can decline when no usable device is present. So a lane that lost
 its GPU — a driver update, a runner relabelled onto the wrong machine, a build configured without
 `GFFX_ENABLE_CUDA` — would report a *complete pass* over the tests that remained. That is not a
 hypothetical: the PyTorch CUDA fixtures in this project were skipping unnoticed for weeks because
@@ -49,6 +57,10 @@ the installed PyTorch was a CPU build. Nothing failed, so nothing was investigat
 `tools/verify_cuda_lane.py` therefore parses the CTest JUnit result and asserts the device
 fixtures are present *by name*, plus a floor on the total inventory so tests cannot quietly
 disappear. Fed a run of 36 passing tests with the device fixtures absent, it exits 1.
+The total floor is now51, measured by native7. Adding cases is permitted; silently
+losing a required case, skipping one or dropping below the floor is not.
+The new image fixture treats a missing device as failure when explicitly enabled;
+its mathematical accuracy additionally requires the independent Decimal envelope.
 
 It also records `nvidia-smi` and `nvcc --version` into the retained report, because bitwise
 agreement is a claim about one driver on one architecture. `log2f` is not required by IEEE 754 to
@@ -56,6 +68,10 @@ be correctly rounded, so cross-backend agreement on it is measured, not guarante
 measurement has to name what produced it.
 
 ## What it adds beyond the fixtures
+
+The paragraph below describes the configured inherited sanitizer checks. Native7's51-test
+pass did not run a fresh sanitizer sweep; do not extend older sanitizer evidence to the new
+animation paths without actually checking those executables.
 
 `compute-sanitizer --tool memcheck` over both parity executables. This is the class of defect a
 CPU-side CUDA emulator would have been useful for — out-of-bounds access, uninitialised reads, bad

@@ -33,6 +33,11 @@ set(allowed_includes
     "\"cuda_loader.h\""
     # Phase 2: shared header-only validation helpers for the mesh operations.
     "\"mesh_common.h\""
+    # Owned implementation fragment; scanned below, never exempt from this gate.
+    "\"animation_cuda_dispatch.inc\""
+    "\"animation_scalar.h\""
+    "\"image_transfer_scalar.h\""
+    "\"image_transfer_boundary.h\""
 )
 
 # Facilities the scaffold must not reach for: allocation, process-wide I/O, abort paths,
@@ -50,6 +55,7 @@ set(forbidden_identifiers
 set(scan_globs
     "${GFFX_SOURCE_DIR}/native/core/*.c"
     "${GFFX_SOURCE_DIR}/native/core/*.h"
+    "${GFFX_SOURCE_DIR}/native/core/*.inc"
     "${GFFX_SOURCE_DIR}/include/gffx/*.h"
 )
 

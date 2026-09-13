@@ -9,19 +9,24 @@ from tools import light_contract_reference as reference
 from .reporter import Reporter
 
 
-def examples():
+def examples(*, public=False):
+    if public:
+        from gffx.torch import light as lighting
+    else:
+        lighting = reference
     distances = torch.arange(1, 17, dtype=torch.float64)/2
     points = torch.zeros(16, 3, dtype=torch.float64)
     points[:, 2] = -distances
     source = torch.zeros(1, 3, dtype=torch.float64)
     intensity = torch.full((1, 3), 4., dtype=torch.float64)
-    weights = reference.point(points, source, intensity)['irradiance'][:, 0, 0]
+    weights = lighting.point(points, source, intensity)['irradiance'][:, 0, 0]
+    distant = lighting.directional(torch.tensor([[0., 0., 1.]], dtype=torch.float64), intensity)['irradiance'][0, 0].item()
     angles = torch.arange(181, dtype=torch.float64)
     radians = angles*math.pi/180
     normals = torch.stack((radians.sin(), torch.zeros_like(radians), radians.cos()), -1)
     direction = torch.tensor([0., 0., 1.], dtype=torch.float64)
     coeff = reference.basis(direction)[:, None].expand(9, 3)
-    sh = reference.spherical_harmonics(normals, coeff)[:, 0]
+    sh = lighting.spherical_harmonics(normals, coeff)[:, 0]
     cosine = normals[:, 2].clamp_min(0)
 
     axis = (torch.arange(128, dtype=torch.float64)+.5)/64-1
@@ -32,7 +37,7 @@ def examples():
     surface[~mask] = direction
     light = torch.tensor([.8, .2, .3], dtype=torch.float64)
     light = light/light.norm()
-    sphere_sh = reference.spherical_harmonics(surface.reshape(-1, 3), reference.basis(light)[:, None].expand(9, 3)).reshape(128, 128, 3)[..., 0]
+    sphere_sh = lighting.spherical_harmonics(surface.reshape(-1, 3), reference.basis(light)[:, None].expand(9, 3)).reshape(128, 128, 3)[..., 0]
     exact = (surface*light).sum(-1).clamp_min(0)
     images = []
     for values in (exact, sphere_sh):
@@ -41,16 +46,19 @@ def examples():
         image[values < 0] = torch.tensor([210, 45, 170], dtype=torch.uint8)
         image[~mask] = torch.tensor([32, 38, 48], dtype=torch.uint8)
         images.append(image)
-    return dict(distance=list(zip(distances.tolist(), weights.tolist(), [4.]*16)),
+    return dict(distance=list(zip(distances.tolist(), weights.tolist(), [distant]*16)),
                 angle=list(zip(angles.tolist(), cosine.tolist(), sh.tolist())),
                 image=torch.cat(images, 1),
-                coincident_valid=bool(reference.point(source, source, intensity)['valid'][0, 0]))
+                coincident_valid=bool(lighting.point(source, source, intensity)['valid'][0, 0]))
 
 
-def publish(address, run, *, studio=False, device='cpu'):
-    data = examples()
+def publish(address, run, *, studio=False, device='cpu', public=False):
+    if public and studio:
+        raise ValueError('Public light comparison does not qualify the separate studio renderer')
+    data = examples(public=public)
     reporter = Reporter(address, run)
-    scope = 'independent light contract recipes; not public gffx shading'
+    scope = ('installed public gffx.torch.light; analytic normal field, not a complete material or rendered scene'
+             if public else 'independent light contract recipes; not public gffx shading')
     provenance = {'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                   'dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], text=True))}
     if not reporter.send('start', kind='demo', provenance=provenance):
@@ -65,7 +73,7 @@ def publish(address, run, *, studio=False, device='cpu'):
             path = 'lighting/'+name
             getattr(dash, kind)(path, value, step=0)
             artifacts.append(dict(kind=kind, path=path, label=name))
-        add('text', 'how-to-read', 'Independent equation illustrations, NOT public gffx light APIs. Distance plot: x is a sample index; distance=(index+1)/2 world units. A point source of intensity 4 gives 4/r^2, while a distant light stays at 4. Angle plot: x is degrees away from the light; exact cosine goes dark at 90 degrees, nine-coefficient SH smooths the boundary and can ring negative. No shadow or visibility test is performed. Sphere image: exact directional response LEFT, band-2 SH RIGHT, same 0 to 17/16 linear grayscale display scale. Magenta explicitly marks negative SH values, not a material color. These are analytic sphere normals, not a mesh rasterizer or a rendered gffit scene.')
+        add('text', 'how-to-read', scope + '. Distance plot: x is a sample index; distance=(index+1)/2 world units. A point source of intensity 4 gives 4/r^2, while a distant light stays at 4. Angle plot: x is degrees away from the light; exact cosine goes dark at 90 degrees, nine-coefficient SH smooths the boundary and can ring negative. No shadow or visibility test is performed. Sphere image: exact directional response LEFT, band-2 SH RIGHT, same 0 to 17/16 linear grayscale display scale. Magenta explicitly marks negative SH values, not a material color. These are analytic sphere normals, not a mesh rasterizer or a rendered gffit scene.')
         add('image', 'exact-left-sh-right', ArrayView('uint8', tuple(data['image'].shape), bytes(data['image'].reshape(-1).tolist())))
         for index, (distance, point, distant) in enumerate(data['distance']):
             dash.scalar('lighting/distance/point', point, step=index)
@@ -78,7 +86,7 @@ def publish(address, run, *, studio=False, device='cpu'):
         add('record', 'checked-values', dict(point_at_half_unit=16., point_at_two_units=1.,
               sh_aligned=17/16, sh_opposed=1/16, minimum_sampled_sh=min(row[2] for row in data['angle']),
               coincident_valid=data['coincident_valid'], scope=scope))
-    if not reporter.send('demo', page='shading/lights-demo', title='Finite lighting equations', artifacts=artifacts):
+    if not reporter.send('demo', page='shading/public-lights-demo' if public else 'shading/lights-demo', title='Finite lighting equations', artifacts=artifacts):
         raise RuntimeError(reporter.error)
     if not reporter.send('finish', exit_code=0):
         raise RuntimeError(reporter.error)
@@ -90,5 +98,6 @@ if __name__ == '__main__':
     parser.add_argument('--run', required=True)
     parser.add_argument('--studio',action='store_true')
     parser.add_argument('--device',choices=['cpu','cuda'],default='cpu')
+    parser.add_argument('--public',action='store_true')
     args = parser.parse_args()
-    publish(args.address, args.run,studio=args.studio,device=args.device)
+    publish(args.address, args.run,studio=args.studio,device=args.device,public=args.public)

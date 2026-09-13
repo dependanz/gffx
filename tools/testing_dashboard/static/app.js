@@ -90,6 +90,22 @@ export class TestingApp {
         const key=JSON.stringify(['newest',directory,this.offset]);
         if(this.contentKey!==key){$("details").replaceChildren(this.creationList(directory.items));this.contentKey=key;}
         this.pager(directory.total);
+      } else if(page==='history'){
+        const info=await this.get('history');if(generation!==this.generation)return;
+        this.closePanels();this.execution(null);this.pager(null);$('filters').hidden=true;
+        this.header('History & storage','Pages are permanent identities. Execution history and live-frame buffers have separate limits.','GFFX / RETENTION');
+        this.replaceSummary(['history',info.executions,info.protected.length,info.candidates.length],()=>[
+          this.metric('Saved executions',String(info.executions)),this.metric('Protected executions',String(info.protected.length)),
+          this.metric('Eligible for cleanup',String(info.candidates.length))]);
+        $('evidence-context').textContent='Cleanup is explicit, never triggered by viewing this page. Latest evidence, active executions and pins are protected. Live window and snapshot settings are unchanged.';
+        const key=JSON.stringify(['history',info]);if(this.contentKey!==key){
+          $('details').replaceChildren(node('p','Retain '+info.history_keep+' extra older executions, plus all protected evidence. This is not a lifetime execution cap.'),
+            node('p','Active executions: '+info.active+' / '+info.max_active+'. Stale sessions still need explicit completion.'),
+            node('p','Metadata: '+(info.metadata_used_bytes/1048576).toFixed(2)+' MiB used / '+(info.metadata_limit_bytes/1048576).toFixed(0)+' MiB budget. Freed SQLite pages are reused.'),
+            node('p','Saved-log budget: '+(info.log_limit_bytes/1048576).toFixed(0)+' MiB. Shared presentation assets have a separate preserve-and-stop budget.'),
+            node('p','Pin important evidence under its Execution details. Ask the developer to preview and apply eligible cleanup; this page cannot delete history.'),
+            node('pre',JSON.stringify({eligible:info.candidates,blocked:info.blocked},null,2)));this.contentKey=key;
+        }
       } else if(page==="coverage"){
         $("filters").hidden=true;
         this.closePanels();
@@ -264,7 +280,7 @@ export class TestingApp {
   }
   execution(evidence, historyItems=[]) {
     this.evidenceRun=evidence?.run||"";this.provenance=evidence?.provenance||{};
-    const key=JSON.stringify([this.selected.page,this.selected.run,evidence?.run,evidence?.state,evidence?.stale,evidence?.coverage,evidence?.diagnostic,evidence?.provenance,historyItems.map(r=>r.run)]);
+    const key=JSON.stringify([this.selected.page,this.selected.run,evidence?.run,evidence?.pinned,evidence?.state,evidence?.stale,evidence?.coverage,evidence?.diagnostic,evidence?.provenance,historyItems.map(r=>r.run)]);
     if(this.executionKey===key)return;this.executionKey=key;
     const wasOpen=$("provenance").querySelector("details")?.open;
     $("provenance").replaceChildren();
@@ -275,6 +291,13 @@ export class TestingApp {
       node("p","Producer revision: "+(evidence.provenance.revision||"not reported")+" · dirty: "+String(evidence.provenance.dirty??"unknown")),
       node("p","Execution-scoped Python coverage: "+coverageLabel(evidence.coverage)+". Not per-page coverage."));
     if(evidence.diagnostic)details.append(node("p","Reporting warning: "+evidence.diagnostic));
+    details.append(button(evidence.pinned?'Unpin this evidence':'Pin this evidence',async()=>{
+      try{
+        const response=await fetch('/testing/api/pin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run:evidence.run,pinned:!evidence.pinned})});
+        const result=await response.json();if(!response.ok)throw Error(result.error||'Pin update failed');
+        this.executionKey=null;this.poll();
+      }catch(error){$('error').hidden=false;$('error').textContent=error.message;}
+    }));
     if(this.selected.run)details.append(button("Return to latest evidence",()=>this.navigate(this.selected.page)));
     for(const item of historyItems.slice(1))details.append(button("Inspect evidence from "+new Date(item.started*1000).toLocaleString()+" · "+item.run,()=>this.navigate(this.selected.page,item.run)));
     const raw=node("details");raw.append(node("summary","Raw producer metadata"),node("pre",JSON.stringify(evidence,null,2)));details.append(raw);$("provenance").append(details);

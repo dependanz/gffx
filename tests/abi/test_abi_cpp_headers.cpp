@@ -1,4 +1,6 @@
 #include <gffx/abi.h>
+#include <gffx/animation.h>
+#include <gffx/image.h>
 #include <gffx/capabilities.h>
 #include <gffx/execution.h>
 #include <gffx/status.h>

@@ -12,9 +12,15 @@ import torch
 from ._batching import resolve_offsets
 from ._common import check_eps, check_same_device, materialize, translate_native_error
 
-__all__ = ["transform_points", "perspective_divide"]
+__all__ = ["transform_points", "perspective_divide", "rodrigues"]
 
 DEFAULT_EPS = 2.0 ** -20
+
+
+def rodrigues(axis_angle):
+    """Map right-handed axis-angle vectors in radians to rotation matrices."""
+    from ._animation import rodrigues as operation
+    return operation(axis_angle)
 
 
 def _check_points(points: torch.Tensor, name: str, width: int) -> None:

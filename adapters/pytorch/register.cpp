@@ -36,8 +36,11 @@ extern "C" __declspec(dllimport) void *__stdcall GetProcAddress(void *module, co
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 #include <torch/csrc/stable/tensor.h>
+#include "cuda_context_scope.h"
 
 #include <gffx/execution.h>
+#include <gffx/animation.h>
+#include <gffx/image.h>
 #include <gffx/io.h>
 #include <gffx/mesh.h>
 #include <gffx/points.h>
@@ -47,6 +50,7 @@ extern "C" __declspec(dllimport) void *__stdcall GetProcAddress(void *module, co
 #include <gffx/tensor.h>
 
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -78,6 +82,65 @@ namespace {
     message += detail;
     throw std::runtime_error(message);
 }
+
+/* Only resolve an already-loaded driver during an explicit CUDA operation.
+ * The adapter still links against neither the driver nor CUDA Runtime. */
+void *loaded_cuda_driver_symbol(const char *name) {
+#if defined(_WIN32)
+    void *module = GetModuleHandleA("nvcuda.dll");
+    return module == nullptr ? nullptr : GetProcAddress(module, name);
+#else
+    void *symbol = dlsym(RTLD_DEFAULT, name);
+    if (symbol != nullptr) return symbol;
+#if defined(RTLD_NOLOAD)
+    void *module = dlopen("libcuda.so.1", RTLD_LAZY | RTLD_NOLOAD);
+    if (module != nullptr) {
+        symbol = dlsym(module, name);
+        dlclose(module);
+    }
+#endif
+    return symbol;
+#endif
+}
+
+const gffx_torch_cuda::Driver &loaded_cuda_driver() {
+    static const gffx_torch_cuda::Driver api = [] {
+        gffx_torch_cuda::Driver value{};
+#define GFFX_DRIVER_SYMBOL(field, symbol) \
+        value.field = reinterpret_cast<decltype(value.field)>(loaded_cuda_driver_symbol(symbol))
+        GFFX_DRIVER_SYMBOL(pointer_get_attribute, "cuPointerGetAttribute");
+        GFFX_DRIVER_SYMBOL(get_current, "cuCtxGetCurrent");
+        GFFX_DRIVER_SYMBOL(device_get, "cuDeviceGet");
+        GFFX_DRIVER_SYMBOL(get_device, "cuCtxGetDevice");
+        GFFX_DRIVER_SYMBOL(push_current, "cuCtxPushCurrent_v2");
+        GFFX_DRIVER_SYMBOL(pop_current, "cuCtxPopCurrent_v2");
+        GFFX_DRIVER_SYMBOL(set_current, "cuCtxSetCurrent");
+        GFFX_DRIVER_SYMBOL(primary_get_state, "cuDevicePrimaryCtxGetState");
+        GFFX_DRIVER_SYMBOL(primary_retain, "cuDevicePrimaryCtxRetain");
+        GFFX_DRIVER_SYMBOL(primary_release, "cuDevicePrimaryCtxRelease_v2");
+#undef GFFX_DRIVER_SYMBOL
+        return value;
+    }();
+    return api;
+}
+
+class GffxCudaDeviceScope {
+    std::optional<gffx_torch_cuda::Scope> scope_;
+public:
+    explicit GffxCudaDeviceScope(const Tensor &reference) {
+        if (reference.is_cuda()) {
+            const bool nonempty = reference.numel() != 0;
+            scope_.emplace(loaded_cuda_driver(), reference.get_device_index(),
+                           nonempty ? reference.const_data_ptr() : nullptr, nonempty);
+        }
+    }
+    void close() {
+        if (scope_) {
+            const char *error = scope_->close();
+            if (error != nullptr) raise_internal(error);
+        }
+    }
+};
 
 /*
  * The caller's CUDA stream.
@@ -195,8 +258,10 @@ gffx_tensor_view borrow(
     view.data = writable ? tensor.mutable_data_ptr()
                          : const_cast<void *>(tensor.const_data_ptr());
     view.rank = static_cast<uint32_t>(rank);
-    view.shape = shape;
-    view.strides = strides;
+    // The ABI represents a scalar with no shape/stride arrays, even though the
+    // arena has reserved storage for them. Preserve the caller's rank, not [1].
+    view.shape = rank == 0 ? nullptr : shape;
+    view.strides = rank == 0 ? nullptr : strides;
     view.dtype = dtype_of(tensor);
     /* The view follows the tensor rather than assuming a device, which is what lets one borrow
      * helper serve both backends. */
@@ -224,7 +289,7 @@ public:
 
 private:
     static constexpr int kMaxViews = 24;
-    static constexpr int kMaxRank = 6;
+    static constexpr int kMaxRank = GFFX_MAX_RANK;
     int64_t shapes_[kMaxViews][kMaxRank]{};
     int64_t strides_[kMaxViews][kMaxRank]{};
     int used_ = 0;
@@ -1133,10 +1198,14 @@ std::tuple<Tensor, Tensor> texture_pyramid(const Tensor &texture, int64_t levels
 
     uint64_t bytes = 0;
     uint64_t alignment = 0;
-    GFFX_CHECK(gffx_render_texture_pyramid_workspace(
-                   height, width, channels, dtype_of(texture), &context, &bytes, &alignment,
-                   &diagnostic.buffer),
-               diagnostic.text());
+    // The native workspace query describes CPU scratch. CUDA's pyramid kernel
+    // requires none; do not reject a valid device call before provider dispatch.
+    if (context.device_type == GFFX_DEVICE_CPU) {
+        GFFX_CHECK(gffx_render_texture_pyramid_workspace(
+                       height, width, channels, dtype_of(texture), &context, &bytes, &alignment,
+                       &diagnostic.buffer),
+                   diagnostic.text());
+    }
     const std::vector<int64_t> workspace_size{static_cast<int64_t>(bytes)};
     Tensor workspace = torch::stable::new_empty(texture, workspace_size, ScalarType::Byte);
     const gffx_buffer buffer = workspace_buffer(workspace, bytes);
@@ -1202,9 +1271,13 @@ Tensor texture(
 
     uint64_t bytes = 0;
     uint64_t alignment = 0;
-    GFFX_CHECK(gffx_render_texture_workspace(sample_count, channel_count, dtype_of(pyramid),
-                                             &context, &bytes, &alignment, &diagnostic.buffer),
-               diagnostic.text());
+    // As above, CUDA texture sampling uses no caller scratch. Native dispatch
+    // still validates the inputs and refuses missing/unsupported providers.
+    if (context.device_type == GFFX_DEVICE_CPU) {
+        GFFX_CHECK(gffx_render_texture_workspace(sample_count, channel_count, dtype_of(pyramid),
+                                                 &context, &bytes, &alignment, &diagnostic.buffer),
+                   diagnostic.text());
+    }
     const std::vector<int64_t> workspace_size{static_cast<int64_t>(bytes)};
     Tensor workspace = torch::stable::new_empty(pyramid, workspace_size, ScalarType::Byte);
     const gffx_buffer buffer = workspace_buffer(workspace, bytes);
@@ -1234,6 +1307,8 @@ std::tuple<Tensor, Tensor> texture_backward(
     int64_t wrap_u, int64_t wrap_v, const Tensor &border, bool has_border,
     const Tensor &grad_samples
 ) {
+    // Borrow the tensor's owning context even on a fresh autograd thread.
+    GffxCudaDeviceScope device_scope(pyramid);
     ViewArena arena;
     Diagnostic diagnostic;
     gffx_execution_context context = context_for(pyramid);
@@ -1267,6 +1342,7 @@ std::tuple<Tensor, Tensor> texture_backward(
                    &grad_samples_view, &context, &grad_pyramid_view, &grad_coordinates_view,
                    nullptr, &diagnostic.buffer),
                diagnostic.text());
+    device_scope.close();
     return std::make_tuple(grad_pyramid, grad_coordinates);
 }
 
@@ -1626,6 +1702,9 @@ gffx_execution_context context_for(const Tensor &reference) {
     return reference.is_cuda() ? cuda_context(reference.get_device_index()) : cpu_context();
 }
 
+#include "animation.inc"
+#include "image_transfer.inc"
+
 }  // namespace
 
 STABLE_TORCH_LIBRARY(gffx_internal, m) {
@@ -1633,6 +1712,24 @@ STABLE_TORCH_LIBRARY(gffx_internal, m) {
 }
 
 STABLE_TORCH_LIBRARY(gffx, m) {
+    m.def("image_transfer(Tensor input, int transfer) -> Tensor");
+    m.def("image_transfer_backward(Tensor input, Tensor grad_output, int transfer) -> Tensor");
+    m.def("_animation_workspace_size(Tensor reference, int operation, int B, int V, int K) -> int");
+    m.def("blend_shapes_out(Tensor template_vertices, Tensor deltas, Tensor weights, Tensor(a!) output, Tensor(b!) workspace) -> ()");
+    m.def("rodrigues_out(Tensor axis_angle, Tensor(a!) output, Tensor(b!) workspace) -> ()");
+    m.def("forward_kinematics_out(Tensor local, Tensor parents, Tensor(a!) output, Tensor(b!) workspace) -> ()");
+    m.def("skin_lbs_out(Tensor vertices, Tensor transforms, Tensor weights, Tensor(a!) output, Tensor(b!) workspace) -> ()");
+    m.def("evaluate_barycentric_out(Tensor vertices, Tensor faces, Tensor face_index, Tensor barycentric, Tensor(a!) output, Tensor(b!) workspace) -> ()");
+    m.def("rodrigues(Tensor axis_angle) -> Tensor");
+    m.def("rodrigues_backward(Tensor axis_angle, Tensor grad_rotation) -> Tensor");
+    m.def("forward_kinematics(Tensor local, Tensor parents) -> Tensor");
+    m.def("forward_kinematics_backward(Tensor local, Tensor parents, Tensor grad_world) -> Tensor");
+    m.def("skin_lbs(Tensor vertices, Tensor transforms, Tensor weights) -> Tensor");
+    m.def("skin_lbs_backward(Tensor vertices, Tensor transforms, Tensor weights, Tensor grad_output, bool need_vertices, bool need_transforms, bool need_weights) -> (Tensor, Tensor, Tensor)");
+    m.def("evaluate_barycentric(Tensor vertices, Tensor faces, Tensor face_index, Tensor barycentric) -> Tensor");
+    m.def("evaluate_barycentric_backward(Tensor vertices, Tensor faces, Tensor face_index, Tensor barycentric, Tensor grad_output, bool need_vertices, bool need_barycentric) -> (Tensor, Tensor)");
+    m.def("blend_shapes(Tensor template_vertices, Tensor deltas, Tensor weights) -> Tensor");
+    m.def("blend_shapes_backward(Tensor template_vertices, Tensor deltas, Tensor weights, Tensor grad_vertices, bool need_template, bool need_deltas, bool need_weights) -> (Tensor, Tensor, Tensor)");
     m.def("face_geometry(Tensor vertices, Tensor faces, float eps) -> (Tensor, Tensor, Tensor)");
     m.def(
         "face_geometry_backward(Tensor vertices, Tensor faces, float eps, "
@@ -1774,6 +1871,24 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CompositeExplicitAutograd, m) {
  * function that would fail on a NULL table entry deeper down.
  */
 STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
+    m.impl("image_transfer", TORCH_BOX(&image_transfer));
+    m.impl("image_transfer_backward", TORCH_BOX(&image_transfer_backward));
+    m.impl("rodrigues", TORCH_BOX(&animation_rodrigues));
+    m.impl("rodrigues_backward", TORCH_BOX(&animation_rodrigues_backward));
+    m.impl("rodrigues_out", TORCH_BOX(&animation_rodrigues_out));
+    m.impl("forward_kinematics", TORCH_BOX(&animation_forward_kinematics));
+    m.impl("forward_kinematics_backward", TORCH_BOX(&animation_forward_kinematics_backward));
+    m.impl("forward_kinematics_out", TORCH_BOX(&animation_forward_kinematics_out));
+    m.impl("skin_lbs", TORCH_BOX(&animation_skin_lbs));
+    m.impl("skin_lbs_backward", TORCH_BOX(&animation_skin_lbs_backward));
+    m.impl("skin_lbs_out", TORCH_BOX(&animation_skin_lbs_out));
+    m.impl("evaluate_barycentric", TORCH_BOX(&animation_evaluate_barycentric));
+    m.impl("evaluate_barycentric_backward", TORCH_BOX(&animation_evaluate_barycentric_backward));
+    m.impl("evaluate_barycentric_out", TORCH_BOX(&animation_evaluate_barycentric_out));
+    m.impl("_animation_workspace_size", TORCH_BOX(&animation_workspace_size));
+    m.impl("blend_shapes", TORCH_BOX(&animation_blend_shapes));
+    m.impl("blend_shapes_backward", TORCH_BOX(&animation_blend_shapes_backward));
+    m.impl("blend_shapes_out", TORCH_BOX(&animation_blend_shapes_out));
     /* Every operation whose CUDA kernel is verified against the host by the device parity
      * fixtures. This list stood at eight forwards and no backwards until 2026-09-04, dating from
      * when only the order-independent group had kernels; twelve backwards and three further
@@ -1813,6 +1928,24 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
 }
 
 STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {
+    m.impl("image_transfer", TORCH_BOX(&image_transfer));
+    m.impl("image_transfer_backward", TORCH_BOX(&image_transfer_backward));
+    m.impl("_animation_workspace_size", TORCH_BOX(&animation_workspace_size));
+    m.impl("blend_shapes_out", TORCH_BOX(&animation_blend_shapes_out));
+    m.impl("rodrigues_out", TORCH_BOX(&animation_rodrigues_out));
+    m.impl("forward_kinematics_out", TORCH_BOX(&animation_forward_kinematics_out));
+    m.impl("skin_lbs_out", TORCH_BOX(&animation_skin_lbs_out));
+    m.impl("evaluate_barycentric_out", TORCH_BOX(&animation_evaluate_barycentric_out));
+    m.impl("rodrigues", TORCH_BOX(&animation_rodrigues));
+    m.impl("rodrigues_backward", TORCH_BOX(&animation_rodrigues_backward));
+    m.impl("forward_kinematics", TORCH_BOX(&animation_forward_kinematics));
+    m.impl("forward_kinematics_backward", TORCH_BOX(&animation_forward_kinematics_backward));
+    m.impl("skin_lbs", TORCH_BOX(&animation_skin_lbs));
+    m.impl("skin_lbs_backward", TORCH_BOX(&animation_skin_lbs_backward));
+    m.impl("evaluate_barycentric", TORCH_BOX(&animation_evaluate_barycentric));
+    m.impl("evaluate_barycentric_backward", TORCH_BOX(&animation_evaluate_barycentric_backward));
+    m.impl("blend_shapes", TORCH_BOX(&animation_blend_shapes));
+    m.impl("blend_shapes_backward", TORCH_BOX(&animation_blend_shapes_backward));
     m.impl("face_geometry", TORCH_BOX(&face_geometry));
     m.impl("face_geometry_backward", TORCH_BOX(&face_geometry_backward));
     m.impl("face_geometry_out", TORCH_BOX(&face_geometry_out));

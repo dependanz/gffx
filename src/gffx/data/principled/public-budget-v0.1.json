@@ -1,0 +1,36 @@
+{
+  "profile_id": "public-budget-v0.1",
+  "resource_id": "ggx-smith-loss-cpu-f64-v1",
+  "qualification": "finite empirical CPU float64 screen; not a continuous-domain proof",
+  "model": "ggx-correlated-smith-schlick-reciprocal-matte-v1",
+  "representation": "bounded-cubic-loss-v1",
+  "generator_policy": "conditional-allocation-v1",
+  "generator_sha256": "62df9a500bca26e9eeb79fef05275e42567de45eef301a369ba7d6fa838839fd",
+  "source_file_sha256": "c85381a9e78538d2367a13134c895dbc0c7c4180516e504ae8a5b0b4cfce9046",
+  "payload_sha256": "eb9393c7afd6e1a4964019643ee827dff72696896bd05786e8a2ec908ca538e5",
+  "envelope_sha256": "5e095d1aa417dcba460f7cb2a5f72b1cf8c857d793cba1da1b6e77b9fc769cb7",
+  "domain": {"roughness": [0.001, 1.0], "cosine": [0.0, 1.0], "f0": [0.0, 1.0]},
+  "lane": {"device": "cpu", "dtype": "float64", "query_entries": 32},
+  "roughness_cohort": [0.00179, 0.0193, 0.213, 0.827],
+  "ordinary_cosines": [0.019, 0.463, 0.947, 0.9997],
+  "extra_directional_cosine": "0.0027 * roughness**2",
+  "f0_cohort": [0.07, 0.47, 0.93, 1.0],
+  "furnace_albedo": [0.0, 0.4, 1.0],
+  "counts": {"guard": 80, "directional": 80, "mean": 16, "furnace": 192},
+  "limits": {
+    "guard_relative": 0.0001, "guard_exact_zero_absolute": 1e-12,
+    "directional_absolute": 0.0005, "relative_and_refinement": 0.001,
+    "gradient_absolute": 0.01, "gradient_relative": 0.02,
+    "mean_curve_absolute": 1e-11, "furnace_energy": [0.0, 1.001],
+    "furnace_white_and_refinement_exclusive": 0.001,
+    "cooperative_seconds": 120, "watchdog_seconds": 180,
+    "sampled_working_set_bytes": 1073741824, "workspace_planning_bytes": 67108864
+  },
+  "reports_sha256": {
+    "guard": "76f78076db5024c7aee3e41215876a4b7700d3d745114b0f727f90c8dcad1714",
+    "directional": "178c501f2e9053215acd35a33cdd069e8d8739a13dd321668da0f2e3a8c0f957",
+    "mean": "8621ce530af1e067156e56020ffeb16ee67454be7145060cc225ab566e0cb6b4",
+    "furnace": "2310c62ac3dc89dfe3aacf509125c6eed56637feeb587781aa36d0e277221b62"
+  },
+  "not_qualified": ["float32", "CUDA", "compilation/export", "renderer-sized workloads", "sustained performance", "full M1", "Cycles fidelity"]
+}

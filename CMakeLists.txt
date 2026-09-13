@@ -37,6 +37,8 @@ add_library(gffx_core SHARED
     native/core/render_texture.c
     native/core/status.c
     native/core/transforms.c
+    native/core/animation.c
+    native/core/image.c
 )
 
 target_compile_features(gffx_core PUBLIC c_std_11)
@@ -65,6 +67,16 @@ target_include_directories(gffx_core
 # wheel imports and every Python gate passes. Only a directly linked executable fails, which is
 # what the native CTest build does. Windows and macOS carry these in their default C library.
 function(gffx_link_core_runtime target)
+    # Source properties are directory-scoped: set this in each target's own
+    # directory, including the two ABI providers created under tests/abi.
+    if(MSVC)
+        set_source_files_properties(${PROJECT_SOURCE_DIR}/native/core/image.c
+            TARGET_DIRECTORY ${target} PROPERTIES COMPILE_OPTIONS "/fp:strict")
+    else()
+        set_source_files_properties(${PROJECT_SOURCE_DIR}/native/core/image.c
+            TARGET_DIRECTORY ${target}
+            PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
+    endif()
     target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})
     if(UNIX)
         target_link_libraries(${target} PRIVATE m)

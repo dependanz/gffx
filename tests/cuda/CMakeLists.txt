@@ -6,6 +6,11 @@ target_include_directories(gffx_test_cuda_plugin_api PRIVATE
 )
 add_test(NAME cuda.plugin_api COMMAND gffx_test_cuda_plugin_api)
 
+add_executable(gffx_test_animation_tail test_animation_tail.c)
+target_include_directories(gffx_test_animation_tail PRIVATE
+    ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/native/cuda)
+add_test(NAME cuda.animation_tail COMMAND gffx_test_animation_tail)
+
 add_test(NAME cuda.source_isolation
     COMMAND ${CMAKE_COMMAND}
         -DGFFX_SOURCE_DIR=${PROJECT_SOURCE_DIR}
@@ -67,10 +72,25 @@ gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_must_not_load 3)
 # Operation-table negotiation, added to plugin ABI v1 alongside dispatch.
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_null_operations 4)
 gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_operations 5)
+gffx_add_synthetic_cuda_plugin(gffx_cuda_synthetic_legacy_operations 6)
 
 # Calls a CUDA operation through the negotiated table. Needs the real plugin and a device, so it
 # is registered only when the CUDA build is enabled and skips itself when no device is present.
 if(TARGET gffx_cuda12)
+    add_executable(gffx_test_animation_device_parity test_animation_device_parity.c)
+    target_link_libraries(gffx_test_animation_device_parity PRIVATE gffx_core CUDA::cuda_driver)
+    if(WIN32)
+        add_custom_command(TARGET gffx_test_animation_device_parity POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gffx_core> $<TARGET_FILE_DIR:gffx_test_animation_device_parity> VERBATIM)
+    endif()
+    set(animation_cuda_operations blend_shapes rodrigues forward_kinematics skin_lbs evaluate_barycentric)
+    foreach(animation_index RANGE 0 4)
+        list(GET animation_cuda_operations ${animation_index} animation_name)
+        add_test(NAME cuda.animation.${animation_name} COMMAND gffx_test_animation_device_parity
+            $<TARGET_FILE:gffx_cuda12> ${animation_index})
+        set_tests_properties(cuda.animation.${animation_name} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
+    endforeach()
     add_executable(gffx_test_cuda_operation_dispatch test_operation_dispatch.c)
     target_compile_features(gffx_test_cuda_operation_dispatch PRIVATE c_std_11)
     target_include_directories(gffx_test_cuda_operation_dispatch PRIVATE
@@ -130,6 +150,38 @@ add_test(NAME cuda.plugin.operations
     COMMAND gffx_test_cuda_plugin_probe
         $<TARGET_FILE:gffx_cuda_synthetic_operations> loaded compatible
 )
+add_test(NAME cuda.plugin.legacy_operations
+    COMMAND gffx_test_cuda_plugin_probe
+        $<TARGET_FILE:gffx_cuda_synthetic_legacy_operations> loaded compatible
+)
+
+add_executable(gffx_test_animation_provider test_animation_provider.c)
+target_link_libraries(gffx_test_animation_provider PRIVATE gffx_core)
+if(WIN32)
+    add_custom_command(TARGET gffx_test_animation_provider POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:gffx_core> $<TARGET_FILE_DIR:gffx_test_animation_provider> VERBATIM)
+endif()
+add_test(NAME cuda.animation_legacy_provider COMMAND gffx_test_animation_provider
+    $<TARGET_FILE:gffx_cuda_synthetic_legacy_operations>)
+add_test(NAME cuda.animation_null_provider COMMAND gffx_test_animation_provider
+    $<TARGET_FILE:gffx_cuda_synthetic_operations>)
+add_executable(gffx_test_image_tail test_image_tail.c)
+target_include_directories(gffx_test_image_tail PRIVATE ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/native/cuda)
+add_test(NAME cuda.image_append_only_tail COMMAND gffx_test_image_tail)
+
+add_executable(gffx_test_image_provider test_image_provider.c)
+target_link_libraries(gffx_test_image_provider PRIVATE gffx_core)
+if(WIN32)
+    add_custom_command(TARGET gffx_test_image_provider POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:gffx_core> $<TARGET_FILE_DIR:gffx_test_image_provider> VERBATIM)
+endif()
+add_test(NAME cuda.image_legacy_provider COMMAND gffx_test_image_provider
+    $<TARGET_FILE:gffx_cuda_synthetic_legacy_operations>)
+add_test(NAME cuda.image_null_provider COMMAND gffx_test_image_provider
+    $<TARGET_FILE:gffx_cuda_synthetic_operations>)
+
 # Advertising operations while publishing no table is a build mismatch, not a capability to
 # route around, so the host must reject the plugin rather than dispatch through a null table.
 add_test(NAME cuda.plugin.null_operations
@@ -163,6 +215,21 @@ add_test(NAME cuda.plugin.removed
 )
 
 if(GFFX_ENABLE_CUDA AND GFFX_CUDA_RUN_DEVICE_TESTS)
+    # Native image-transfer identity is separate from the Decimal accuracy
+    # oracle. Explicit hardware qualification cannot silently skip this test.
+    add_executable(gffx_test_image_device_parity test_image_device_parity.c)
+    target_compile_features(gffx_test_image_device_parity PRIVATE c_std_11)
+    target_link_libraries(gffx_test_image_device_parity PRIVATE gffx_core CUDA::cuda_driver)
+    if(WIN32)
+        add_custom_command(TARGET gffx_test_image_device_parity POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:gffx_core> $<TARGET_FILE_DIR:gffx_test_image_device_parity>
+            VERBATIM)
+    endif()
+    add_test(NAME cuda.image_device_parity COMMAND gffx_test_image_device_parity
+        $<TARGET_FILE:gffx_cuda12>)
+    set_tests_properties(cuda.image_device_parity PROPERTIES TIMEOUT 180)
+
     # CPU/CUDA bit-identity for the texture operations, run against a real device through the
     # driver API. It lives here rather than beside TB-14 because TB-14 needs a CUDA-enabled
     # PyTorch, and a CPU-only PyTorch makes that fixture skip while still reporting success.

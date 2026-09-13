@@ -14,7 +14,7 @@ No public graphics or geometry operation is advertised in Phase 1.
 from __future__ import annotations
 
 __all__ = [
-    "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch", "camera"
+    "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch", "camera", "shade", "material", "scene", "image", "render", "mesh", "transforms", "skeleton"
 ]
 
 
@@ -28,9 +28,9 @@ def __getattr__(name: str):
         from . import _capabilities
 
         return getattr(_capabilities, name)
-    if name == "camera":
+    if name in ("camera", "shade", "material", "scene", "image", "render", "mesh", "transforms", "skeleton"):
         from importlib import import_module
-        facade = import_module(".camera", __name__)
+        facade = import_module("." + name, __name__)
         globals()[name] = facade
         return facade
     if name == "cuda":

@@ -51,9 +51,15 @@ add_custom_command(
             # Conformance over local accuracy: contraction into fused multiply-add would make the
             # GPU disagree with the CPU reference the acceptance fixtures pin.
             -fmad=false
+            -ftz=false
             -ptx "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/kernels.cu"
             -o "${gffx_cuda_ptx}"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/kernels.cu"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/animation_kernels.cuh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/animation_scalar.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/image_kernels.cuh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/image_transfer_scalar.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/image_transfer_boundary.h"
     COMMENT "Compiling GFFX CUDA kernels to PTX (${GFFX_CUDA_ARCH_FLOOR})"
     VERBATIM
 )

@@ -1,61 +1,69 @@
-# Elementary shading: Phase-0 recipes
+# Elementary shading functions
 
-These are executable contract recipes in `tools/shade_contract_reference.py`, not
-exported `gffx.shade` or `gffx.torch.shade` APIs. They prepare the mathematical and
-tensor contract before public material implementation. They require only the
-already optional PyTorch dependency. No wheel rebuild is needed for this tooling.
+The development wheel now exposes five eager PyTorch functions through
+`gffx.torch.shade` and the lazy `gffx.shade` facade. Importing the latter does not
+import PyTorch; calling a function activates the adapter. No new dependency is
+added to the base package. These functions are not yet a complete material API.
 
-The five functions evaluate Lambert, an approximate classic Blinn-Phong highlight,
-GGX distribution, height-correlated Smith visibility and Schlick Fresnel. They do
-not render geometry, perform shadow tests or assemble the `principled` material.
-That material's approved energy-budget coupling is separate and remains required.
+```python
+import torch
+import gffx
 
-## Exact distinctions
-
-- Lambert returns `albedo/pi`, not lit RGB.
-- Blinn uses the normal-half-vector cosine with `(n+8)/(8*pi)` scaling. This is
-  distinct from reflected-vector Phong and from the normalized Blinn NDF.
-  Its normal-view, exponent-two energy integral is **25/24**: a negative control,
-  not a passing conservation result. No principled energy threshold is changed.
-- GGX D uses perceptual roughness to the fourth power. Normalizing its projected
-  microfacet area does not establish conservation of an assembled material.
-- Smith visibility already includes division by `4*nV*nL`. Multiplying by another
-  such denominator would be a bug. At either horizon the explicit extension is
-  zero with zero branch derivatives; interior derivatives are tested separately.
-- Schlick is an RGB polynomial with unclamped endpoint derivatives.
-
-Cosine queries are `[P]` or `[B,P]`, with same-device float32/64 inputs. The first
-input owns the batch. Scalar parameters may be scalar tensors, `[P]`, `[1,P]` or
-`[B,P]`; RGB Fresnel parameters may be `[3]`, `[P,3]`, `[1,P,3]` or `[B,P,3]`.
-Lambert albedo is `[P,3]` or `[B,P,3]`. There is no implicit point-axis or additional
-scene broadcasting. Cosines must be in [0,1], albedo/F0 in [0,1], exponent >=0 and
-roughness in (0,1]. Invalid inputs fail rather than being silently clipped.
-Empty/strided tensors are accepted. Roughness zero is not repaired with epsilon.
-
-Eager checks may synchronize a GPU. These CPU recipe fixtures do not establish
-CUDA, compilation/export, native ABI or edge performance support.
-
-## Reproduce
-
-From the repository, using the configured environment and installed gffx wheel:
-
-```powershell
-python -m pytest -q tests/python/test_shade_contract.py
-python -m tools.testing_dashboard.build_lessons --check
-python -m tools.testing_dashboard.shade_demo --address http://127.0.0.1:8791 --run shade-demo-UNIQUE
+colour = torch.tensor([[0.2, 0.5, 0.8]], requires_grad=True)
+brdf = gffx.shade.lambert(colour)  # [1,3], linear reflectance / pi
+brdf.sum().backward()
 ```
 
-The finite producer exits after publishing one 1280x360 four-sphere image, an
-explanation, five angle curves and a record of closed-form examples. It adds no
-continuous mesh logging. `shading/lobes-demo` is an illustration; acceptance tests
-live on `shading/lobe-contract`. Each test has its own explanation and evidence.
+`blinn_phong`, `ggx_distribution`, `smith_visibility` and `fresnel_schlick`
+evaluate a highlight, microfacet distribution, masking/visibility factor and RGB
+Fresnel factor respectively. See each function's docstring. Complete illuminated
+colour also needs incident light and a surface cosine; avoid multiplying either
+twice. A microfacet distribution or Fresnel factor alone is not a material.
 
-Left to right: teal Lambert, matte plus classic highlight, gold-colored
-single-scattering GGX at roughness 0.25, then at 0.65. The analytic sphere normals
-are not a mesh renderer or a metal workflow. The common fill and display transform
-are explicitly illustrative. Numeric plot curves are not brightness-normalized.
+Inputs are same-device float32/float64 tensors. Cosines have shape `[P]` or
+`[B,P]`; Lambert colours have `[P,3]` or `[B,P,3]`. Scalar parameters can have
+shape `[]`, `[P]`, `[1,P]`, `[B,P]`; Fresnel colours can have `[3]`, `[P,3]`,
+`[1,P,3]`, `[B,P,3]`. The first input owns the output layout. The point dimension
+never broadcasts, and a batch cannot be expanded by a parameter. Empty point
+sets, strided views and expanded shared fields are supported with gradients.
 
-The energy textbook chapter explains the formulas, half-vector, normalizations,
-singularities, gradients and worked exercises using the in-tree MathML renderer.
-Formula references: [Filament's material equations](https://google.github.io/filament/main/filament.html)
-and [Lagarde's normalization discussion](https://seblagarde.wordpress.com/2011/08/17/hello-world/).
+No Python-number coercion, dtype promotion, device transfer, roughness floor,
+cosine clamping or energy clipping is performed. Invalid types/dtypes raise
+`TypeError`; invalid shapes/devices/domains or nonrepresentable positive divisors
+raise `ValueError`. Shared fields are validated even on empty calls. Horizon
+extensions for Blinn and Smith have explicitly zero first derivatives; Schlick
+and Lambert keep their polynomial/linear endpoint derivatives.
+
+Current acceptance is an isolated Windows CPU/PyTorch wheel, not a full device,
+native-C or compilation/export qualification. Eager value checks may synchronize
+a device and are not advertised as an exportable graph. Complete materials and
+physical budget-resource admission remain open. Classic Blinn is empirical:
+its unit-weight exponent-two furnace gives 25/24, not an energy guarantee.
+
+The testing dashboard's `shading/public-lobe-layouts` and
+`shading/public-lobes-lights` pages hold actual test outcomes. The separate
+`shading/public-lobes-demo` page reuses the bounded four-sphere illustration with
+the public functions; this is a scientific comparison, not new demo artwork.
+The energy-conservation textbook chapter already explains the same equations,
+endpoint distinctions and independent `1-log(2)` microfacet control.
+
+## Built-in lights
+
+`gffx.torch.light` now provides `point(points, positions, intensity)`,
+`directional(directions, irradiance)` and
+`spherical_harmonics(normals, coefficients)` as eager PyTorch compositions.
+They use the same explicit dtype/device policy. Directions and normals are
+normalized without an epsilon floor. Only singleton batch sharing is implicit;
+point and light axes remain distinct, with three explicit RGB channels.
+
+Point lights return a mapping with unit `direction`, inverse-square `irradiance`,
+`distance_squared` and a boolean `valid` mask. Coincident pairs are invalid and
+have zero outputs and first derivatives. Directional lights return unit direction
+and unchanged normal-incidence irradiance. Neither includes the surface cosine,
+material response, occlusion, shadows or a solid-angle PDF.
+
+SH lighting consumes nine RGB incident-radiance coefficients and returns
+cosine-convolved irradiance, appropriate for diffuse lighting. Signed values are
+preserved: the band-two approximation can ring negative. Do not use that diffuse
+convolution as a substitute for full glossy environment integration. Custom-light
+packets and `light.integrate` are not implemented in this slice.

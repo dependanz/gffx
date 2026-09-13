@@ -18,7 +18,8 @@ def asset_name(identifier):
 
 def fingerprint():
     return hashlib.sha256(b''.join((ROOT/p).read_bytes() for p in
-        ('build_lessons.py','mathml.py','textbook.py'))).hexdigest()
+        ('build_lessons.py','mathml.py','textbook.py',
+         'image_lessons.py','deferred_lessons.py','animation_lesson.py'))).hexdigest()
 
 def link(identifier,title):
     return '<a href="/testing/?page='+html.escape(identifier,quote=True)+'">'+html.escape(title)+'</a>'
@@ -42,13 +43,13 @@ def articles():
         prereqs=', '.join(link(p,titles[p]) for p in c['prerequisites']) or 'No previous chapter required.'
         evidence=''.join('<li>'+link(p,p)+'</li>' for p in c['evidence'])
         body=('<article class="lesson">'+navigation(c['id'])+
-            '<p class="lesson-notice">Original learning chapter · updated 7 September 2026. '
+            '<p class="lesson-notice">Original learning chapter · updated 9 September 2026. '
             'Equations and examples explain concepts; they are not test acceptance or a support matrix.</p>'+
             '<p>Prerequisites: '+prereqs+'</p>'+compiled(c['body'])+
             '<h2>Follow the evidence</h2><ul>'+evidence+'</ul><p>Implementation or fixture source: <code>'+
             html.escape(c['source'])+'</code>. Check the current tests for exact supported behavior.</p>'+
             navigation(c['id'])+'</article>')
-        result[c['id']]={'id':c['id'],'updated_on':'2026-09-07','source_sha256':fingerprint(),'html':body}
+        result[c['id']]={'id':c['id'],'updated_on':'2026-09-09','source_sha256':fingerprint(),'html':body}
     contents=''.join('<li>'+link(c['id'],c['title'])+'</li>' for c in CHAPTERS)
     body=('<article class="lesson"><p class="lesson-notice">A growing, original mini-textbook for gffx users. '
         'Start with the foundations or follow a test page back to its mathematics. This is not a claim that every topic is implemented.</p>'+
@@ -57,10 +58,13 @@ def articles():
         'an exercise with an answer, implementation boundaries and live evidence. Prerequisites and previous/next '
         'links provide a learning path. Examples are small enough to check by hand. The energy chapter preserves '
         'the rejected model and its dated measurements instead of rewriting our history.</p>'+
-        '<h2>What exists and what is illustrative</h2><p>Baseline mesh, transform, proximity, sampling, rasterization '
-        'and texture primitives and the eager camera layer have implementation fixtures. Material energy is currently '
-        'an independent mathematical reference, not a public shading API. Saved animations and the ball are demonstrations, '
-        'not the planned animation or simulation system. No chapter expands platform support or closes a milestone.</p>'+
+        '<h2>What exists and what is illustrative</h2><p>The chapters cover mesh, transform, proximity, '
+        'sampling, rasterization and texture primitives, as well as camera, scene, shading, native deformation '
+        'and image APIs. Each feature has its own implementation, numerical, device and resource evidence; '
+        'a chapter is not a blanket qualification. Early decorative animations, including the bouncing ball, '
+        'are authored demonstrations, not a physics solver. New deformation tests exercise native blend shapes, '
+        'joint transforms, skinning and landmarks. The gffx library prepares the ground for gffit and Compositron; '
+        'consumer implementations remain separate. No chapter expands platform support or closes a milestone.</p>'+
         '<h2>Future chapters</h2><p>Lights and spherical harmonics now extend the energy chapter. '
         'Continue alongside accepted work: scene organization, differentiable material budgets, skinning and blendshapes, deferred composition, acceleration '
         'structures, visibility derivatives, color management, path tracing, volumes and physical simulation. '
@@ -75,7 +79,7 @@ def articles():
         '<a href="https://pbr-book.org/4ed/Sampling_Algorithms/Sampling_Multidimensional_Functions">sampling</a> and '
         '<a href="https://pbr-book.org/4ed/Textures_and_Materials/Image_Texture">image textures</a>. '
         'Their conventions and implementation scopes are not automatically gffx conventions.</p></article>')
-    result['learn/index']={'id':'learn/index','updated_on':'2026-09-07','source_sha256':fingerprint(),'html':body}
+    result['learn/index']={'id':'learn/index','updated_on':'2026-09-09','source_sha256':fingerprint(),'html':body}
     return result
 
 def equation(source, explanation):
@@ -305,10 +309,78 @@ Smith visibility and F to obtain the single-scattering GGX specular BRDF. Under 
 roughness one, normal view and F=1, its exact outgoing value is 1-log(2), approximately 0.30685.
 The missing energy is not a numerical bug: this model omits multiple scattering. The separately
 specified principled coupling assigns a residual matte budget; these elementary factors do not.</p>
+<h3>From a surface parameter to a lit pixel</h3>
+<p>The public classic material now combines albedo/pi and an explicitly weighted Blinn highlight.
+It normalizes the normal, view and incident directions, and returns a BRDF only on the active
+reflection hemisphere. Back-facing or exact-horizon pairs have zero values and zero first derivatives;
+two-sided shading requires an explicit normal flip. It remains an empirical material, not an
+energy-conserving substitute for principled shading.</p>
+<p>Colour may come from a constant, interpolated face corners, or a sampled texture. Those operations
+stay in the fitting graph. Rebuild a learned texture's pyramid after an update instead of reusing an
+old detached graph. The public light integrator then multiplies the BRDF by incident light and one
+surface cosine; solid-angle samples also receive their quadrature weight exactly once. Coverage,
+occlusion and the background remain separate. For two-sided materials the integrator must receive
+the same oriented normal.</p>
+<p>Inspect the <a href="/testing/?page=shading/classic-material-demo">public classic versus saved
+reference comparison</a>. It checks linear image error on shared geometry, not anatomical quality,
+independent rasterization, principled-budget admission or Cycles fidelity.</p>
+<h3>From a budget curve to a complete material</h3>
+<p>The public principled operation combines GGX distribution, height-correlated Smith visibility
+and Schlick Fresnel with a reciprocal matte term. It uses directional residual losses directly,
+not one minus a rounded energy value. Both view/light losses and their cosine-weighted mean
+stay in the current autodiff graph. The immutable resource stores curve coefficients;
+it must not cache evaluated losses from a previous optimization step.</p>
+<p>A digest proves which bytes were loaded, not whether their light budget is physically accurate.
+The first public resource lane is CPU float64 with at most 32 scalar/channel entries per query.
+The exact ggx-smith-loss-cpu-f64-v1 package table now has finite-profile acceptance:
+80 reference checks, 80 directional triples, 16 averages and 192 furnace cases.
+This is measured evidence at fixed points, not proof at every possible input, and it
+does not qualify larger renderers or GPU execution. See the
+<a href="/testing/?page=shading/principled-bundle">identity and loading tests</a>.
+Loading unrecognized synthetic data requires allow_unverified, and
+using it in a material separately requires allow_experimental_budget. These flags preserve
+format, domain and workspace checks; they do not turn synthetic data into a physical model.</p>
+<h3>From one surface point to an image</h3>
+<p>A correct reflection formula must also survive being applied to many pixels. Our
+<a href="/testing/?page=shading/principled-direct-demo">principled direct-image comparison</a>
+uses the same saved geometry on both sides and an independent scalar shader. This isolates
+material correctness; it does not independently validate the rasterizer. Error panels divide
+linear colour differences by the fixed tolerance, rather than hiding errors with display gamma.</p>
+<p>A preview only needs forward values. Fitting also retains a derivative graph and can require
+more memory: eight points fit the current forward slice, but not its complete-material backward
+estimate. The tests preserve that rejection and compare shared gradients on four points split
+into two-point calls. A forward-only viewer must reject training inputs rather than silently
+detach them. Image agreement is not a frame-rate, full training-memory or environment-lighting
+convergence claim.</p>
+<h3>Why an environment reference can fail even when a shader is correct</h3>
+<p>At grazing angles, reflection changes rapidly over a small set of incoming directions.
+Uniform angular samples may miss that structure. The reference therefore compares two
+independent sampling layouts and requires two successive refinements to agree. A plausible
+last answer is not enough. Clustering existing nodes near the difficult angles can help
+without increasing the sample budget or relaxing accuracy.</p>
+<p>Under constant unit illumination, the reciprocal matte term has an exact integral:
+surface colour times the directional residual loss. Its cosine-weighted mean cancels its
+normalizing denominator. This is not plain Lambert colour, and the glossy integral must
+still be included. Integrating this known term exactly avoids asking a global quadrature
+to resolve every interpolation segment in the loss curve.</p>
+<p>The <a href="/testing/?page=shading/environment-image-progress">environment-image progress page</a>
+preserves failed numerical rules and the successful complete-material reference controls.
+It also separates accuracy from execution cost: a correct point can still be too expensive
+to repeat over a whole image. A passing reference is not a finished image renderer.</p>
+<p>Custom materials receive only normalized active reflection pairs and explicitly packed
+parameter fields. They return a BRDF without light or cosine. Registries belong to the
+application; resolving once retains the chosen callable. Custom lights declare delta or
+solid-angle units and the integrator applies each weight once. Callback compatibility alone
+does not prove conservation, reciprocity, deterministic behavior or export support.</p>
+<p>The <a href="/testing/?page=shading/complete-material-demo">experimental material comparison</a>
+shows these operations on the same analytic sphere. Built-in/custom Lambert equality is a
+measured comparison; the two principled pictures use a deliberately synthetic budget and
+are not physical acceptance evidence. Explicit forward-only tiles keep this demonstration
+bounded; they are not proof of renderer-scale training memory or sustained frame rate.</p>
 <h3>3. Boundaries and gradients are part of the operation</h3>
 <p>Functions accept finite float32/64 tensors with explicit point and batch axes. They do not turn
 negative cosines into positive ones, normalize input vectors or broadcast a new scene silently.
-The material layer will own direction preparation and two-sided decisions. Roughness zero is a
+The material layer owns direction preparation and two-sided decisions. Roughness zero is a
 delta limit, not a tiny hidden epsilon. A positive value that loses a needed divisor in the chosen
 dtype is an explicit error. Empty and strided tensors are still valid layouts.</p>
 <p>Smith returns zero at either horizon with zero branch derivatives. Blinn uses zero derivatives
@@ -512,6 +584,305 @@ positive roughness or a completed public material.</p>
 measuring stick for its eventual extension, not an excuse to run expensive integration inside
 every pixel. Near-perfect reflection also leaves a tiny matte budget: subtracting almost equal
 numbers and dividing by that small remainder needs explicit conditioning checks.</p>
+<h3>When almost no light is left</h3>
+<p>If reflected energy E is almost one, the leftover 1-E can be billions of times
+smaller than the total. An error that looks harmless for E can dominate that tiny
+remainder. Dividing by an unresolved mean remainder can then change a matte budget
+substantially. A small absolute error is not enough: compare the error to the
+remainder itself, and check an independent integration method.</p>
+<p>The first finite screen passed its sampled edge-on directional checks but
+failed five of six tiny remaining-budget cases. Redistributing views improved
+self-refinement, yet the old visible-normal sampler still disagreed. An exact
+normal-view control explains a concrete failure: that finite grid counts zero
+rejected reflections where their actual probability is one in a trillion.</p>
+<p>The repair measures lost light directly. Under the normalized visible-normal
+distribution, loss is the probability of reflection below the surface plus the
+absorption and masking loss of valid reflections. The rejected tail has an
+analytic integral; the other terms are evaluated without subtracting near-unit
+quantities. We retain the tiny result as a separate value, not as one minus a
+rounded reflected-energy total. Two slope coordinates, independent direct tail
+integration, exact controls and gradient checks support the declared finite
+repair. The two coordinate schemes share the same physical identity: they are
+not two independent physical models or a proof for every positive roughness.</p>
+<p>Exercise: if the true leftover is 0.00000001 and the reflected-energy estimate
+has absolute error 0.000000001, what is the relative error in the leftover?
+It is ten percent, despite the very small absolute error.</p>
+<p><a href="/testing/?page=shading/residual-demo">Inspect the magnified residual diagnostic</a>
+and <a href="/testing/?page=shading/boundary-contract">the boundary checks and their history</a>.
+<a href="/testing/?page=shading/loss-contract">Inspect direct-loss acceptance and retained failure controls</a>.</p>
+<h3>Approximating a tiny positive quantity</h3>
+<p>Storing the logarithm of a positive light loss lets an interpolation work with relative
+changes instead of trying to subtract almost-equal reflected energies. Interpolating between
+logarithms and exponentiating produces a geometric blend: inside a cell it stays between
+the positive corner values. The two Fresnel endpoint losses are then blended linearly,
+because this model is affine in Fresnel reflectance.</p>
+<p>This is not a free accuracy guarantee. Values and derivatives must still be compared
+against the reference. A tiny local cell can pass while a practical full table fails.
+The local experiment has no complete angular domain or consistent integrated mean yet,
+so it cannot establish the coupled material's energy conservation.
+<a href="/testing/?page=shading/loss-cell">Inspect the local interpolation experiment</a>.</p>
+<h3>One curve, one consistent average</h3>
+<p>The next experiment extends the curve from edge-on to straight-on views. Its
+average is computed from that exact curve after roughness interpolation, not from
+a second independently interpolated table. Between positive cosine knots, a
+straight line in log coordinates is a power law. Its cosine-weighted integral is
+analytic; a special stable limit handles the exponent that gives a logarithm.</p>
+'''+equation(r'\bar{L}=2\int_0^1 c L(c)\,dc',
+    'Average remaining light: integrate the same curve, weighted by projected solid angle.')+equation(
+    r'I_{a,b}=2\log(b/a)\frac{b^2 L_b-a^2 L_a}{\log(b^2 L_b)-\log(a^2 L_a)}',
+    'Exact positive-segment contribution. When the two logarithms coincide, use the continuous logarithmic-mean limit, not direct zero divided by zero.')+r'''
+<p>The horizon cannot be a logarithmic knot because its cosine is zero. A separate
+limiting formula supplies its value, and the first segment is linear. At unit
+Fresnel reflectance the horizon loss is exactly zero; at normal view and roughness
+one it is log(2). Finite differences check roughness derivatives, and independent
+segment quadrature checks the analytic mean and its derivatives.</p>
+<p>Worked example: if L(c)=c squared, the mean is twice the integral of c cubed,
+or one half. Replacing the first interval [0,b] by its linear endpoint segment
+adds b to the fourth power divided by six to this mean. That small, computable
+change illustrates why exact interpolation integrals and exact physics are
+different claims.</p>
+<p>Exercise: can an exact average of an inaccurate curve still be inaccurate?
+Yes. Internal consistency prevents two parts of the material from disagreeing,
+but cannot make the curve physically correct. Directional, derivative, mean and
+white-furnace screens remain separate admission requirements. A failed grid stays
+experimental even if its white-furnace check passes.
+<a href="/testing/?page=shading/loss-resource">Inspect full-angle accuracy checks</a>
+and <a href="/testing/?page=shading/loss-resource-demo">the finite error-map demonstration</a>.</p>
+<h3>Curved interpolation without invented light</h3>
+<p>The power-segment grid exposed two different problems: interpolating across
+roughness caused its remaining value errors, while angular interpolation caused
+a slope error. A replacement uses cubic curves whose control points stay between
+their endpoint values. Evaluating a Bezier curve forms convex combinations of
+those controls, so a nonnegative control polygon cannot create a negative loss.</p>
+'''+equation(r'L(u)=(1-u)^3 P_0+3u(1-u)^2P_1+3u^2(1-u)P_2+u^3P_3',
+    'Cubic Bezier interpolation. For u between zero and one, the four weights are nonnegative and sum to one.')+r'''
+<p>The two Fresnel fields also need ordered control points; separately bounding
+each field is not enough to guarantee their ordering. A shared slope limit keeps
+their controls ordered. Across roughness we interpolate log loss; across angle
+we interpolate loss as a cubic in log cosine. That last distinction keeps the
+cosine-weighted mean analytically integrable with exponential-polynomial weights.</p>
+<p>Worked example: controls 0.1,0.2,0.3,0.4 give value0.25 at the middle because
+the weights there are 1/8,3/8,3/8,1/8. The curve stays inside [0.1,0.4]. But these
+controls could still describe the wrong physical response: bounds are not an
+accuracy proof. Fresh parameter combinations, physical gradients and white-light
+energy checks remain separate requirements.</p>
+<p>The first horizon segment stays linear. Later positive knots have continuous
+first derivatives, but neither the first junction nor limiter transitions promise
+unrestricted higher-order smoothness. Inspect
+<a href="/testing/?page=shading/loss-smooth">the cubic control and integral tests</a>
+and <a href="/testing/?page=shading/loss-resource">the separate physical screens</a>.</p>
+<h3>Accurate does not automatically mean interactive</h3>
+<p>Prerequisite: distinguish fixed knot data from differentiable queries.
+Generating knots, loading them, constructing constants and evaluating a curve
+are different costs. Packing constants into tensors avoids Python object overhead,
+but does not prove a faster shader or a smaller backward graph.</p>
+<p>Worked example: a two-by-three grid with two Fresnel endpoints stores
+2+3+2*2*3=17 numbers. At eight bytes per double that is136 bytes before slopes,
+weights or container overhead. Exercise: what changes if three queries share it?
+Answer: constants can still occupy136 bytes; query temporaries and saved graphs
+grow separately. Sharing does not authorize detaching roughness-dependent means.</p>
+<p>The bounded laptop experiment evaluates1,8,32 points in a scalar loop and
+measures backward separately. It is not a vectorized shader or frame-rate guarantee.
+Even the monitor needs tests: Windows can launch the actual Python worker behind
+a tiny redirector. Watching the redirector undercounts memory. Match measured and
+monitored process IDs, retain failures and keep time/byte limits explicit. See
+<a href="/testing/?page=shading/loss-cost">the measurement safeguard tests</a>.
+The physical model, boundary derivatives and accuracy limits are unchanged.</p>
+<h3>Batch the arithmetic, not the evidence</h3>
+<p>Within one material call, a roughness curve can serve the view, many lights
+and all three colour channels. Its two Fresnel endpoint losses are mixed per
+channel afterward. This removes duplicate work without storing a stale graph
+between fitting steps. The derivative contributions still add at the shared
+roughness. Near the horizon, evaluate a linear segment as
+<code>y0 + u*(y1-y0)</code>: its slope subtracts close endpoints before dividing
+by the tiny interval width, instead of cancelling huge derivative terms.
+See <a href="/testing/?page=shading/cpu-curve-reuse">the reuse and derivative tests</a>.
+The separately qualified CPU material lane now accepts1024 point/light pairs,
+at most8 forward or4 backward points, under the same64MiB planning ceiling.
+Standalone resource queries remain limited to32 entries. This is an explicit
+capacity contract, not automatic hidden tiling or a whole-image guarantee.
+See <a href="/testing/?page=shading/material-light-batches">the batch boundary and gradient tests</a>.</p>
+<h3>From one correct point to a checked image</h3>
+<p>A correct grazing-angle sample does not certify the other pixels. Our first
+full environment-image profile uses uniform unit light, fixed material parameters
+and the existing 128-by-128 head buffers. Each of its 6536 covered pixels needs
+its own converged reference: two angular partitions must agree, and two successive
+refinements must stay within the same tolerance. The public shader still integrates
+the full material; an exact reference identity is not permission to replace the
+candidate with an analytic image fill.</p>
+<p>Tiles make the work stoppable, not automatically correct. Assembly rejects missing
+tiles, duplicated pixels and failed workers. Background pixels remain exactly zero.
+Saved estimates are rechecked instead of trusting a green status flag. Exercise:
+if 51 of 52 tiles pass, is the image accepted? No: it is partial evidence, even if
+the missing tile looks small. See <a href="/testing/?page=shading/environment-full-images">the full-image and replay tests</a>
+and <a href="/testing/?page=shading/environment-full-demo">the finite comparison page</a>.
+Nonuniform environments and gradients through complete images require additional tests.</p>
+<p>A stopped run can still contain valid completed tiles. Continuing it requires
+an explicit new work budget and verification of the original hashes, source
+identity, pixel ownership and convergence histories. The old stop remains in the
+record; its elapsed time is not reset. Only missing tiles execute, and the final
+image is accepted after all tiles pass together. See
+<a href="/testing/?page=shading/environment-continuation">the checkpoint continuation tests</a>.
+Reusing a verified numerical result is different from calling it a fresh experiment.</p>
+<h3>When the room is not equally bright in every direction</h3>
+<p>A simple coloured environment gives each RGB channel a preferred world direction.
+Its incoming radiance is one plus the dot product between a small colour-direction
+vector and the incoming unit direction. A vector shorter than one guarantees
+positive light everywhere. Rotating the object alone changes its lighting;
+rotating both the object and environment together must preserve it.</p>
+'''+equation(r'L_k(\omega)=1+\mathbf{b}_k\cdot\omega',
+    'Affine world illumination: each colour channel has its own preferred direction.')+r'''
+<p>Uniform lighting let us double one half of the azimuth circle. Here that shortcut
+would give the wrong colours, so both halves are sampled explicitly. For a Lambert
+surface the integral is albedo times one plus two thirds of the colour vector's
+projection on the normal. The principled matte component instead needs an additional
+cosine-weighted moment of its residual loss curve. The average loss alone is not enough.</p>
+'''+equation(r'M=2\int_0^1 l(\mu)\mu\,d\mu,\qquad J=2\int_0^1 l(\mu)\mu^2\,d\mu',
+    'M is the ordinary cosine-weighted loss; J weights directions near the normal more strongly.')+equation(
+    r'C_{\mathrm{matte},k}=a_kl(N\cdot V)\left(1+(\mathbf{b}_k\cdot N)J/M\right)',
+    'The affine-light matte reference. The public shader still samples the complete material, including glossy reflection.')+r'''
+<p>Both moments are independently integrated on the curve segments and require two
+successful refinements. This identity applies to affine illumination, not arbitrary
+HDR images. Exercise: why is rotating only the camera not equivalent to rotating
+the whole scene? The normal, view and fixed world-light directions have changed
+relative to one another. Inspect <a href="/testing/?page=shading/affine-environment">the world-lighting tests</a>
+and <a href="/testing/?page=shading/affine-environment-demo">the finite point-response demo</a>.
+Passing selected points is preparation for a complete image, not a substitute for it.</p>
+<h3>Reuse constants, not answers</h3>
+<p>For a fixed material, the curve and its moments M and J do not depend on the
+pixel normal or viewing direction. A measuring worker can prepare its own copy
+once, then integrate each pixel separately. It must still check both angular
+estimates and both convergence transitions at every pixel. This is setup reuse,
+not interpolation between tested points and not a cache of differentiable graphs.</p>
+<p>The selected-tile qualification measures three preselected tiles per material, including
+the short final tile. The <a href="/testing/?page=shading/affine-tiles-demo">tile diagram</a>
+marks measured pixels green and everything else gray. Those 264 pixels per material
+are not an image-wide accuracy proof, nor a proven upper runtime bound for the
+remaining pixels. Exercise: which data may be reused when roughness changes?
+The geometry may stay fixed, but material-dependent moments must be recomputed.</p>
+<h3>From selected tiles to complete images</h3>
+<p>A completed tile is a durable checkpoint, not permission to call the whole picture
+correct. The full-image procedure owns every remaining tile exactly once, verifies
+the saved checkpoints, and assembles the two complete images only after all surface
+pixels pass. Each batch has its own work limit; cumulative time and failed attempts
+remain visible instead of resetting the history. The
+<a href="/testing/?page=shading/affine-images-demo">full-image evidence page</a>
+shows a finite snapshot. Gray means uncomputed in that snapshot, never a correct
+black pixel. The final black background is accepted only after checking coverage.</p>
+<p>Exercise: does a smooth-looking image with one missing tile pass? No. Visual
+plausibility does not establish complete ownership, numerical error or convergence.</p>
+<h3>Moving a resource is not qualifying a device</h3>
+<p>Before changing the execution device, also distinguish lighting from surface
+colour. Albedo is the surface's RGB diffuse reflectance: a checker changes this
+colour across the mesh, not the shape or the environment. At fixed geometry and
+roughness, both present materials have a diffuse term linear in albedo and a
+separate glossy contribution. Doubling albedo doubles only the diffuse part,
+not the whole reflected colour. Black diffuse paint can still have a highlight.</p>
+<p>The <a href="/testing/?page=shading/albedo-environment">saved-colour preflight</a>
+uses vertex colours, a gradient texture and a checker texture at eight preselected
+surface points under two environments, for both materials: 96 comparisons.
+Every changed colour gets its own convergence history. Only fixed material moments
+are shared within a worker. The <a href="/testing/?page=shading/albedo-environment-demo">colour swatches</a>
+separate input albedo, independent reflected colour and public output. These are
+samples, not complete textured images or tests of rasterized boundaries.</p>
+<p>Exercise: why can a colour field reuse material moments while a new roughness
+cannot? The moments describe the roughness-dependent angular loss. Albedo scales
+the diffuse contribution after those moments have been computed.</p>
+<p>Next, expand from selected points to prospectively selected image tiles. The
+<a href="/testing/?page=shading/albedo-tiles">textured-tile tests</a> own the first,
+middle and short final tile for each of twelve profiles. Six serial batches
+measure3168 pixel/profile comparisons, but only264 of6536 surface pixels in each
+image. A saved tile contains the actual pixel IDs and colours, not just a green
+status. Duplicate or missing ownership invalidates the aggregate. In the
+<a href="/testing/?page=shading/albedo-tiles-demo">partial-image view</a>, gray means
+uncomputed, including background. This measures correctness and cost for the
+selected slices; it is not a guaranteed time bound for all remaining pixels.</p>
+<h3>A larger batch is not automatically faster</h3>
+<p>The material call allows at most 1,024 point/light pairs. One surface point
+can therefore use 1,024 light directions in a call; eight points can use only
+128 each. Both layouts process the same number of pairs, so more points do not
+automatically mean fewer calls. They can change memory access, setup cost and
+the order of floating-point sums. The <a href="/testing/?page=shading/albedo-sampling">sampling tests</a>
+keep each point's accepted integration order, directions, weights and world frame.
+Both estimates must match the independent reference and the saved public result.</p>
+<p>The <a href="/testing/?page=shading/albedo-sampling-demo">finite timing comparison</a>
+uses identical outer timing boundaries, including validation. It alternates which
+method runs first, excludes one warmup and shows the median of three repetitions.
+Accuracy passing is separate from speed improving. A slower candidate is useful
+evidence to keep the earlier path, not a reason to relax numerical or memory limits.</p>
+<h3>A new pixel has no previous answer</h3>
+<p>A regression test can compare today's public result with yesterday's saved
+result. A newly tested pixel has no yesterday result. Copying its independent
+reference into a field called a previous result would invent evidence. Instead,
+the <a href="/testing/?page=shading/albedo-images">reference-only tests</a> validate
+the exact material, environment, surface colour and geometry, then compare two
+fresh public angular estimates with that pixel's independently converged reference.
+The old saved results are used only for separate regression checks.</p>
+<p>The <a href="/testing/?page=shading/albedo-images-demo">continuation view</a>
+fills in verified tiles without rerunning the original checkpoints. Each pixel
+keeps its own convergence history even when several pixels share a bounded
+public call. Gray means uncomputed, not black shading. All52 tiles belong to one
+image, and all12 profiles require624 tiles; progress is not full-image acceptance.</p>
+<p>Once all tiles for one profile exist, the
+<a href="/testing/?page=shading/albedo-image-assembly">complete-image checks</a>
+place every measured colour at its exact pixel, leave the declared background
+at zero, and recompute the image error. Saved image bytes must reconstruct exactly
+from those checkpoints. This closes one image profile, not the eleven others.
+Testing shader colours on shared geometry buffers also does not independently
+validate rasterization or prove that an image loss has correct gradients.</p>
+<p>The same table can be transferred explicitly to a GPU without granting it the
+CPU acceptance record. First compare values and derivatives, then independently
+check physical accuracy, energy, repeated calls and memory on that device.
+The <a href="/testing/?page=shading/principled-cuda">experimental CUDA tests</a>
+separate these claims. A process-memory stop is neither a passing energy test nor
+evidence that the material creates energy. Host working set, GPU allocations and
+GPU reserved memory are different measurements; importing and initializing a
+framework also consumes host memory. A limit must be changed explicitly, not hidden
+by omitting initialization from the measurement.</p>
+<p>A tensor-resident resource shares fixed constants while evaluating many queried
+roughnesses and angles. Shared Fresnel parameters receive the sum of each point's
+derivative. The mean must still be the integral of the same curve, not a detached
+lookup. Exercise: if two points contribute derivatives0.2 and0.3 to one shared
+parameter, what is its total derivative? Answer:0.5, provided the objective is their
+sum; averaging the objective would instead give0.25.</p>
+<p>Our internal batch candidate passes scalar value/gradient parity and the existing
+directional physical comparisons. Its first independent mean-validation worker reached
+the unchanged process memory ceiling and was stopped; furnace checks were initially not run.
+That was a resource-validation stop, not a measured violation of energy conservation.
+The reference retained64 full viewing-angle graphs. A validation-only repair now
+takes each weighted view's first derivatives before releasing its graph, then sums
+the finished measurements. The same36 mean and396 furnace regressions pass under
+the original process cap. No physical samples or accuracy limits were removed. See
+<a href="/testing/?page=shading/loss-tensor">batch and loading checks</a> and
+<a href="/testing/?page=shading/loss-tensor-physical">the physical validation page</a>.
+Allocator peak, float32, GPU and compilation remain separate claims.</p>
+<h3>Differentiate a finite sum without keeping every graph</h3>
+<p>Let q_i(theta) be one weighted viewing-angle contribution and theta denote
+roughness or Fresnel reflectance. For a finite sum, the derivative of the sum is
+the sum of the derivatives. Compute each q_i and its derivative, keep those small
+numbers, and release the intermediate graph before the next view. Crucially,
+differentiate the entire contribution: the transformed viewing angle and its
+integration weight can also depend on roughness. Detaching those early changes
+the answer. Our test helper returns first-partial measurements, not a reusable
+autodiff function or a higher-derivative guarantee.</p>
+<p>Exercise: if q_1(theta)=theta squared and q_2(theta)=3 theta, what value and
+derivative should be recorded at theta=2? Answer: value10 and derivative7.
+Computing the two derivatives separately gives4+3=7. Discarding the graph only
+after taking each derivative preserves that result. The saved-reference diagnostic
+and original-oracle comparisons are explained on
+<a href="/testing/?page=shading/mean-validation-memory">the memory validation page</a>.</p>
+<h3>More useful samples, not merely more samples</h3>
+<p>A later nearly edge-on check exposed a different problem: the generated knot
+itself needed better angular integration. Doubling the radial samples did not
+help; doubling the azimuth samples did. The experiment reallocates the same
+budget below cosine = roughness squared / 16: 280 by 32 becomes 140 by 64.
+Normal views keep their radial resolution. This is a numerical sampling choice,
+not a new physical cutoff or permission to clamp the answer. We test both sides
+of that allocation boundary and preserve the original failed measurements.</p>
+<p>Once a new validation point exposes a bug, it becomes development data. A
+second parameter cohort was declared before evaluating the revised candidate;
+rerunning it later is useful regression evidence, but is not fresh unseen
+validation. See <a href="/testing/?page=shading/loss-generation">the sampling checks</a>.</p>
 <details><summary>Why does the polished-sphere picture not prove energy conservation?</summary>
 <p>The picture uses 512 deterministic environment samples per pixel, analytic spheres and
 an illustrative display transform. It can show reflection shape but can still have integration
@@ -519,6 +890,9 @@ error. The energy tests separately integrate independent specular reflection plu
 matte response under a white environment and enforce the original numerical limits.</p></details>
 <ul><li><a href="/testing/?page=shading/sharp-demo">See four polished surfaces and their budgets</a></li>
 <li><a href="/testing/?page=shading/sharp-contract">Inspect the sharp reference and energy tests</a></li></ul>
+<h2>Check the checker before comparing images</h2>
+<p>The synthetic-head reference uses scalar standard-library equations, direct Hermite polynomials and adaptive integration over angular segments. It does not call the public shader or the tensor lookup implementation. First we compare this reference with linear and log-polynomial closed forms, including a changing roughness field. Then it can check shader values on shared input buffers. That shared-buffer test does not independently validate rasterization.</p>
+<p>A synthetic budget can show that lookup values, means and material algebra are wired consistently; only separate physical integration can qualify energy conservation. Likewise, a synthetic fitting scene is not real-model qualification, and agreement with our declared equations is not a Cycles-quality claim. See <a href="/testing/?page=shading/independent-evaluator">the independent-reference tests</a> and <a href="/testing/?page=shading/public-edges">the public boundary checks</a>.</p>
 </section>'''
 
 
@@ -532,6 +906,6 @@ def main():
         else:
             output.parent.mkdir(parents=True,exist_ok=True)
             output.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    print('Textbook is reproducible' if args.check else 'Built 15 textbook pages')
+    print('Textbook is reproducible' if args.check else f'Built {len(CHAPTERS)+1} textbook pages')
 
 if __name__=='__main__':main()

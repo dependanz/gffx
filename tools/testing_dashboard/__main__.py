@@ -23,6 +23,15 @@ def main(argv=None):
     serve.add_argument("--root",required=True)
     serve.add_argument("--port",type=int,default=8790)
     serve.add_argument("--also-loopback",action="store_true")
+    serve.add_argument('--history-keep',type=int,default=100,help='Older unprotected executions to retain; not a lifetime execution cap')
+    serve.add_argument('--max-active',type=int,default=32)
+    serve.add_argument('--metadata-mib',type=int,default=64)
+    history = sub.add_parser('history',help='Preview safe history cleanup; apply only an exact preview token')
+    history.add_argument('--address',required=True)
+    history.add_argument('--apply-token')
+    pin = sub.add_parser('pin',help='Protect an execution from history cleanup')
+    pin.add_argument('--address',required=True);pin.add_argument('--run',required=True)
+    pin.add_argument('--unpin',action='store_true')
     run = sub.add_parser("run")
     run.add_argument("--address",required=True)
     run.add_argument("--run",default=None)
@@ -41,11 +50,21 @@ def main(argv=None):
     demo.add_argument("--address", required=True)
     demo.add_argument("--run", default=None)
     args = parser.parse_args(argv)
+    if args.command in ('history','pin'):
+        route='/testing/api/history';data=None
+        if args.command=='pin':route='/testing/api/pin';data=dict(run=args.run,pinned=not args.unpin)
+        elif args.apply_token:route+='/prune';data=dict(token=args.apply_token)
+        request=urllib.request.Request(args.address.rstrip('/')+route,
+            data=None if data is None else json.dumps(data).encode(),headers={'Content-Type':'application/json'})
+        with urllib.request.urlopen(request,timeout=30) as response:print(json.dumps(json.load(response),indent=2))
+        return 0
     if args.command == "serve":
         from .server import TestingServer
         stop = threading.Event()
         for sig in (signal.SIGINT,signal.SIGTERM): signal.signal(sig,lambda *_:stop.set())
-        with TestingServer(args.root,port=args.port,also_loopback=args.also_loopback) as server:
+        with TestingServer(args.root,port=args.port,also_loopback=args.also_loopback,
+                           history_keep=args.history_keep,max_active=args.max_active,
+                           metadata_bytes=args.metadata_mib*1024*1024) as server:
             print("gffx testing: http://%s/testing/" % server.address,flush=True)
             while not stop.wait(.5): pass
         return 0

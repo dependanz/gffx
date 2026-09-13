@@ -29,14 +29,20 @@ from typing import Any
 import xml.etree.ElementTree as ET
 
 
-# Registered only when the build both enables CUDA and is permitted to touch a real device.
-# These carry every bit-identity claim GFFX makes; without them the lane proves nothing a
+# Required in a hardware qualification run; absent or skipped device cases are failures.
+# These carry native bit-identity claims; without them the lane proves nothing a
 # CPU-only runner does not already prove.
 DEVICE_GATED_TESTS = (
     "cuda.texture_device_parity",
     "cuda.backward_device_parity",
     "cuda.plugin.real_device_probe",
     "cuda.plugin.default_discovery",
+    "cuda.animation.blend_shapes",
+    "cuda.animation.rodrigues",
+    "cuda.animation.forward_kinematics",
+    "cuda.animation.skin_lbs",
+    "cuda.animation.evaluate_barycentric",
+    "cuda.image_device_parity",
 )
 
 # Registered whenever CUDA is enabled, because they need the real plugin binary rather than the
@@ -46,9 +52,10 @@ PLUGIN_BUILD_TESTS = (
     "cuda.operation_dispatch",
 )
 
-# Measured on the reference host 2026-09-03.  A floor, not an equality: adding fixtures must not
+# Measured on danzielaptop in native11 on 2026-09-10 (57/57, no skips).
+# A floor, not an equality: adding fixtures must not
 # fail the lane, but removing them must.
-MINIMUM_TOTAL_TESTS = 40
+MINIMUM_TOTAL_TESTS = 57
 
 
 class LaneError(RuntimeError):

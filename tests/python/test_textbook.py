@@ -14,7 +14,7 @@ def book():
 
 def test_textbook_has_ordered_complete_chapters_and_acyclic_prerequisites():
     chapters=book().CHAPTERS
-    assert len(chapters)==14
+    assert len(chapters)==19
     seen=set()
     for chapter in chapters:
         assert chapter['id'] not in seen
@@ -23,7 +23,8 @@ def test_textbook_has_ordered_complete_chapters_and_acyclic_prerequisites():
     assert 'learn/shading/energy-conservation' in seen
 
 @pytest.mark.parametrize('slug',['vectors','transforms','triangles','topology','barycentric',
-    'cameras','rasterization','textures','proximity','sampling','autodiff','numerics','animation'])
+    'cameras','rasterization','textures','proximity','sampling','autodiff','numerics','animation','scenes',
+    'image-compositing','image-sampling','deferred-rendering','animation-deformation'])
 def test_textbook_chapter_is_substantial_reproducible_and_mathematically_structured(slug):
     build=importlib.import_module('tools.testing_dashboard.build_lessons')
     identifier='learn/'+slug
@@ -45,7 +46,7 @@ def test_textbook_all_links_resolve_and_assets_are_fixed_not_user_paths(tmp_path
     index=Index(tmp_path/'book.sqlite')
     valid={p['id'] for p in catalog.PAGES}
     articles=build.articles()
-    assert len(articles)==15
+    assert len(articles)==20
     assert len({build.asset_name(identifier) for identifier in articles})==len(articles)
     for identifier,article in articles.items():
         page=index.page(identifier)

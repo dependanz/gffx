@@ -94,6 +94,9 @@ static int run_query(int full_probe) {
     CHECK(strcmp(report.strings + record->string_offset, "0.2.0.dev0") == 0);
     CHECK(find_key(&report, GFFX_CAPABILITY_KEY_POINTER_BITS, &record));
     CHECK(record->value_u64 == 64u);
+    CHECK(find_key(&report, GFFX_CAPABILITY_KEY_OPERATION_COUNT, &record));
+    CHECK(record->value_type == GFFX_CAPABILITY_VALUE_U64);
+    CHECK(record->value_u64 == 19u);
 
     if (full_probe) {
         CHECK((report.result_flags & GFFX_CAPABILITY_RESULT_RUNTIME_PROBED) != 0u);

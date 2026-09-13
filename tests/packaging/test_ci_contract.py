@@ -128,8 +128,12 @@ def test_cuda_lane_enables_the_device_build_and_proves_it_reached_a_device() -> 
     assert set(lane.DEVICE_GATED_TESTS) == {
         "cuda.texture_device_parity", "cuda.backward_device_parity",
         "cuda.plugin.real_device_probe", "cuda.plugin.default_discovery",
+        "cuda.animation.blend_shapes", "cuda.animation.rodrigues",
+        "cuda.animation.forward_kinematics", "cuda.animation.skin_lbs",
+        "cuda.animation.evaluate_barycentric",
+        "cuda.image_device_parity",
     }
-    assert lane.MINIMUM_TOTAL_TESTS >= 40
+    assert lane.MINIMUM_TOTAL_TESTS >= 57
 
 
 def test_cuda_lane_verifier_rejects_a_pass_that_never_reached_a_device() -> None:
@@ -138,7 +142,8 @@ def test_cuda_lane_verifier_rejects_a_pass_that_never_reached_a_device() -> None
     complete = {
         "total": lane.MINIMUM_TOTAL_TESTS,
         "names": sorted(lane.DEVICE_GATED_TESTS + lane.PLUGIN_BUILD_TESTS)
-        + [f"filler.{index}" for index in range(lane.MINIMUM_TOTAL_TESTS - 6)],
+        + [f"filler.{index}" for index in range(lane.MINIMUM_TOTAL_TESTS
+             - len(lane.DEVICE_GATED_TESTS) - len(lane.PLUGIN_BUILD_TESTS))],
     }
     lane.check_inventory(complete)
 

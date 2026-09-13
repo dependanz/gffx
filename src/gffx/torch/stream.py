@@ -13,8 +13,14 @@ import torch
 
 from ._batching import check_offsets
 from ._common import check_eps, check_pair, translate_native_error
+from ._animation_stream import (
+    animation_workspace_size, blend_shapes_out, rodrigues_out,
+    forward_kinematics_out, skin_lbs_out, evaluate_barycentric_out,
+)
 
 __all__ = [
+    "animation_workspace_size", "blend_shapes_out", "rodrigues_out",
+    "forward_kinematics_out", "skin_lbs_out", "evaluate_barycentric_out",
     "face_geometry_out", "face_geometry_workspace_size", "workspace_sizes",
     "vertex_normals_out", "gather_faces_out", "transform_points_out",
     "perspective_divide_out", "knn_out", "closest_point_on_mesh_out",

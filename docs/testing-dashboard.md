@@ -210,10 +210,16 @@ labels these as demonstrations; none contributes to test counts or proves numeri
 ## Storage and boundaries
 
 The chosen root contains `testing.sqlite` and `viewer/<run>/` (general dashboard logs/identity).
-The index caps 100 runs, 10,000 tests/run, 1 MiB/event and 16,384 SQLite pages (normally 64 MiB).
+The index has no lifetime execution-count cap. It defaults to 32 active metadata executions,
+10,000 tests/execution, 1 MiB/event and a configurable 64 MiB SQLite budget.
+`--history-keep 100` retains 100 extra unprotected older executions in addition to latest,
+active and pinned evidence; it is a cleanup eligibility policy, not an admission wall.
+See [pages, execution history and safe cleanup](TESTING_RETENTION.md) for History & storage,
+durable pins, configurable limits and explicit preview/apply maintenance.
 The SQLite rollback journal, request buffers, Python objects and GPU allocations are additional;
 these are not RSS limits. Test and coverage lists return at most fifty rows/page.
-Quotas reject writes without deleting existing evidence. SQLite metadata survives a restart.
+Quotas reject writes without silently deleting evidence. Explicit cleanup can retire only
+eligible unprotected executions; page IDs persist. SQLite metadata and pins survive a restart.
 Named checks are capped at 100 per test execution; the inspection-page registry at 100,000 pages.
 The existing 32-artifact metadata limit per test includes its check artifacts; the shared
 128-artifact-path per-execution limit still applies. These are bounded developer defaults, not

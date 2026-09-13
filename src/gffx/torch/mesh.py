@@ -16,6 +16,7 @@ from ._common import (
 )
 
 __all__ = [
+    "blend_shapes", "skin_lbs", "evaluate_barycentric",
     "face_geometry", "vertex_normals", "gather_faces", "build_edge_topology",
     "sample_surface", "validate", "ValidationReport",
     "WEIGHTING_AREA", "WEIGHTING_UNIFORM",
@@ -28,6 +29,24 @@ WEIGHTING_AREA = 1
 WEIGHTING_UNIFORM = 2
 
 DEFAULT_EPS = 2.0 ** -20
+
+
+def blend_shapes(template, deltas, weights):
+    """Apply shared displacement bases with explicit frame-local coefficients."""
+    from ._animation import blend_shapes as operation
+    return operation(template, deltas, weights)
+
+
+def skin_lbs(vertices, transforms, weights):
+    """Deform batched vertices with shared, signed linear-blend skinning weights."""
+    from ._animation import skin_lbs as operation
+    return operation(vertices, transforms, weights)
+
+
+def evaluate_barycentric(vertices, faces, face_index, barycentric):
+    """Evaluate unstructured surface landmarks with shared topology and coefficients."""
+    from ._animation import evaluate_barycentric as operation
+    return operation(vertices, faces, face_index, barycentric)
 
 
 class _FaceGeometry(torch.autograd.Function):

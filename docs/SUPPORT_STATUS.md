@@ -10,44 +10,55 @@ conservative wherever evidence and targets differ.
 |---|---|---|
 | `import gffx` and static capabilities | Verified on bounded Windows/Linux/macOS lanes | Internal foundation evidence |
 | CPU `cp310-abi3` packaging on Windows x64, Linux x64/ARM64, macOS ARM64 | Four internal wheels built and smoke-tested | Internal foundation evidence |
-| Thirteen graphics, geometry, and mesh operations | Implemented against the contract with acceptance fixtures | Internal evidence; not a public API guarantee |
-| Gradients for twelve of the thirteen | Implemented with fixtures; `mesh.build_edge_topology` publishes none by design | Internal evidence |
-| CUDA provider on Windows x64 | Twelve of thirteen forwards and all twelve backwards, bitwise identical to the CPU host | Internal evidence on **one** host only |
+| Nineteen native families | Thirteen foundation families, five deformation/skeleton/landmark families and one image-transfer family with decode/encode modes; public compositions are counted separately | Working-source inventory; the new transfer family awaits qualification, not support by counting |
+| First-order native derivatives | Foundation derivatives plus all five animation operations; `mesh.build_edge_topology` publishes none by design | Measured fixture cohorts, not all-input/platform proof |
+| CUDA provider on Windows x64 | Foundation evidence retained; all five animation operations pass the source7 CPU/CUDA forward/backward byte-comparison cohort | Internal evidence on **one** host only |
 | CPU/CUDA bit-identity across hosts, drivers, or architectures | Measured on a single RTX 5090 (driver 595.79, Toolkit 12.9.41, compute capability 12.0) | Target, not support |
-| CUDA in continuous integration | Hardware lane designed and verified locally; no self-hosted runner registered | Target, not support |
+| CUDA hardware lane | Current source7/native7 local run passes 51 CTests with no skips; previous CI results retain their own revision | New M1 artifacts are not requalified by historical CI |
 | CUDA release artifacts | Not built as release candidates | Target, not support |
 | Linux GPU lane | Not provisioned | Target, not support |
-| PyTorch Stable-ABI adapter | Built and loaded, with operations and autograd executed | Internal evidence on one combination |
+| PyTorch Stable-ABI adapter | Current local CPU/CUDA execution uses Windows x64, CPython 3.13 and PyTorch 2.10.0+cu128 | Internal evidence on one combination |
+| Camera, scene and shading compositions | Local M1 cohorts recorded separately from the native primitive inventory | Experimental; see authoritative acceptance records |
+| Deferred renderer | Small CPU geometry/material/gradient and resource checks pass; full-image and CUDA matrix remain incomplete | Experimental, not complete M1 acceptance |
+| Image pipeline | CPU reference/gradient/recovery checks pass; CUDA warp repaired, blur reduction repair under exact-artifact qualification | Experimental; remaining device/resource matrix is open |
+| Readiness for starting gffit and Compositron | Generic gffx operations and synthetic integration fixtures; qualification still partial | Consumer implementation, real-model fitting and document transactions are outside gffx M1 and are not claimed |
 | CPython 3.10-3.14 × PyTorch 2.10-2.13 full matrix | Adapter *load* covered by hosted lanes; adapter *operation* measured on one combination | Target, not support |
 | PyTorch 2.9 | Not supported; the adapter refuses to load below 2.10 | Unsupported |
 | JAX CPU/CUDA adapters | Not implemented | Target, not support |
-| Spatial acceleration and real-time profiles | Brute-force implementations; operation timings not characterised | Target, not support |
+| Spatial acceleration and real-time profiles | Brute-force implementations; selected bounded timings exist, not broad performance guarantees | Sustained real-time and edge profiles remain unqualified |
 | Published PyPI distribution | None for `0.2.0.dev0` | Unsupported |
 
 ## What the evidence does and does not cover
 
-Hosted continuous integration runs 36 blocking lanes nightly across four platforms, five CPython
-versions, and three PyTorch lines. Every one of them builds **CPU-only**: the foundation verifier
-configures `-DGFFX_ENABLE_CUDA=OFF`, so the hosted inventory is 25 tests where a CUDA-enabled build
-registers 40. No hosted lane has ever executed a CUDA kernel.
+The configured hosted foundation matrix is CPU-only. Its historical load/packaging results
+belong to the revisions and artifacts that actually ran, not today's dirty M1 checkout. The
+separate hardware lane must verify required GPU cases by name and reject skipped or missing
+cases. Its current local measured floor is 51, replacing the old 40-test inventory; CPU-only
+build counts must be read from their own reports, not derived from this number.
 
-Every CUDA claim in this repository therefore rests on manual runs on one developer machine. The
-kernels are compared to the CPU host with `memcmp` rather than a tolerance, and
-`compute-sanitizer --tool memcheck` reports zero errors over both parity executables, but a single
-host cannot establish that the agreement holds on another architecture, driver, or toolkit.
-`log2f` is not required by IEEE 754 to be correctly rounded, so cross-backend agreement on it is a
-measurement rather than a guarantee. See [the CUDA hardware lane](CUDA_HARDWARE_LANE.md).
+The source7 checkpoint has 36 passing installed animation CUDA tests and a matched native7
+51-test pass. Native7 names the RTX 5090 Laptop, driver 595.79, Toolkit 12.9.41 and capability
+12.0. These are local development-toolkit results, not CUDA 12.8 release-artifact qualification.
+Reference-mode comparisons use bytes rather than a tolerance. A single measured cohort does
+not prove identity for every input, architecture or transcendental implementation. Earlier
+sanitizer reports remain earlier evidence; no fresh sanitizer claim is made for M1 additions.
+See [the CUDA hardware lane](CUDA_HARDWARE_LANE.md).
 
-Hosted lanes verify that the PyTorch adapter *loads*. Executing operations through it, including a
-gradient through autograd, has been done on one combination — Windows x64, CPython 3.13, PyTorch
-2.10.0+cpu — and not across the matrix.
+For reproducibility, local build reports are retained under `build/m1-team-20260909` and the
+lane-specific `build/animation-20260909`, `build/image-20260909` and
+`build/deferred-20260909` directories. Those generated artifacts are not distributed as source.
+Devbrain's gffx `PLAN.md` and `NUMBERS.md` record complete hashes and superseded failures.
+Source8 includes the targeted blur and scalar-colour binding repairs; implementation is not
+automatically a green result on that new artifact.
 
-Rendering correctness, gradient correctness, and CPU/CUDA agreement are covered by acceptance
-fixtures. Latency, jitter, sustained-run, edge-device, and operation-export behaviour are not
-measured at all.
+Some execution boundaries and selected costs have been tested. An expected rejection of
+compilation/export is not working export, and a tiny timing is not sustained throughput,
+jitter or callback safety. No complete real-time, edge-device or cross-platform operation
+matrix is claimed. Higher-order derivatives and compiled paths remain unqualified unless
+their exact operation/profile has dedicated evidence.
 
 Public PyPI `0.1.x` artifacts are an inherited prototype and are unsupported by the new contract.
-The repository source covered by this document is the `0.2.0.dev0` foundation; it does not change
+The repository source covered by this document is the `0.2.0.dev0` development tree; it does not change
 the identity or support status of the public `0.1.x` artifacts.
 
 See the devbrain support matrices for the normative planned gates.

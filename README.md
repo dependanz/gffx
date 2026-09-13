@@ -6,7 +6,7 @@ design centers on stable tensor-level semantics across autodiff frameworks, a de
 CPU core, isolated accelerator providers, compilation and export, and allocation-controlled
 integration into streaming and edge applications.
 
-The project is pre-release. Thirteen operations are implemented and carry acceptance fixtures; the
+The project is pre-release. Thirteen native geometry operations are implemented and carry acceptance fixtures; the
 documentation, packaging, and release work is not done. Read [What works today](#what-works-today)
 and [What does not work yet](#what-does-not-work-yet) together — the second is as load-bearing as
 the first.
@@ -16,7 +16,12 @@ trilinear](docs/showcase/figures/04-minification.png)
 
 ## What works today
 
-**Thirteen operations**, each with a written acceptance contract and fixtures:
+The development checkout also includes the [minimal scene API](docs/SCENE.md):
+typed objects, transform hierarchies, frame-major mesh packing, attribute/material
+bindings and differentiable transforms. This is an eager PyTorch composition over
+the existing operations, not a scene editor, file importer or new native renderer.
+
+**Thirteen native geometry operations**, each with a written acceptance contract and fixtures:
 
 | Group | Operations |
 |---|---|
@@ -51,6 +56,16 @@ using the existing transforms. Its optional `in_front_only=True` filter keeps be
 rejection separate from mathematical projection validity and visibility. It adds no native
 primitive and makes no compilation/export or real-time performance claim.
 
+PyTorch also exposes compositional [classic](docs/CLASSIC_MATERIAL.md) and
+[principled/custom materials](docs/PRINCIPLED_MATERIAL.md), tagged light integration,
+and explicit tensor colour sources. These are not additional native primitives.
+Principled shading has separately named, finite-profile float64 budget bundles for
+[CPU](docs/PRINCIPLED_BUDGET_V1.md) and [CUDA](docs/PRINCIPLED_CUDA_QUALIFICATION.md);
+the table is shipped package data, not a download. Input/layout, energy and gradient
+tests do not imply Cycles fidelity, compiled/exported shading, or real-time performance.
+See the [shading implementation and evidence map](docs/SHADING_M1_STATUS.md) for
+what is locally tested and what remains outside this slice.
+
 ## What does not work yet
 
 - **The PyTorch adapter requires PyTorch 2.10 or newer.** On an older PyTorch it refuses to load
@@ -68,8 +83,14 @@ primitive and makes no compilation/export or real-time performance claim.
 - **No spatial acceleration structure.** `points.knn` and `points.closest_point_on_mesh` are brute
   force, and the rasterizer costs roughly 2.4 seconds per 1000x1000 frame on CUDA. Correct and
   reproducible; not real-time.
-- **No materials, lights, BRDF lobes, tangent frames, bump mapping, or colour management.** These
-  are staged for a later phase rather than excluded from the long-term scope.
+- **Shading is still a bounded development implementation.** Lobes, built-in lights and classic/principled
+    material compositions are available in the development checkout. The exact bundled
+    principled loss table has separate CPU/CUDA float64 profiles with a 32-entry standalone query limit.
+    Material calls separately support 1024 point/light pairs (8 forward or 4 backward
+    points), under a 64 MiB planning ceiling. Fixed image/reference fixtures do not
+    qualify arbitrary scenes, sustained performance or compilation/export. See
+    [material usage and limits](docs/PRINCIPLED_MATERIAL.md). Tangent frames, bump mapping
+    and colour management remain later work.
 - **No ray tracing or BVH traversal, remeshing, mesh booleans, volumetric rendering, non-triangle
   faces, or image decoding.** `render.texture` samples a tensor the caller already holds; it opens
   no file.

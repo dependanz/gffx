@@ -13,7 +13,11 @@ from .reporter import Reporter
 
 
 @torch.no_grad()
-def examples():
+def examples(*, public=False):
+    if public:
+        from gffx.torch import shade as shader
+    else:
+        shader = shade
     # Analytic sphere normals; there is no mesh, geometry inference or hidden renderer.
     y, x = torch.meshgrid((torch.arange(360, dtype=torch.float64)+.5-180)/142,
                           (torch.arange(320, dtype=torch.float64)+.5-160)/142, indexing='ij')
@@ -26,13 +30,13 @@ def examples():
     nv = normals[:, 2]; nl = (normals@light).clamp(0, 1); nh = (normals@half).clamp(0, 1)
     vh = torch.full_like(nv, float(view@half))
     color = normals.new_tensor([.12, .62, .48]).expand(len(nv), 3)
-    matte = shade.lambert(color)
-    classic = .8*matte+.2*shade.blinn_phong(nh, nv.new_tensor(64.))[:, None]
+    matte = shader.lambert(color)
+    classic = .8*matte+.2*shader.blinn_phong(nh, nv.new_tensor(64.))[:, None]
     values = [matte, classic]
     for roughness in (.25, .65):
         r = nv.new_tensor(roughness)
-        values.append((shade.ggx_distribution(nh, r)*shade.smith_visibility(nv, nl, r))[:, None]*
-                      shade.fresnel_schlick(vh, nv.new_tensor([.8, .43, .14])))
+        values.append((shader.ggx_distribution(nh, r)*shader.smith_visibility(nv, nl, r))[:, None]*
+                      shader.fresnel_schlick(vh, nv.new_tensor([.8, .43, .14])))
     images = []
     for value in values:
         linear = 4*value*nl[:, None]+.025*color
@@ -43,21 +47,26 @@ def examples():
     cosine = (degrees*math.pi/180).cos().clamp_min(0)
     half_cosine = ((1+(degrees*math.pi/180).cos())/2).clamp_min(0).sqrt()
     curves = {'matte': cosine/math.pi,
-              'blinn_16': shade.blinn_phong(half_cosine, nv.new_tensor(16.))*cosine,
-              'blinn_64': shade.blinn_phong(half_cosine, nv.new_tensor(64.))*cosine}
+              'blinn_16': shader.blinn_phong(half_cosine, nv.new_tensor(16.))*cosine,
+              'blinn_64': shader.blinn_phong(half_cosine, nv.new_tensor(64.))*cosine}
     for roughness in (.25, .65):
         r = nv.new_tensor(roughness)
-        curves['ggx_'+str(roughness)] = (shade.ggx_distribution(half_cosine, r)*
-            shade.smith_visibility(torch.ones_like(cosine), cosine, r)*
-            shade.fresnel_schlick(half_cosine, nv.new_tensor([.04]*3))[:, 0]*cosine)
+        curves['ggx_'+str(roughness)] = (shader.ggx_distribution(half_cosine, r)*
+            shader.smith_visibility(torch.ones_like(cosine), cosine, r)*
+            shader.fresnel_schlick(half_cosine, nv.new_tensor([.04]*3))[:, 0]*cosine)
     return {'image': torch.cat(images, 1), 'angles': degrees.tolist(), 'curves': curves,
-            'scope': 'Phase-0 elementary recipes; analytic spheres, not public gffx materials or a rasterized scene'}
+            'scope': ('Public elementary gffx.torch.shade functions' if public else 'Phase-0 elementary recipes') +
+                     '; analytic spheres, not complete public gffx materials or a rasterized scene'}
 
 
-def publish(address, run):
+def publish(address, run, *, public=False):
     torch.set_num_threads(2)
-    data = examples(); reporter = Reporter(address, run)
-    source = b''.join(Path(p).read_bytes() for p in (__file__, shade.__file__))
+    data = examples(public=public); reporter = Reporter(address, run)
+    if public:
+        from gffx.torch import shade as shader
+    else:
+        shader = shade
+    source = b''.join(Path(p).read_bytes() for p in (__file__, shader.__file__))
     provenance = {'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                   'dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], text=True)),
                   'artifact_sha256': hashlib.sha256(source).hexdigest()}
@@ -82,7 +91,7 @@ def publish(address, run):
         dash.record('lobes/analytic-checks', {'lambert_unit_albedo_brdf': 1/math.pi,
             'ggx_r1_unit_fresnel_reflectance': 1-math.log(2), 'blinn_n2_normal_view_reflectance': 25/24,
             'scope': data['scope'], 'note': 'closed-form examples, not a substitute for independent test results'}, step=0)
-    send('demo', page='shading/lobes-demo', title='How a surface catches light', artifacts=[
+    send('demo', page='shading/public-lobes-demo' if public else 'shading/lobes-demo', title='How a surface catches light', artifacts=[
         {'kind': kind, 'path': 'lobes/'+path, 'label': label} for kind, path, label in [
             ('image', 'spheres', 'Matte, classic highlight, narrow GGX, broad GGX'),
             ('text', 'read-me', 'How to read this comparison'),
@@ -94,4 +103,5 @@ def publish(address, run):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--address', required=True); parser.add_argument('--run', required=True)
-    args = parser.parse_args(); publish(args.address, args.run)
+    parser.add_argument('--public', action='store_true', help='Use the installed public shading adapter')
+    args = parser.parse_args(); publish(args.address, args.run, public=args.public)

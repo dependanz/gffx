@@ -20,6 +20,7 @@ from ._common import (
 
 __all__ = [
     "rasterize", "interpolate", "texture", "texture_pyramid",
+    "render", "mesh", "visibility", "AttributeSource", "TextureSource",
     "CULL_NONE", "CULL_BACK", "CULL_FRONT",
     "FILTER_NEAREST", "FILTER_BILINEAR", "MIP_NEAREST", "MIP_LINEAR",
     "WRAP_REPEAT", "WRAP_CLAMP", "WRAP_MIRROR", "WRAP_BORDER",
@@ -59,17 +60,10 @@ class _Rasterize(torch.autograd.Function):
             return (None,) * 10
         # The ABI takes all three; an absent one is a zero cotangent here rather than a null view,
         # because the kernel's signature has no per-cotangent presence flag.
+        shapes = (face_index.shape + (3,), face_index.shape, face_index.shape)
         zeros = [
-            torch.zeros_like(reference) if cotangent is None else materialize(cotangent)
-            for cotangent, reference in zip(
-                cotangents,
-                (
-                    torch.empty(
-                        face_index.shape + (3,), dtype=ndc_vertices.dtype),
-                    torch.empty(face_index.shape, dtype=ndc_vertices.dtype),
-                    torch.empty(face_index.shape, dtype=ndc_vertices.dtype),
-                ),
-            )
+            ndc_vertices.new_zeros(shape) if cotangent is None else materialize(cotangent)
+            for cotangent, shape in zip(cotangents, shapes)
         ]
         try:
             grad_ndc = torch.ops.gffx.rasterize_backward(
@@ -346,3 +340,42 @@ def texture(
         int(filter), int(mip_filter), int(wrap_u), int(wrap_v),
         None if border is None else materialize(border),
     )
+
+
+def render(*args, **kwargs):
+    """Render a typed scene through the deferred composition."""
+    from ._deferred import render as implementation
+    return implementation(*args, **kwargs)
+
+
+def mesh(*args, **kwargs):
+    """Build a one-mesh scene and use the same public integrator."""
+    from ._deferred import mesh as implementation
+    return implementation(*args, **kwargs)
+
+
+def visibility(*args, **kwargs):
+    """Return the declared hard sampled-depth visibility."""
+    from ._deferred import visibility as implementation
+    return implementation(*args, **kwargs)
+
+
+def __getattr__(name):
+    if name in ("AttributeSource", "TextureSource"):
+        from . import _deferred
+        return getattr(_deferred, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# Keep import/module identity and all native attributes while allowing the
+# documented gffx.torch.render(scene, camera) spelling. Dispatch only, no math.
+import sys as _sys
+from types import ModuleType as _ModuleType
+
+
+class _CallableRender(_ModuleType):
+    def __call__(self, *args, **kwargs):
+        return self.render(*args, **kwargs)
+
+
+_sys.modules[__name__].__class__ = _CallableRender

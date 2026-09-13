@@ -23,6 +23,11 @@ class Session:
             dirty = bool(subprocess.check_output(["git","status","--porcelain"], cwd=config.rootpath, timeout=2, stderr=subprocess.DEVNULL))
             provenance = {"revision":revision,"dirty":dirty}
         except (OSError, subprocess.SubprocessError): pass
+        artifact = os.environ.get('GFFX_TEST_ARTIFACT_SHA256', '')
+        if len(artifact) == 64 and all(c in '0123456789abcdef' for c in artifact):
+            # A caller-supplied provenance label, not a substitute for verifying
+            # installed bytes. Qualification workers set it after that check.
+            provenance['artifact_sha256'] = artifact
         if not self.reporter.send("start", kind="tests", provenance=provenance): return
         if hasattr(config, "workerinput") or getattr(config.option, "numprocesses", None):
             self.reporter.send("diagnostic", message="Parallel pytest reporting is unsupported; use a serial run.")

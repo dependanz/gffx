@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(gffx_cuda_context_scope_fixture LANGUAGES CXX)
+enable_testing()
+add_executable(test_cuda_context_scope ../test_cuda_context_scope.cpp)
+target_compile_features(test_cuda_context_scope PRIVATE cxx_std_17)
+add_test(NAME cuda_context_scope_lifecycle COMMAND test_cuda_context_scope)

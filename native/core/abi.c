@@ -208,7 +208,10 @@ GFFX_API gffx_status GFFX_CALL gffx_validate_tensor_view(
                     "dense tensor stride arithmetic overflowed"
                 );
             }
-            expected_stride *= extent;
+            /* A zero-sized axis consumes no elements, but cannot make the
+             * dense stride of preceding axes zero: strides remain positive.
+             * This is the ordinary [2,0] -> [1,1] empty tensor convention. */
+            expected_stride *= extent == UINT64_C(0) ? UINT64_C(1) : extent;
         }
     }
     if (element_count != UINT64_C(0) && element_count > UINT64_MAX / item_size) {
