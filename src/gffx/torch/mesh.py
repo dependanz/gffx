@@ -12,7 +12,7 @@ import torch
 
 from ._batching import resolve_offsets
 from ._common import (
-    check_eps, check_faces, check_pair, check_vertices, materialize, translate_native_error,
+    check_eps, check_faces, check_pair, check_same_device, check_vertices, materialize, translate_native_error,
 )
 
 __all__ = [
@@ -269,7 +269,8 @@ def sample_surface(
     touches a framework global generator. The 128-bit counter embeds ``(batch, sample)`` rather
     than iterating a stream, so a sample's value does not depend on how many preceded it and
     reproducibility survives any future parallelization. Pass ``next_counter`` as the following
-    call's ``rng_counter`` to continue a stream.
+    call's ``rng_counter`` to continue a stream. Generator tensors must be on
+    the same device as the geometry; use explicit ``.to(device)`` transfers.
     """
     check_vertices(vertices)
     check_faces(faces)
@@ -281,6 +282,7 @@ def sample_surface(
             raise TypeError("%s must be a uint32 torch.Tensor of shape [2]" % (name,))
         if tensor.dim() != 1 or tensor.numel() != 2:
             raise ValueError("%s must have shape [2]; received %s" % (name, tuple(tensor.shape)))
+    check_same_device(vertices, faces, rng_key, rng_counter)
     vertex_offsets = resolve_offsets(
         vertex_offsets, vertices.shape[0], "vertex_offsets", vertices.device)
     face_offsets = resolve_offsets(face_offsets, faces.shape[0], "face_offsets", faces.device)

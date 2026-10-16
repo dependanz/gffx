@@ -1,5 +1,12 @@
 # Dependency and provenance policy
 
+The GPU-capable `0.2.0a2` experimental Windows candidate adds the existing lazy
+CUDA provider to the CPU core/optional adapter. See [its exact profile](ALPHA_0_2_0A2.md)
+and [GPU build recipe](CUDA_PLUGIN_BUILD.md). Published CPU-only `0.2.0a1` and all
+older artifact-specific evidence retain their own scope. Publication availability
+is separate from preparation; the reference campaign stays paused indefinitely.
+
+
 The base `gffx` distribution has zero mandatory third-party Python runtime dependencies. Its
 wheel contains the Python namespace, CPython 3.10 Limited-API bridge and framework-neutral
 native core. The Windows0.2.0a1 CPU profile also includes an optional PyTorch adapter;
@@ -29,11 +36,15 @@ Ninja 1.13.0 as build-only tools. These are not runtime or public feature depend
 
 - PyTorch is user-selected because its CPU/CUDA variants and package indexes differ by deployment.
   The adapter targets the PyTorch2.10 stable ABI. Current alpha validation profiles and
-  exact results are listed in [ALPHA_0_2_0A1.md](ALPHA_0_2_0A1.md); later frameworks
+  exact results are listed in [the GPU alpha profile](ALPHA_0_2_0A2.md) and
+  [the preserved CPU alpha profile](ALPHA_0_2_0A1.md); later frameworks
   do not silently gain a tested-support claim. The CPU build uses CPU-only Torch, and
   the wheel must not bundle framework DLLs or import torch_cuda.dll.
-- The CUDA provider uses the NVIDIA Driver API. Release-candidate artifacts target CUDA Toolkit
-  12.8; the driver and toolkit are system/build prerequisites and never base-package dependencies.
+- The CUDA provider uses the NVIDIA Driver API. This experimental a2 artifact is built
+  with CUDA Toolkit 12.6.20 and declares Windows driver 560.76 or newer; only
+  driver 610.88 is tested. The toolkit is not required to install the wheel.
+  Broader CUDA build/support targets retain their separate contracts. No CUDA
+  Runtime or NVIDIA driver DLL is bundled.
 - NumPy, JAX, visualization libraries, mesh I/O libraries, and benchmark packages are not required
   or imported by the current base package.
 

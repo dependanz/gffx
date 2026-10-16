@@ -20,10 +20,12 @@ import sys
 import zipfile
 
 
-def audit(wheel: Path) -> dict:
+def audit(wheel: Path, *, cuda_provider: bool = False) -> dict:
     import pefile  # Packaging-only dependency, provided by delvewheel.
 
     imports = {}
+    ptx = None
+    provider_name = "gffx/gffx_cuda12.dll"
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         metadata_name = next(n for n in names if n.endswith('.dist-info/METADATA'))
@@ -34,13 +36,16 @@ def audit(wheel: Path) -> dict:
         if metadata['Name'] != 'gffx' or metadata.get_all('Requires-Dist', []):
             raise ValueError('The base package must remain gffx with no mandatory Python dependencies')
         required = {'gffx/_core.pyd', 'gffx/_torch.pyd', 'gffx/gffx_core.dll'}
+        if cuda_provider:
+            required.add(provider_name)
         if not required.issubset(names):
             raise ValueError('CPU core, CPython bridge and optional PyTorch adapter must all be present')
         for name in names:
             if '..' in Path(name).parts or name.startswith('/'):
                 raise ValueError('Unsafe wheel path')
             leaf = Path(name).name.lower()
-            if leaf.endswith('.dll') and (leaf.startswith(('torch', 'c10', 'gffx_cuda', 'cudart', 'cublas', 'cudnn', 'nvrtc')) or leaf == 'nvcuda.dll'):
+            allowed_provider = cuda_provider and name == provider_name
+            if leaf.endswith('.dll') and ((leaf.startswith('gffx_cuda') and not allowed_provider) or leaf.startswith(('torch', 'c10', 'cudart', 'cublas', 'cudnn', 'nvrtc')) or leaf == 'nvcuda.dll'):
                 raise ValueError(f'Framework/CUDA library must not be bundled: {name}')
             if not name.lower().endswith(('.pyd', '.dll')):
                 continue
@@ -48,11 +53,37 @@ def audit(wheel: Path) -> dict:
             if pe.FILE_HEADER.Machine != 0x8664:
                 raise ValueError(f'Non-x64 native binary: {name}')
             dependencies = sorted({entry.dll.decode('ascii').lower() for field in ['DIRECTORY_ENTRY_IMPORT', 'DIRECTORY_ENTRY_DELAY_IMPORT'] for entry in getattr(pe, field, [])})
+            if allowed_provider:
+                symbols = {entry.name for entry in pe.DIRECTORY_ENTRY_EXPORT.symbols}
+                if b'gffx_cuda_plugin_handshake_v1' not in symbols:
+                    raise ValueError('Missing CUDA provider ABI handshake')
+                payloads = []
+                for kind in getattr(pe, 'DIRECTORY_ENTRY_RESOURCE', []).entries:
+                    if kind.id != 10:
+                        continue
+                    for resource in kind.directory.entries:
+                        if resource.id == 101:
+                            for language in resource.directory.entries:
+                                info = language.data.struct
+                                payloads.append(pe.get_data(info.OffsetToData, info.Size).rstrip(b'\0'))
+                if len(payloads) != 1:
+                    raise ValueError('Expected one embedded PTX resource')
+                payload = payloads[0]
+                text = payload.decode('utf-8')
+                isa = re.search(r'^\s*\.version\s+(\S+)', text, re.MULTILINE)
+                target = re.search(r'^\s*\.target\s+(\S+)', text, re.MULTILINE)
+                if isa is None or target is None:
+                    raise ValueError('Invalid embedded PTX')
+                ptx = dict(isa=isa.group(1), target=target.group(1), bytes=len(payload), sha256=hashlib.sha256(payload).hexdigest())
             pe.close()
             imports[name] = dependencies
             for library in dependencies:
+                if allowed_provider and library == 'nvcuda.dll':
+                    continue
+                if allowed_provider and library.startswith(('torch', 'c10')):
+                    raise ValueError('The CUDA provider must not depend on a framework')
                 if any(part in library for part in ['torch_cuda', 'c10_cuda', 'gffx_cuda', 'cudart', 'cublas', 'cudnn', 'nvrtc', 'nvcuda']):
-                    raise ValueError(f'CPU wheel imports a CUDA library: {name} -> {library}')
+                    raise ValueError(f'Wheel imports a forbidden CUDA library: {name} -> {library}')
                 if name in {'gffx/_core.pyd', 'gffx/gffx_core.dll'} and library.startswith(('torch', 'c10')):
                     raise ValueError('The base native core must not depend on PyTorch')
         record = archive.read(next(n for n in names if n.endswith('.dist-info/RECORD'))).decode()
@@ -64,7 +95,7 @@ def audit(wheel: Path) -> dict:
             actual = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).decode().rstrip('=')
             if algorithm != 'sha256' or actual != expected or len(data) != int(size):
                 raise ValueError(f'Invalid wheel RECORD entry: {name}')
-    return {'wheel': str(wheel.resolve()), 'version': metadata['Version'], 'bytes': wheel.stat().st_size, 'sha256': hashlib.sha256(wheel.read_bytes()).hexdigest(), 'requires_python': metadata['Requires-Python'], 'requires_dist': metadata.get_all('Requires-Dist', []), 'native_imports': imports, 'record_hashes_verified': True, 'gffx_cuda_provider': False}
+    return {'wheel': str(wheel.resolve()), 'version': metadata['Version'], 'bytes': wheel.stat().st_size, 'sha256': hashlib.sha256(wheel.read_bytes()).hexdigest(), 'requires_python': metadata['Requires-Python'], 'requires_dist': metadata.get_all('Requires-Dist', []), 'native_imports': imports, 'record_hashes_verified': True, 'gffx_cuda_provider': cuda_provider, 'ptx': ptx}
 
 
 def build(args) -> dict:

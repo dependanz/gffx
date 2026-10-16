@@ -1,53 +1,57 @@
-# Isolated CUDA plugin build recipes
+# Building the optional CUDA provider
 
-The base GFFX build is CPU-only. CUDA is enabled only by `GFFX_ENABLE_CUDA=ON`, produces the
-separate `gffx_cuda12` shared library, and is discovered only by an explicit full capability
-probe. `import gffx`, ordinary CPU configuration, and CPU wheels do not enable CUDA.
+The provider implements GPU operations and first derivatives. It is compiled
+offline to PTX, embedded in `gffx_cuda12.dll`, then loaded beside the CPU core
+only when explicitly requested. It links the NVIDIA Driver API. Installed users
+need a suitable NVIDIA driver and GPU, plus CUDA-enabled PyTorch for that adapter;
+they do not install a toolkit or compiler to use a wheel.
 
-Release-candidate artifacts use CUDA Toolkit 12.8. CMake accepts a CUDA 12.x toolkit for local
-scaffold development but embeds its exact version in the plugin build identity and warns unless it
-is 12.8; CUDA 13+ plugin builds are rejected. The current host provider is C11, links the CUDA Driver
-API only, never enables the CUDA language, and must not acquire the CUDA Runtime, cuBLAS, cuDNN,
-NCCL, framework, allocator, or
-graphics-library dependencies.
+## Experimental 0.2.0a2 Windows build
 
-## Windows x86-64 / Visual Studio 2022
+The exact candidate uses CUDA Toolkit/nvcc 12.6.20, PTX ISA 8.5, `compute_75`
+(`sm_75` PTX), Visual Studio 2022/MSVC 14.44 and a CPU-only Torch 2.10.0 builder.
+Building the adapter against CPU-only Torch avoids a mandatory torch_cuda.dll
+dependency; CUDA stream access is resolved from the user's loaded framework.
 
 ```powershell
-cmake -S . -B build/cuda-win-x64 -A x64 `
-  -DGFFX_ENABLE_CUDA=ON `
-  -DCUDAToolkit_ROOT="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8" `
-  -DBUILD_TESTING=ON
-cmake --build build/cuda-win-x64 --config Release --parallel
-ctest --test-dir build/cuda-win-x64 -C Release --output-on-failure
+py -3.10 -m venv C:/path/to/cpu-builder
+C:/path/to/cpu-builder/Scripts/python.exe -m pip install --upgrade pip
+C:/path/to/cpu-builder/Scripts/python.exe -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+C:/path/to/cpu-builder/Scripts/python.exe -m pip install scikit-build-core==1.0.3 cmake==4.4.2 ninja==1.13.0 delvewheel==1.13.2
+python tools/gpu_wheel.py build --python C:/path/to/cpu-builder/Scripts/python.exe --source . --work-dir C:/path/to/new-output --toolkit "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6"
 ```
 
-Use `-DGFFX_CUDA_RUN_DEVICE_TESTS=ON` only on a trusted GPU host. It makes the explicit test probe
-load the plugin and driver and enumerate devices; it is unsuitable for public pull-request code.
+The guard checks the exact compiler and CPU-only Torch builder, uses one build
+worker, repairs runtime DLLs while excluding framework/NVIDIA DLLs, then audits
+PE dependencies, provider ABI export, embedded PTX, metadata and RECORD hashes.
+The tool never publishes and refuses an existing output directory.
 
-## Linux manylinux 2.28 x86-64
+The declared Windows driver baseline is 560.76 from NVIDIA's CUDA 12.6 GA table;
+the GPU must also be supported by that driver. Only the named actual driver/GPU
+profile receives test evidence. CUDA 12.x minor compatibility alone does not
+establish support for a newer PTX ISA. See the [exact alpha profile](ALPHA_0_2_0A2.md).
 
-```bash
-cmake -S . -B build/cuda-linux-x64 \
-  -DGFFX_ENABLE_CUDA=ON \
-  -DCUDAToolkit_ROOT=/usr/local/cuda-12.8 \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_TESTING=ON
-cmake --build build/cuda-linux-x64 --parallel
-ctest --test-dir build/cuda-linux-x64 --output-on-failure
-```
+## Broader source and supported-release targets
 
-The Linux release build must run inside the selected manylinux 2.28-compatible environment. GPU
-execution evidence additionally requires the separately approved native Ubuntu 24.04/Tesla T4
-environment; a successful compile alone is not a functional CUDA support claim.
+Generic CMake source builds accept a toolkit from 12.0 upward and target virtual
+architecture `compute_75` by default. A later toolkit changes emitted PTX and its
+driver requirement. The broader fully supported release target builds at 12.0
+to keep that floor low; the explicit 12.6 experimental alpha does not claim that
+older driver range or completion of the full platform/framework/hardware matrix.
+No architecture-specific cubins or user-side CUDA Runtime dependency are added.
 
-Functional GPU kernels are intentionally absent. A later operation phase will compile C+CUDA
-device artifacts for the admitted architecture set and load them through the Driver API; those
-artifacts must preserve the no-CUDA-Runtime dependency boundary. Until then, load/driver/device
-enumeration is infrastructure evidence only.
+Linux source builds retain their own CMake/manylinux and device qualification
+requirements. This alpha publishes one Windows x64 artifact only.
 
-## Explicit discovery override
+## Discovery and validation
 
-Installed probes look only beside `gffx_core` for `gffx_cuda12.dll` on Windows or
-`libgffx_cuda12.so` on Linux. Tests and diagnostics may set `GFFX_CUDA_PLUGIN_PATH` to one absolute
-plugin path. The loader never searches the current working directory or the process `PATH`.
+The loader normally searches beside `gffx_core.dll` for `gffx_cuda12.dll`.
+`GFFX_CUDA_PLUGIN_PATH` is an explicit diagnostic/test override, never required
+for the packaged alpha. The loader does not search the current directory or PATH.
+Base import and static CPU capabilities never probe the driver or provider.
+
+The release checks use the installed wheel, real CUDA tensors, matched CPU/GPU
+forward values and VJPs, independent local numerical gradients and caller-stream
+tests. See [fixture methods and limits](../tests/packaging/GPU_ALPHA.md).
+No skipped GPU case counts as acceptance. The filtered opaque-renderer reference
+campaign remains separately unqualified and paused indefinitely.

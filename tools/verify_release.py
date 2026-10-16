@@ -11,9 +11,9 @@ import zipfile
 
 
 def verify(root: Path, dist: Path, tag: str) -> dict:
-    if tag != 'v0.2.0a1':
-        raise ValueError('This publisher is restricted to v0.2.0a1')
-    manifest = json.loads((root/'releases/0.2.0a1.json').read_text(encoding='utf-8'))
+    if tag != 'v0.2.0a2':
+        raise ValueError('This publisher is restricted to v0.2.0a2')
+    manifest = json.loads((root/'releases/0.2.0a2.json').read_text(encoding='utf-8'))
     project = tomllib.loads((root/'pyproject.toml').read_text(encoding='utf-8'))['project']
     if manifest['version'] != project['version'] or tag != manifest['tag'] or tag != 'v'+project['version']:
         raise ValueError('Release tag, source version and artifact manifest must agree')
@@ -26,8 +26,10 @@ def verify(root: Path, dist: Path, tag: str) -> dict:
     if len(data) != artifact['bytes'] or hashlib.sha256(data).hexdigest() != artifact['sha256']:
         raise ValueError('Artifact bytes differ from the validated wheel')
     with zipfile.ZipFile(wheel) as archive:
-        metadata = BytesParser().parsebytes(archive.read('gffx-0.2.0a1.dist-info/METADATA'))
-        wheel_info = BytesParser().parsebytes(archive.read('gffx-0.2.0a1.dist-info/WHEEL'))
+        if 'gffx/gffx_cuda12.dll' not in archive.namelist():
+            raise ValueError('This exact GPU-capable release requires its optional CUDA provider')
+        metadata = BytesParser().parsebytes(archive.read('gffx-0.2.0a2.dist-info/METADATA'))
+        wheel_info = BytesParser().parsebytes(archive.read('gffx-0.2.0a2.dist-info/WHEEL'))
     if metadata['Name'] != 'gffx' or metadata['Version'] != manifest['version']:
         raise ValueError('Wheel distribution identity differs')
     if metadata['Requires-Python'] != '>=3.10' or metadata.get_all('Requires-Dist', []):

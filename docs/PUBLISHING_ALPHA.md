@@ -1,4 +1,4 @@
-# Publishing the tested 0.2.0a1 alpha
+# Publishing the tested 0.2.0a2 alpha
 
 The publisher uploads the already tested wheel. It does not rebuild a candidate,
 run numerical work, or publish an sdist. The verifier runs with Python 3.11+ as a packaging tool; it is not imported by
@@ -6,10 +6,10 @@ the Python 3.10+ runtime package. The checked-in release manifest fixes
 the artifact filename, length and SHA-256. `tools/verify_release.py` checks that
 manifest, source version, tag, exact upload-directory contents and wheel metadata.
 
-## One-time configuration
+## Existing publishing configuration
 
-After explicit publication approval, configure the existing PyPI `gffx` project
-with a GitHub Trusted Publisher:
+The existing PyPI `gffx` project already has the following GitHub Trusted
+Publisher, proven by the successful a1 publication. Reuse it:
 
 | Setting | Value |
 |---|---|
@@ -18,19 +18,24 @@ with a GitHub Trusted Publisher:
 | Workflow filename | `publish-alpha.yml` |
 | Environment | `pypi` |
 
-Create the GitHub `pypi` environment with a custom deployment tag policy limited
-to `v0.2.0a1`. The workflow grants the publish job only `contents: read` and
-`id-token: write`, uses pinned actions and OIDC, and stores no PyPI API token.
+The existing Trusted Publisher and GitHub `pypi` environment are reused. Their
+repository/workflow/environment identity remains unchanged. Final approval must
+include adding only the `v0.2.0a2` deployment-tag policy while retaining the a1
+policy. No new PyPI token or security-setting submission is needed. The publish
+job retains only `contents: read` and `id-token: write` with pinned actions/OIDC.
+The workflow at the new release commit is restricted to the a2 prerelease;
+the old a1 tag retains its original frozen workflow and manifest.
 
 ## Approved release transaction
 
 1. Review and approve the exact source diff, Git identity, commit message and
    existing `m1-camera` destination before committing/pushing the preparation.
 2. Recheck the manifest's exact wheel hash and local validation receipts.
-3. Create a **draft prerelease** `v0.2.0a1` at the approved commit and attach the
+3. Create a **draft prerelease** `v0.2.0a2` at the approved commit and attach the
    exact tested wheel and reviewed release notes.
 4. Verify the draft, target commit and remote asset digest before publishing it.
-5. Publish the draft. The `release: published` event uses the tagged commit and
+5. Publish the draft; GitHub creates a previously absent tag at this point.
+   Immediately verify that `v0.2.0a2` resolves to the approved commit. The `release: published` event uses the tagged commit and
    triggers `.github/workflows/publish-alpha.yml`, including when a draft becomes
    a prerelease. The workflow downloads the attached wheel, verifies its approved
    bytes and metadata, then uploads it to PyPI using the Trusted Publisher.

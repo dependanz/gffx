@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0a2",
+  "tag": "v0.2.0a2",
+  "artifact": {
+    "filename": "gffx-0.2.0a2-cp310-abi3-win_amd64.whl",
+    "bytes": 3185317,
+    "sha256": "756cff3b2fc1045bda29afffca5a51fce7c8e7481ad4a1d63a0fe69c5ba34fba"
+  },
+  "build": {
+    "python": "3.10.11",
+    "torch": "2.10.0+cpu",
+    "gffx_cuda_provider": true,
+    "cuda_toolkit": "12.6.20",
+    "ptx": {
+      "isa": "8.5",
+      "target": "sm_75",
+      "bytes": 6803743,
+      "sha256": "cc91c074124cfa2489c2865b90102f48641c29ee9b317545808bb3d84040af18"
+    },
+    "mandatory_python_dependencies": []
+  },
+  "validation_document": "docs/ALPHA_0_2_0A2.md"
+}

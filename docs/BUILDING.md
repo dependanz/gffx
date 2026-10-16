@@ -1,5 +1,12 @@
 # Building GFFX
 
+The GPU-capable `0.2.0a2` experimental Windows candidate adds the existing lazy
+CUDA provider to the CPU core/optional adapter. See [its exact profile](ALPHA_0_2_0A2.md)
+and [GPU build recipe](CUDA_PLUGIN_BUILD.md). Published CPU-only `0.2.0a1` and all
+older artifact-specific evidence retain their own scope. Publication availability
+is separate from preparation; the reference campaign stays paused indefinitely.
+
+
 ## Build layers
 
 GFFX keeps its build graph explicit:
@@ -20,13 +27,14 @@ build-only tools. Installed wheels do not depend on those packages.
 | Option | Default | Meaning |
 |---|---:|---|
 | `GFFX_BUILD_PYTHON` | `OFF` in direct CMake | Build the CPython 3.10 Limited-API bridge |
-| `GFFX_BUILD_PYTORCH` | `OFF` | Build the private PyTorch loading scaffold |
-| `GFFX_ENABLE_CUDA` | `OFF` | Build the isolated CUDA diagnostic provider |
+| `GFFX_BUILD_PYTORCH` | `OFF` | Build the optional PyTorch Stable-ABI adapter |
+| `GFFX_ENABLE_CUDA` | `OFF` | Build the optional CUDA Driver-API operation provider |
 | `GFFX_CUDA_RUN_DEVICE_TESTS` | `OFF` | Permit explicit trusted-host driver/device probes |
 | `BUILD_TESTING` | CTest default | Build native ABI and isolation tests |
 
 The wheel configuration overrides `GFFX_BUILD_PYTHON=ON` and `BUILD_TESTING=OFF`; it leaves both
-optional providers off.
+optional providers off by default. The explicit CPU/GPU alpha build helpers
+select their documented adapter/provider profiles.
 
 ## Direct CPU build
 

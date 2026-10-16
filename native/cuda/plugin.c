@@ -2456,6 +2456,19 @@ static gffx_status GFFX_CALL gffx_cuda_op_sample_surface(
     status = gffx_cuda_check_device_view(vertices, 2u, vertices->dtype,
                                          "vertices must be a [V,3] device view", diagnostic);
     if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_check_device_view(rng_key, 1u, GFFX_DTYPE_UINT32,
+                                         "rng_key must be a uint32 device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_check_device_view(rng_counter, 1u, GFFX_DTYPE_UINT32,
+                                         "rng_counter must be a uint32 device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    status = gffx_cuda_check_device_view(next_counter, 1u, GFFX_DTYPE_UINT32,
+                                         "next_counter must be a uint32 device view", diagnostic);
+    if (status != GFFX_STATUS_OK) return status;
+    if (rng_key->shape[0] != 2 || rng_counter->shape[0] != 2 || next_counter->shape[0] != 2) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_INVALID_ARGUMENT,
+                              "generator key and counters must have shape [2]");
+    }
     status = gffx_cuda_ensure_module(diagnostic);
     if (status != GFFX_STATUS_OK) return status;
 

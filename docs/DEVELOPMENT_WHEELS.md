@@ -1,5 +1,12 @@
 # Development wheels
 
+The GPU-capable `0.2.0a2` experimental Windows candidate adds the existing lazy
+CUDA provider to the CPU core/optional adapter. See [its exact profile](ALPHA_0_2_0A2.md)
+and [GPU build recipe](CUDA_PLUGIN_BUILD.md). Published CPU-only `0.2.0a1` and all
+older artifact-specific evidence retain their own scope. Publication availability
+is separate from preparation; the reference campaign stays paused indefinitely.
+
+
 The current first-public-alpha preparation is `0.2.0a1`, a guarded Windows CPU
 build with an optional PyTorch adapter. See [the alpha profile](ALPHA_0_2_0A1.md),
 [installation](INSTALLATION.md) and [building](BUILDING.md). Build against CPU-only

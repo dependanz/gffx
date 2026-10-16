@@ -1,5 +1,12 @@
 # Support status
 
+The GPU-capable `0.2.0a2` experimental Windows candidate adds the existing lazy
+CUDA provider to the CPU core/optional adapter. See [its exact profile](ALPHA_0_2_0A2.md)
+and [GPU build recipe](CUDA_PLUGIN_BUILD.md). Published CPU-only `0.2.0a1` and all
+older artifact-specific evidence retain their own scope. Publication availability
+is separate from preparation; the reference campaign stays paused indefinitely.
+
+
 GFFX `0.2.0a1` is an experimental Windows x64 CPU prerelease candidate with
 an optional separately selected PyTorch adapter. Its exact candidate/runtime
 results are in [ALPHA_0_2_0A1.md](ALPHA_0_2_0A1.md). Package availability and
