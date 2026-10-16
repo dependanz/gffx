@@ -134,12 +134,15 @@ def test_principled_preflight_counts_expanded_channels_before_allocation(monkeyp
 def test_principled_reuses_view_mean_and_rebuilds_fitting_graph(monkeypatch):
     module = api()
     resource = budget()
-    losses = module.PrincipledBudget._material_losses
+    # Observe the current native boundary: one mean owner per point, reused by
+    # both lights. The prior eager _material_losses hook is retained only by the
+    # reference path and would not measure public integration after fusion.
+    query = torch.ops.gffx.shading_loss_query
     calls = []
-    def tracked(self, view, light, roughness, f0, indices):
-        calls.append(roughness.shape)
-        return losses(self, view, light, roughness, f0, indices)
-    monkeypatch.setattr(module.PrincipledBudget, '_material_losses', tracked)
+    def tracked(cn, logs, weights, curve, partial, cosine, owners):
+        calls.append((curve.shape[0], cosine.numel(), owners.numel()))
+        return query(cn, logs, weights, curve, partial, cosine, owners)
+    monkeypatch.setattr(torch.ops.gffx, 'shading_loss_query', tracked)
     n, l, a = t([[0., 0., 1.]]), t([[.2, .1, 1.], [-.1, .3, 1.]]), t([.2, .3, .4], True)
     values = []
     for _ in range(2):
@@ -149,7 +152,7 @@ def test_principled_reuses_view_mean_and_rebuilds_fitting_graph(monkeypatch):
         values.append(out.detach().sum().item())
         with torch.no_grad():
             a.sub_(.01*g)
-    assert calls == [torch.Size([1])]*2
+    assert calls == [(1, 0, 0)]*2
     assert values[1] < values[0]
 
 

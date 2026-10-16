@@ -3,7 +3,10 @@
 The initial image surface operates on images already held in tensors. It does not decode files,
 own editable documents, schedule optimizers or export media. Use `gffx.image` in ordinary Python
 and the explicit `gffx.torch.image` backend when examining compilation/export compatibility.
-Compilation/export and cross-device bit-identity qualification are not yet established.
+Compilation/export remains unqualified. The September 13 PC image10 artifact passes the
+finite CPU/CUDA reference-byte cohorts, including the complete nine-parameter recipe;
+artifact-specific evidence is recorded in devbrain NUMBERS.md. This is not universal
+cross-platform or release qualification.
 
 Images are float32/float64 `[H,W,4]` or `[B,H,W,4]`, with matching dtype/device and no implicit
 batch broadcasting. RGB is linear light; signed/HDR values are allowed. Alpha is in `[0,1]`.
@@ -91,3 +94,37 @@ The contract and tiny independent tests are in `IMAGE_ACCEPTANCE_V0_1.md` in dev
 `tests/python/test_image.py` in the source repository. Passing those tests does not establish
 Compositron's real revision/lock/undo adapter, full-frame performance, CUDA reference identity,
 artistic quality or release readiness. Consult the recorded exact-artifact results.
+
+## September 13 PC continuation
+
+The adopted native Gaussian weight/first-VJP family now uses the same bounded
+scalar arithmetic on C11 CPU and CUDA. It preserves the original convolution,
+finite radius and alpha/border rules. The independent Decimal oracle, interval
+bounds and exact compiled scaler are separate from finite all-radius device checks.
+The approximation is bounded; it does not promise mathematically correctly rounded
+zero/nonzero classification at every subnormal boundary. Second Gaussian derivatives
+are explicitly unsupported. Native workspace is0 B CPU or8 B CUDA; output, saved
+images, stack frames and per-thread device local storage are additional costs.
+
+The complete32x32 recovery fits nine coupled parameters using fresh graphs and
+fixed source pixels. Exact device values/VJPs and independent scalar derivative
+checks pass on image10. Image recovery does not identify opacity/exposure uniquely.
+A finite inspected board is on the testing dashboard's full-recovery demonstration.
+Image10's32/128/256 forward/backward cost ladder passes the unchanged limits;
+1080p composite and2x box reconstruction use explicitly measured16-row caller
+partitions. Neither is a whole-frame resident recipe or sustained throughput claim.
+Cancellation occurs between caller operations/partitions; individual native calls
+are not preemptible. Consumer scheduling, revision safety, media I/O and undo remain
+consumer responsibilities; no consumer implementation is part of gffx M1.
+
+
+## September 20 acceptance audit
+
+The bounded CI-01 through CI-07 handoff is now mapped requirement by requirement
+in [M1_READINESS.md](M1_READINESS.md). Current installed-wheel qualification has
+180 passing checks, including independent CPU equations, exact CUDA values/VJPs,
+all-radius Gaussian device checks and fresh replay of the saved nine-parameter
+fit. The original resource ladder and optimizer solves retain their historical
+artifact identities. Three current-wheel presentation images have been visually
+reviewed, alongside the preserved recovery board. This closes the finite image
+supply, not the remaining original-mesh opaque renderer or all of M1.

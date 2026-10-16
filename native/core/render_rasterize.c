@@ -18,6 +18,7 @@
 #include "internal.h"
 #include "cuda_loader.h"
 #include "mesh_common.h"
+#include "raster_block_bounds.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -223,13 +224,15 @@ GFFX_API gffx_status GFFX_CALL gffx_render_interpolate_workspace(
                                       diagnostic);
 }
 
-GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
+static gffx_status gffx_rasterize_region(
     const gffx_tensor_view *ndc_vertices,
     const gffx_tensor_view *faces,
     const gffx_tensor_view *vertex_offsets,
     const gffx_tensor_view *face_offsets,
     int64_t image_height,
     int64_t image_width,
+    int64_t global_height, int64_t global_width,
+    int64_t row_offset, int64_t column_offset,
     int64_t faces_per_pixel,
     double blur_radius_px,
     uint32_t cull_mode,
@@ -242,6 +245,10 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
     const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    if (global_height<=0 || global_width<=0 || image_height<=0 || image_width<=0 ||
+        row_offset<0 || column_offset<0 || image_height>global_height || image_width>global_width ||
+        row_offset>global_height-image_height || column_offset>global_width-image_width)
+        return gffx_internal_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"invalid raster window bounds");
     /*
      * Device dispatch before any CPU validation. The shared validators dereference tensor data,
      * which must not happen for device memory, so the forward has to precede them rather than
@@ -256,6 +263,13 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
                 diagnostic, GFFX_STATUS_UNSUPPORTED,
                 "no CUDA provider is available; install the gffx CUDA plugin or "
                 "run on the CPU");
+        }
+        if (global_height!=image_height || global_width!=image_width || row_offset || column_offset) {
+            if (!GFFX_CUDA_HAS_OPERATION(operations,render_rasterize_window))
+                return gffx_internal_fail(diagnostic,GFFX_STATUS_UNSUPPORTED,"CUDA provider lacks raster windows");
+            return operations->render_rasterize_window(ndc_vertices,faces,vertex_offsets,face_offsets,
+                global_height,global_width,row_offset,column_offset,image_height,image_width,faces_per_pixel,
+                blur_radius_px,cull_mode,eps,context,face_index,barycentric,depth,signed_distance,workspace,diagnostic);
         }
         if (operations->render_rasterize == NULL) {
             return gffx_internal_fail(
@@ -452,8 +466,8 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
         float *distance_f = is_double ? NULL : (float *)gffx_mesh_elements(signed_distance);
         double *bary_d = is_double ? (double *)gffx_mesh_elements(barycentric) : NULL;
         float *bary_f = is_double ? NULL : (float *)gffx_mesh_elements(barycentric);
-        double half_width = (double)image_width * 0.5;
-        double half_height = (double)image_height * 0.5;
+        double half_width = (double)global_width * 0.5;
+        double half_height = (double)global_height * 0.5;
         double blur_squared = blur_radius_px * blur_radius_px;
         int64_t row;
         int64_t column;
@@ -487,9 +501,6 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
                 for (column = 0; column < image_width; ++column) {
                     int64_t pixel_base =
                         ((batch * image_height + row) * image_width + column) * faces_per_pixel;
-                    double px = (double)column + 0.5;
-                    double py = (double)row + 0.5;
-                    int64_t face;
                     /* Initialize the whole fragment list to background. */
                     for (slot = 0; slot < faces_per_pixel; ++slot) {
                         int64_t entry = pixel_base + slot;
@@ -508,7 +519,16 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
                             bary_f[entry * 3 + 2] = 0.0f;
                         }
                     }
-                    for (face = first_face; face < last_face; ++face) {
+                }
+            }
+            {
+                int64_t tile_row,tile_column,face,row_end,column_end;
+                int64_t regions[128][4]; /* fixed4096 B depth-first stack */
+                int pending;
+                /* Pixels have disjoint output lists. Face-major traversal keeps
+                 * each list's ascending face order and all per-pixel arithmetic,
+                 * while preparing fixed-size triangle constants only once. */
+                for(face=first_face;face<last_face;++face) {
                         int64_t i0 = (int64_t)face_data[face * 3 + 0];
                         int64_t i1 = (int64_t)face_data[face * 3 + 1];
                         int64_t i2 = (int64_t)face_data[face * 3 + 2];
@@ -536,6 +556,38 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
                         double by = (1.0 - ny1) * half_height;
                         double cx = (nx2 + 1.0) * half_width;
                         double cy = (1.0 - ny2) * half_height;
+                        gffx_raster_box box=gffx_raster_make_box(ax,ay,bx,by,cx,cy,(double)global_width,(double)global_height);
+                    pending=1;
+                    regions[0][0]=0;regions[0][1]=0;regions[0][2]=image_height;regions[0][3]=image_width;
+                    while(pending) {
+                        --pending;
+                        tile_row=regions[pending][0];tile_column=regions[pending][1];
+                        row_end=regions[pending][2];column_end=regions[pending][3];
+                        if(gffx_raster_block_excluded(box,ax,ay,bx,by,cx,cy,
+                            (double)(tile_column+column_offset)+0.5,(double)(tile_row+row_offset)+0.5,
+                            (double)(column_end-1+column_offset)+0.5,(double)(row_end-1+row_offset)+0.5,blur_squared))continue;
+                        if(row_end-tile_row>32 || column_end-tile_column>32) {
+                            int64_t middle;
+                            /* Halving positive int64 extents gives at most116
+                             * splits before both extents<=32:128 slots suffice.
+                             * Push the second half before the first. Different
+                             * pixels own disjoint lists; face order is unchanged. */
+                            regions[pending][0]=tile_row;regions[pending][1]=tile_column;
+                            regions[pending][2]=row_end;regions[pending][3]=column_end;
+                            regions[pending+1][0]=tile_row;regions[pending+1][1]=tile_column;
+                            regions[pending+1][2]=row_end;regions[pending+1][3]=column_end;
+                            if(row_end-tile_row>=column_end-tile_column) {
+                                middle=tile_row+(row_end-tile_row)/2;
+                                regions[pending][0]=middle;regions[pending+1][2]=middle;
+                            } else {
+                                middle=tile_column+(column_end-tile_column)/2;
+                                regions[pending][1]=middle;regions[pending+1][3]=middle;
+                            }
+                            pending+=2;continue;
+                        }
+                        for(row=tile_row;row<row_end;++row) for(column=tile_column;column<column_end;++column) {
+                        int64_t pixel_base=((batch*image_height+row)*image_width+column)*faces_per_pixel;
+                        double px=(double)(column+column_offset)+0.5,py=(double)(row+row_offset)+0.5;
                         double e0 = (bx - px) * (cy - py) - (by - py) * (cx - px);
                         double e1 = (cx - px) * (ay - py) - (cy - py) * (ax - px);
                         double e2 = (ax - px) * (by - py) - (ay - py) * (bx - px);
@@ -559,6 +611,7 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
                         w1 = e1 / area2;
                         w2 = e2 / area2;
                         inside = (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0);
+                        if (!inside && gffx_raster_far(box,px,py,px,py,blur_squared)) continue;
                         distance_squared = gffx_boundary_distance_squared(
                             px, py, ax, ay, bx, by, cx, cy, &edge, &edge_t);
                         if (!inside && distance_squared > blur_squared) continue;
@@ -613,12 +666,61 @@ GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
                                 bary_f[entry * 3 + 2] = (float)w2;
                             }
                         }
+                        }
                     }
                 }
             }
         }
     }
     return GFFX_STATUS_OK;
+}
+
+GFFX_API gffx_status GFFX_CALL gffx_render_rasterize(
+    const gffx_tensor_view *ndc_vertices,
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets,
+    const gffx_tensor_view *face_offsets,
+    int64_t image_height,
+    int64_t image_width,
+    int64_t faces_per_pixel,
+    double blur_radius_px,
+    uint32_t cull_mode,
+    double eps,
+    const gffx_execution_context *context,
+    gffx_tensor_view *face_index,
+    gffx_tensor_view *barycentric,
+    gffx_tensor_view *depth,
+    gffx_tensor_view *signed_distance,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+ return gffx_rasterize_region(ndc_vertices,faces,vertex_offsets,face_offsets,image_height,image_width,image_height,image_width,0,0,faces_per_pixel,blur_radius_px,cull_mode,eps,context,face_index,barycentric,depth,signed_distance,workspace,diagnostic);
+}
+
+GFFX_API gffx_status GFFX_CALL gffx_render_rasterize_window(
+    const gffx_tensor_view *ndc_vertices,
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets,
+    const gffx_tensor_view *face_offsets,
+    int64_t global_height,
+    int64_t global_width,
+    int64_t row_offset,
+    int64_t column_offset,
+    int64_t image_height,
+    int64_t image_width,
+    int64_t faces_per_pixel,
+    double blur_radius_px,
+    uint32_t cull_mode,
+    double eps,
+    const gffx_execution_context *context,
+    gffx_tensor_view *face_index,
+    gffx_tensor_view *barycentric,
+    gffx_tensor_view *depth,
+    gffx_tensor_view *signed_distance,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+ return gffx_rasterize_region(ndc_vertices,faces,vertex_offsets,face_offsets,image_height,image_width,global_height,global_width,row_offset,column_offset,faces_per_pixel,blur_radius_px,cull_mode,eps,context,face_index,barycentric,depth,signed_distance,workspace,diagnostic);
 }
 
 GFFX_API gffx_status GFFX_CALL gffx_render_rasterize_backward(

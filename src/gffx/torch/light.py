@@ -9,6 +9,7 @@ import math
 import torch
 
 from .shade import _inputs
+from ._reference_channels import sum3, divide, sqrt_unit, multiply, expand, _sum_last
 from ._registry import Registry, parameters as _parameters
 
 __all__ = ['spherical_harmonics', 'directional', 'point', 'integrate', 'custom', 'Registry']
@@ -41,7 +42,13 @@ def _packet(normals, samples):
         raise ValueError('valid shape/device must match samples')
     if measure == 'delta' and bool((incoming < 0).any()):
         raise ValueError('brdf and delta irradiance must be nonnegative')
-    if bool((direction[~valid] != 0).any()) or bool((incoming[~valid] != 0).any()):
+    if normals.device.type=='cuda':
+        # Elementwise masking retains every invalid-sample check, without
+        # building two variable-sized index selections and synchronizing each.
+        invalid=(~valid)[...,None]
+        bad=((direction!=0)&invalid).any() | ((incoming!=0)&invalid).any()
+        if bool(bad):raise ValueError('invalid sample placeholders must be zero')
+    elif bool((direction[~valid] != 0).any()) or bool((incoming[~valid] != 0).any()):
         raise ValueError('invalid sample placeholders must be zero')
     omega = None
     if measure == 'solid_angle':
@@ -59,15 +66,18 @@ def integrate(normals, brdf, samples):
     direction, incoming, valid, omega = _packet(normals, samples)
     if brdf.shape != direction.shape or bool((brdf < 0).any()):
         raise ValueError('brdf must be nonnegative with exact packet RGB shape')
+    from ._opaque_lighting import integrate as fixed_integrate
+    fixed=fixed_integrate(normals,brdf,direction,incoming,valid,omega)
+    if fixed is not None:return fixed
     n = _unit(normals, 'normals')
     fallback = direction.new_tensor([0., 0., 1.])
     d = _unit(torch.where(valid[..., None], direction, fallback), 'direction')
-    cosine = (n[..., None, :]*d).sum(-1)
+    cosine = sum3(expand(n[..., None, :], d.shape)*d)
     active = valid & (cosine > 0)
     cosine = torch.where(active, cosine, torch.zeros_like(cosine))
-    values = torch.where(active[..., None], brdf, 0.) * torch.where(active[..., None], incoming, 0.) * cosine[..., None]
-    if omega is not None: values = values*torch.where(active, omega, 0.)[..., None]
-    return _finite(values.sum(dim=-2))
+    values = multiply(torch.where(active[..., None], brdf, 0.) * torch.where(active[..., None], incoming, 0.), cosine[..., None])
+    if omega is not None: values = multiply(values, torch.where(active, omega, 0.)[..., None])
+    return _finite(_sum_last(values.transpose(-1, -2)))
 
 
 
@@ -116,11 +126,14 @@ def _shared(value, batch, tail, name):
 
 
 def _unit(value, name):
+    from ._reference_channels import unit_forward
+    fused=unit_forward(value)
+    if fused is not None:return fused
     scale = value.abs().amax(dim=-1, keepdim=True)
     if bool((scale == 0).any()):
         raise ValueError(f'{name} zero direction has no unit direction')
-    scaled = value/scale
-    return scaled/torch.linalg.vector_norm(scaled, dim=-1, keepdim=True)
+    scaled = divide(value,scale)
+    return divide(scaled,sqrt_unit(sum3(scaled.square())).unsqueeze(-1))
 
 
 def _finite(value):
@@ -137,6 +150,30 @@ def _basis(unit):
                         c2*x*y, c2*y*z, c3*(3*z*z-1), c2*x*z, c4*(x*x-y*y)), -1)
 
 
+class _SHContraction(torch.autograd.Function):
+    """Nine separately rounded products, with fixed first-adjoint reductions.
+
+    Basis and RGB axes never use BLAS/FMA contraction. Coefficient adjoints
+    reduce points by the existing pair tree, without a [B,P,9,3] product buffer.
+    """
+    @staticmethod
+    def forward(ctx, basis, coefficients):
+        ctx.save_for_backward(basis, coefficients)
+        value = basis[..., 0, None] * coefficients[:, None, 0, :]
+        for i in range(1, 9):
+            value = value + basis[..., i, None] * coefficients[:, None, i, :]
+        return value
+
+    @staticmethod
+    def backward(ctx, gradient):
+        basis, coefficients = ctx.saved_tensors
+        db = torch.stack([sum3(gradient * coefficients[:, None, i, :])
+                          for i in range(9)], -1) if ctx.needs_input_grad[0] else None
+        dc = torch.stack([_sum_last((gradient * basis[..., i, None]).transpose(-1, -2))
+                          for i in range(9)], -2) if ctx.needs_input_grad[1] else None
+        return db, dc
+
+
 def spherical_harmonics(normals, coefficients):
     """Band-two incident-radiance SH to cosine-convolved RGB irradiance.
 
@@ -148,7 +185,8 @@ def spherical_harmonics(normals, coefficients):
     q = _vectors(normals, 'normals')
     c = _shared(coefficients, q.shape[0], (9, 3), 'coefficients')
     factors = normals.new_tensor([math.pi]+[2*math.pi/3]*3+[math.pi/4]*5)
-    result = _finite((_basis(_unit(q, 'normals'))*factors) @ c)
+    c = expand(coefficients.reshape(-1, 9, 3), c.shape)
+    result = _finite(_SHContraction.apply(_basis(_unit(q, 'normals'))*factors, c))
     return result[0] if normals.ndim == 2 else result
 
 

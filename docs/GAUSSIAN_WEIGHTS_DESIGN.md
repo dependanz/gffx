@@ -396,3 +396,85 @@ scheme exactly or refine it; exact scaled arithmetic matching the counted operat
 and how much interval certification is needed around subnormal transitions beyond
 the preserved byte/accuracy gates. Native signatures and sign/rounding contract live
 in the separately root-owned Gaussian native contract, not in this draft.
+
+
+## PC conditional certificate checkpoint - 2026-09-13
+
+The eighteen-control independent oracle now passes on danziepc. Its original sixteen
+controls missed the adopted radius-zero positive-zero VJP rule for negative incoming
+cotangents; a new red regression preceded correction. Finite-cotangent validation
+still occurs. This is reference qualification, not native acceptance.
+
+`tools/gaussian_weights_bounds.py` and its five prospective controls turn the
+conditional inequalities above into exact Fraction computations. ln(2) is bracketed
+by 120 positive atanh-series terms plus a geometric remainder; both rigorous endpoints
+round to the same split/reciprocal constants. Independent Decimal precisions 180/240
+agree. The high product uses at most 32 significant bits. Certified reduced argument
+bound is below .347; the degree-18 remainder is below 3e-26 and full mantissa error
+below 100u. Input arithmetic contributes below 5bu separately. Exact positive series
+and H32 certify the weighted moments without libm.
+
+For the adopted native a=RN(RN(RN(j/sigma)^2)/sigma), the slope error uses gamma4,
+not the older sigma-cubed operation count. The certificate separately charges slope,
+Z tree, weighted-slope products/division/tree and final subtraction/product/division,
+retaining the declared one-percent perturbation margin. The resulting conditional
+weight and derivative budgets are below 512u and 8192u; no acceptance tolerance changes.
+A separate absolute tail allowance remains 2^-990. The certificate assumes correctly
+rounded primitive/scaling behavior: it does not prove compiled operations, every
+subnormal rounding decision, native workspace cost or CPU/CUDA identity. Directed
+transition and candidate-accuracy tests still precede native implementation.
+
+Exact source hashes, constant hex encodings and measured test reports are in the
+mapped PC output directory `m1-continuation-20260913`; NUMBERS.md owns observed values.
+The five-certificate missing-module red and all previous failures remain preserved.
+
+
+## Resolved subnormal interpretation - PC 2026-09-13
+
+The user explicitly retained the existing accuracy and requirements. The adopted
+bounded approximation, exact CPU/CUDA byte parity, scaled derivative evaluation,
+signed-zero conventions and resource limits remain unchanged. No extra guarantee
+of mathematically correctly rounded zero/nonzero classification is introduced.
+The previous recommendation to revise the arithmetic for that stronger guarantee
+was premature and is superseded. All three interval-certified differences below
+remain diagnostic evidence; no compiled or native acceptance follows from this
+clarification. Continue qualification against GAUSSIAN_NATIVE_CONTRACT.md.
+
+## Historical subnormal decision proposal - superseded 2026-09-13
+
+Directed-interval attribution now certifies 35 selected mathematical rounding
+decisions from seven dtype/radius/quantity controls. Intervals use outward-rounded
+basic Decimal arithmetic, positive exponential series with a geometric tail,
+reciprocal and bounded squaring; they are independent of the candidate polynomial
+and Decimal.exp. Their passing status certifies these selected intervals, not the
+candidate's acceptance. Three sampled classifications disagree:
+
+| dtype / radius / outer quantity | represented sigma bits | mathematical result bits | interpreted candidate bits |
+|---|---:|---:|---:|
+| float64 / 4 / weight | 4592130761096662846 | 1 | 0 |
+| float64 / 8 / derivative | 4596590174398369896 | 0 | 1 |
+| float64 / 16 / derivative | 4601097691735874510 | 1 | 0 |
+
+A result of 1 above is the smallest positive binary64 subnormal (2^-1074), not
+the floating value one. The global absolute bounds still hold, but those bounds
+cannot decide a zero/nonzero preservation requirement. For the radius-4 weight,
+the discrepancy persists with ideal exp evaluated at the prescribed rounded
+exponent and exact mathematical normalization; increasing polynomial degree alone
+cannot repair that example while preserving the adopted input evaluation order.
+
+The existing contract simultaneously specifies a rounded operation order, disclaims
+full correct rounding, and requires preservation of tiny representable derivatives.
+It does not resolve how that preservation applies at the mathematical rounding
+boundary. Before native code, obtain a concrete decision: retain the adopted bounded
+approximation with explicitly documented possible boundary classification differences,
+or require mathematical zero/nonzero preservation and revise/recertify the arithmetic.
+The recommendation is to retain the preservation requirement and refine the arithmetic;
+no accuracy criterion is silently weakened. This is not a request to raise a resource
+limit, change convolution or implement a public generic exponential.
+
+The interpreted candidate's original five controls passed; a sixth failed because
+the authored test selected a positive exponent outside its declared domain. That
+failed report is preserved. The corrected negative-boundary control and explanation
+inventory pass in a focused retry. None of these interpreted results qualifies a
+native symbol, compiled scaler, CUDA operation, VJP reduction or installed artifact.
+Exact runs, hashes and measured costs remain in NUMBERS.md and the mapped PC outputs.

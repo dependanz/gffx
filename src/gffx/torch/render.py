@@ -19,7 +19,7 @@ from ._common import (
 )
 
 __all__ = [
-    "rasterize", "interpolate", "texture", "texture_pyramid",
+    "opaque_material_quadrature_batch", "opaque_material_quadrature", "opaque_boundary_quadrature", "opaque_window", "opaque_quadrature", "opaque_integrate", "opaque_coverage", "rasterize", "interpolate", "texture", "texture_pyramid",
     "render", "mesh", "visibility", "AttributeSource", "TextureSource",
     "CULL_NONE", "CULL_BACK", "CULL_FRONT",
     "FILTER_NEAREST", "FILTER_BILINEAR", "MIP_NEAREST", "MIP_LINEAR",
@@ -379,3 +379,34 @@ class _CallableRender(_ModuleType):
 
 
 _sys.modules[__name__].__class__ = _CallableRender
+
+from ._opaque import opaque_coverage
+
+from ._opaque_colour import opaque_integrate
+
+from ._opaque_quadrature import opaque_quadrature,opaque_boundary_quadrature,opaque_material_quadrature,opaque_material_quadrature_batch
+
+
+def opaque_window(*args,**kwargs):
+    """Bounded opaque global-camera rectangle with first-VJP replay; caller owns storage."""
+    from ._opaque_stream import window
+    return window(*args,**kwargs)
+
+
+def opaque_albedo_replay(scene,camera,region,colour_cotangent,mask_cotangent,*,initial_gradient=None,cull_mode=CULL_BACK,workspace_limit_bytes=67108864):
+    """Recompute <=256 pixels and append their RGB-albedo VJPs in pixel order.
+
+    Fixed batch1 float64 geometry, accepted constant Principled material and one
+    directional sample only. Cotangents and optional RGB carry remain caller-owned
+    and unchanged. Returns colour,mask,albedo_gradient; no graph or persistent cache.
+    All scratch and outputs fit the explicit <=64MiB budget. This finite first-VJP
+    composition does not replace general opaque_window/autograd differentiation.
+    """
+    from ._opaque_albedo_replay import replay
+    return replay(scene,camera,region,colour_cotangent,mask_cotangent,initial_gradient=initial_gradient,cull_mode=cull_mode,workspace_limit_bytes=workspace_limit_bytes)
+
+
+def linear_texture_sh(*args,**kwargs):
+    """Explicit finite linear-texture SH image model; physical materials unchanged."""
+    from ._linear_texture_sh import linear_texture_sh as operation
+    return operation(*args,**kwargs)

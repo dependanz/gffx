@@ -41,6 +41,7 @@ extern "C" __declspec(dllimport) void *__stdcall GetProcAddress(void *module, co
 #include <gffx/execution.h>
 #include <gffx/animation.h>
 #include <gffx/image.h>
+#include <gffx/shading.h>
 #include <gffx/io.h>
 #include <gffx/mesh.h>
 #include <gffx/points.h>
@@ -1061,6 +1062,56 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> rasterize(
     return std::make_tuple(face_index, barycentric, depth, signed_distance);
 }
 
+std::tuple<Tensor, Tensor, Tensor, Tensor> rasterize_window(
+    const Tensor &ndc_vertices, const Tensor &faces, const Tensor &vertex_offsets,
+    const Tensor &face_offsets, int64_t global_height,int64_t global_width,
+    int64_t row_offset,int64_t column_offset,int64_t image_height,int64_t image_width,
+    int64_t faces_per_pixel, double blur_radius_px, int64_t cull_mode, double eps
+) {
+    if (!(global_height>0 && global_width>0 && image_height>0 && image_width>0 &&
+        row_offset>=0 && column_offset>=0 && image_height<=global_height && image_width<=global_width &&
+        row_offset<=global_height-image_height && column_offset<=global_width-image_width)) throw std::runtime_error("invalid raster window bounds");
+    ViewArena arena;
+    Diagnostic diagnostic;
+    gffx_execution_context context = context_for(ndc_vertices);
+    uint64_t bytes = 0, alignment = 0;
+    const int64_t batch_count = face_offsets.size(0) - 1;
+
+    GFFX_CHECK(gffx_render_rasterize_workspace(
+                   ndc_vertices.size(0), faces.size(0), image_height, image_width,
+                   faces_per_pixel, dtype_of(ndc_vertices), &context, &bytes, &alignment,
+                   &diagnostic.buffer),
+               diagnostic.text());
+    Tensor workspace = workspace_of(ndc_vertices, bytes);
+    const gffx_buffer buffer = workspace_buffer(workspace, bytes);
+
+    const std::vector<int64_t> fragment_size{
+        batch_count, image_height, image_width, faces_per_pixel};
+    const std::vector<int64_t> bary_size{
+        batch_count, image_height, image_width, faces_per_pixel, 3};
+    Tensor face_index = torch::stable::new_empty(ndc_vertices, fragment_size, ScalarType::Int);
+    Tensor barycentric = torch::stable::new_empty(ndc_vertices, bary_size);
+    Tensor depth = torch::stable::new_empty(ndc_vertices, fragment_size);
+    Tensor signed_distance = torch::stable::new_empty(ndc_vertices, fragment_size);
+
+    gffx_tensor_view ndc_view = arena.read(ndc_vertices);
+    gffx_tensor_view faces_view = arena.read(faces);
+    gffx_tensor_view vertex_offsets_view = arena.read(vertex_offsets);
+    gffx_tensor_view face_offsets_view = arena.read(face_offsets);
+    gffx_tensor_view face_index_view = arena.write(face_index);
+    gffx_tensor_view barycentric_view = arena.write(barycentric);
+    gffx_tensor_view depth_view = arena.write(depth);
+    gffx_tensor_view signed_distance_view = arena.write(signed_distance);
+    GFFX_CHECK(gffx_render_rasterize_window(
+                   &ndc_view, &faces_view, &vertex_offsets_view, &face_offsets_view,
+                   global_height,global_width,row_offset,column_offset,image_height, image_width, faces_per_pixel, blur_radius_px,
+                   static_cast<uint32_t>(cull_mode), eps, &context, &face_index_view,
+                   &barycentric_view, &depth_view, &signed_distance_view,
+                   bytes > 0 ? &buffer : nullptr, &diagnostic.buffer),
+               diagnostic.text());
+    return std::make_tuple(face_index, barycentric, depth, signed_distance);
+}
+
 Tensor rasterize_backward(
     const Tensor &ndc_vertices, const Tensor &faces, int64_t image_height, int64_t image_width,
     const Tensor &face_index, const Tensor &grad_barycentric, const Tensor &grad_depth,
@@ -1704,6 +1755,10 @@ gffx_execution_context context_for(const Tensor &reference) {
 
 #include "animation.inc"
 #include "image_transfer.inc"
+#include "opaque_coverage.inc"
+#include "opaque_colour.inc"
+#include "gaussian_weights.inc"
+#include "principled_curve.inc"
 
 }  // namespace
 
@@ -1712,6 +1767,47 @@ STABLE_TORCH_LIBRARY(gffx_internal, m) {
 }
 
 STABLE_TORCH_LIBRARY(gffx, m) {
+    m.def("opaque_boundary_batch64(Tensor vertices, Tensor faces, Tensor cuts, float ox, float oy, int edge, int begin, int batch, int slots, int blocks, int limit) -> (Tensor, Tensor, int[])");
+    m.def("opaque_boundary_batch80(Tensor vertices, Tensor faces, Tensor cuts, float ox, float oy, int edge, int begin, int batch, int slots, int blocks, int limit) -> (Tensor, Tensor, int[])");
+    m.def("opaque_boundary_quadrature(Tensor vertices, Tensor faces, Tensor cuts, int h, int w, float ox, float oy, int edge, int limit) -> (Tensor, Tensor)");
+    m.def("opaque_quadrature(Tensor vertices, Tensor faces, Tensor cuts, int h, int w, float ox, float oy, int limit) -> (Tensor, Tensor)");
+    m.def("opaque_material_batch(Tensor v, Tensor f, Tensor cuts, float ox, float oy, int begin, int batch, int slots, int blocks, int limit) -> (Tensor, Tensor, int[])");
+    m.def("opaque_material_prefix_backward(Tensor v, Tensor f, Tensor cuts, Tensor g, float ox, float oy, int begin, int batch, int slots, int blocks, int limit, int derivatives, int face, int seen) -> (Tensor, Tensor, int[], int[])");
+    m.def("opaque_material_prefix_backward64(Tensor v, Tensor f, Tensor cuts, Tensor g, float ox, float oy, int begin, int batch, int slots, int blocks, int limit, int derivatives, int face, int seen) -> (Tensor, Tensor, int[], int[])");
+    m.def("opaque_material_prefix_backward80(Tensor v, Tensor f, Tensor cuts, Tensor g, float ox, float oy, int begin, int batch, int slots, int blocks, int limit, int derivatives, int face, int seen) -> (Tensor, Tensor, int[], int[])");
+    m.def("opaque_partition_prepare(Tensor v, Tensor f, Tensor cuts, float ox, float oy, int limit) -> (Tensor, int[])");
+    m.def("opaque_partition_prepare64(Tensor v, Tensor f, Tensor cuts, float ox, float oy, int limit) -> (Tensor, int[])");
+    m.def("opaque_partition_prepare80(Tensor v, Tensor f, Tensor cuts, float ox, float oy, int limit) -> (Tensor, int[])");
+    m.def("opaque_partition_emit(Tensor rows, int count, int begin) -> (Tensor, Tensor)");
+    m.def("opaque_partition_emit64(Tensor rows, int count, int begin) -> (Tensor, Tensor)");
+    m.def("opaque_partition_emit80(Tensor rows, int count, int begin) -> (Tensor, Tensor)");
+    m.def("opaque_material_batch_rule(Tensor v, Tensor f, Tensor cuts, float ox, float oy, int begin, int batch, int slots, int blocks, int limit, int rule) -> (Tensor, Tensor, int[])");
+    m.def("opaque_material_batch_backward(Tensor v, Tensor f, Tensor cuts, Tensor g, float ox, float oy, int begin, int batch, int slots, int blocks, int limit) -> (Tensor, Tensor, int[])");
+    m.def("opaque_material_batch_rule_backward(Tensor v, Tensor f, Tensor cuts, Tensor g, float ox, float oy, int begin, int batch, int slots, int blocks, int limit, int rule, int derivatives) -> (Tensor, Tensor, int[])");
+    m.def("opaque_material_quadrature(Tensor vertices, Tensor faces, Tensor cuts, int h, int w, float ox, float oy, int limit) -> (Tensor, Tensor)");
+    m.def("opaque_quadrature_backward(Tensor vertices, Tensor faces, Tensor cuts, Tensor gradient, int h, int w, float ox, float oy, int limit) -> (Tensor, Tensor)");
+    m.def("opaque_material_quadrature_backward(Tensor vertices, Tensor faces, Tensor cuts, Tensor gradient, int h, int w, float ox, float oy, int limit) -> (Tensor, Tensor)");
+    m.def("opaque_integrate(Tensor vertices, Tensor faces, Tensor colour, int h, int w, float ox, float oy, int limit) -> Tensor");
+    m.def("opaque_integrate_backward(Tensor vertices, Tensor faces, Tensor colour, Tensor gradient, int h, int w, float ox, float oy, int limit) -> (Tensor, Tensor)");
+    m.def("opaque_coverage(Tensor vertices, Tensor faces, int h, int w, float ox, float oy, int limit) -> Tensor");
+    m.def("opaque_coverage_backward(Tensor vertices, Tensor faces, Tensor gradient, int h, int w, float ox, float oy, int limit) -> Tensor");
+    m.def("shading_principled_pairs(Tensor cn, Tensor logs, Tensor curve, Tensor partial, Tensor mean, Tensor width, Tensor normal, Tensor view, Tensor light, Tensor albedo, Tensor roughness, Tensor f0, bool two_sided, bool derivatives) -> (Tensor, Tensor)");
+    m.def("shading_principled_groups(Tensor cn, Tensor logs, Tensor curve, Tensor partial, Tensor mean, Tensor width, Tensor normal, Tensor view, Tensor light, Tensor albedo, Tensor roughness, Tensor f0, bool two_sided, bool derivatives) -> (Tensor, Tensor)");
+    m.def("shading_ordered_rgba(Tensor carry, Tensor values) -> Tensor");
+    m.def("shading_unit_newton(Tensor input) -> Tensor");
+    m.def("shading_unit_vectors(Tensor input) -> Tensor");
+    m.def("shading_opaque_samples(Tensor owners, Tensor q, Tensor world, Tensor faces, Tensor clip, Tensor normals, Tensor camera, Tensor cn, Tensor logs, Tensor curve, Tensor partial, Tensor mean, Tensor width, Tensor albedo, Tensor roughness, Tensor f0, Tensor direction, Tensor incoming) -> (Tensor, Tensor)");
+    m.def("shading_opaque_albedo(Tensor owners, Tensor q, Tensor world, Tensor faces, Tensor clip, Tensor normals, Tensor camera, Tensor cn, Tensor logs, Tensor curve, Tensor partial, Tensor mean, Tensor width, Tensor albedo, Tensor roughness, Tensor f0, Tensor direction, Tensor incoming, Tensor cotangent) -> (Tensor, Tensor, Tensor)");
+    m.def("shading_delta_brdf(Tensor normal, Tensor brdf, Tensor direction, Tensor incoming, Tensor cotangent) -> (Tensor, Tensor)");
+    m.def("shading_principled_shared_groups(Tensor cn, Tensor logs, Tensor curve, Tensor partial, Tensor mean, Tensor width, Tensor normal, Tensor view, Tensor light, Tensor albedo, Tensor roughness, Tensor f0, bool two_sided, bool derivatives) -> (Tensor, Tensor)");
+    m.def("shading_principled_pairs_backward(Tensor jacobian, Tensor gradient) -> (Tensor, Tensor)");
+    m.def("shading_principled_groups_backward(Tensor jacobian, Tensor gradient) -> (Tensor, Tensor)");
+    m.def("shading_loss_query(Tensor cn, Tensor logs, Tensor weights, Tensor curve, Tensor partial, Tensor cosine, Tensor owners) -> (Tensor, Tensor)");
+    m.def("shading_loss_query_backward(Tensor query, Tensor mean, Tensor owners, Tensor gradient, Tensor mean_gradient) -> (Tensor, Tensor)");
+    m.def("shading_loss_curve(Tensor axis, Tensor controls, Tensor u) -> (Tensor, Tensor)");
+    m.def("shading_loss_curve_backward(Tensor partial, Tensor gradient) -> Tensor");
+    m.def("image_gaussian_weights(Tensor sigma, int radius) -> Tensor");
+    m.def("image_gaussian_weights_backward(Tensor sigma, Tensor grad_weights, int radius) -> Tensor");
     m.def("image_transfer(Tensor input, int transfer) -> Tensor");
     m.def("image_transfer_backward(Tensor input, Tensor grad_output, int transfer) -> Tensor");
     m.def("_animation_workspace_size(Tensor reference, int operation, int B, int V, int K) -> int");
@@ -1780,6 +1876,7 @@ STABLE_TORCH_LIBRARY(gffx, m) {
         "rasterize(Tensor ndc_vertices, Tensor faces, Tensor vertex_offsets, "
         "Tensor face_offsets, int image_height, int image_width, int faces_per_pixel, "
         "float blur_radius_px, int cull_mode, float eps) -> (Tensor, Tensor, Tensor, Tensor)");
+    m.def("rasterize_window(Tensor ndc_vertices, Tensor faces, Tensor vertex_offsets, Tensor face_offsets, int global_height, int global_width, int row_offset, int column_offset, int image_height, int image_width, int faces_per_pixel, float blur_radius_px, int cull_mode, float eps) -> (Tensor, Tensor, Tensor, Tensor)");
     m.def(
         "rasterize_backward(Tensor ndc_vertices, Tensor faces, int image_height, "
         "int image_width, Tensor face_index, Tensor grad_barycentric, Tensor grad_depth, "
@@ -1871,6 +1968,47 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CompositeExplicitAutograd, m) {
  * function that would fail on a NULL table entry deeper down.
  */
 STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
+    m.impl("shading_principled_pairs", TORCH_BOX(&shading_principled_pairs));
+    m.impl("shading_principled_groups", TORCH_BOX(&shading_principled_groups));
+    m.impl("shading_principled_shared_groups", TORCH_BOX(&shading_principled_shared_groups));
+    m.impl("shading_ordered_rgba", TORCH_BOX(&shading_ordered_rgba));
+    m.impl("shading_unit_newton", TORCH_BOX(&shading_unit_newton));
+    m.impl("shading_unit_vectors", TORCH_BOX(&shading_unit_vectors));
+    m.impl("shading_delta_brdf", TORCH_BOX(&shading_delta_brdf));
+    m.impl("shading_opaque_samples", TORCH_BOX(&shading_opaque_samples));
+    m.impl("shading_opaque_albedo", TORCH_BOX(&shading_opaque_albedo));
+    m.impl("shading_principled_pairs_backward", TORCH_BOX(&shading_principled_pairs_backward));
+    m.impl("shading_principled_groups_backward", TORCH_BOX(&shading_principled_groups_backward));
+    m.impl("shading_loss_query", TORCH_BOX(&shading_loss_query));
+    m.impl("shading_loss_query_backward", TORCH_BOX(&shading_loss_query_backward));
+    m.impl("shading_loss_curve", TORCH_BOX(&shading_loss_curve));
+    m.impl("shading_loss_curve_backward", TORCH_BOX(&shading_loss_curve_backward));
+    m.impl("image_gaussian_weights", TORCH_BOX(&image_gaussian_weights));
+    m.impl("image_gaussian_weights_backward", TORCH_BOX(&image_gaussian_weights_backward));
+    m.impl("opaque_quadrature", TORCH_BOX(&opaque_quadrature));
+    m.impl("opaque_material_quadrature", TORCH_BOX(&opaque_material_quadrature));
+    m.impl("opaque_material_batch", TORCH_BOX(&opaque_material_batch));
+    m.impl("opaque_material_batch_rule", TORCH_BOX(&opaque_material_batch_rule));
+    m.impl("opaque_material_prefix_backward", TORCH_BOX(&opaque_material_prefix_backward));
+    m.impl("opaque_material_prefix_backward64", TORCH_BOX(&opaque_material_prefix_backward64));
+    m.impl("opaque_material_prefix_backward80", TORCH_BOX(&opaque_material_prefix_backward80));
+    m.impl("opaque_partition_prepare", TORCH_BOX(&opaque_partition_prepare));
+    m.impl("opaque_partition_prepare64", TORCH_BOX(&opaque_partition_prepare64));
+    m.impl("opaque_partition_prepare80", TORCH_BOX(&opaque_partition_prepare80));
+    m.impl("opaque_partition_emit", TORCH_BOX(&opaque_partition_emit));
+    m.impl("opaque_partition_emit64", TORCH_BOX(&opaque_partition_emit64));
+    m.impl("opaque_partition_emit80", TORCH_BOX(&opaque_partition_emit80));
+    m.impl("opaque_material_batch_backward", TORCH_BOX(&opaque_material_batch_backward));
+    m.impl("opaque_material_batch_rule_backward", TORCH_BOX(&opaque_material_batch_rule_backward));
+    m.impl("opaque_boundary_quadrature", TORCH_BOX(&opaque_boundary_quadrature));
+    m.impl("opaque_boundary_batch64", TORCH_BOX(&opaque_boundary_batch64));
+    m.impl("opaque_boundary_batch80", TORCH_BOX(&opaque_boundary_batch80));
+    m.impl("opaque_quadrature_backward", TORCH_BOX(&opaque_quadrature_backward));
+    m.impl("opaque_material_quadrature_backward", TORCH_BOX(&opaque_material_quadrature_backward));
+    m.impl("opaque_integrate", TORCH_BOX(&opaque_integrate));
+    m.impl("opaque_integrate_backward", TORCH_BOX(&opaque_integrate_backward));
+    m.impl("opaque_coverage", TORCH_BOX(&opaque_coverage));
+    m.impl("opaque_coverage_backward", TORCH_BOX(&opaque_coverage_backward));
     m.impl("image_transfer", TORCH_BOX(&image_transfer));
     m.impl("image_transfer_backward", TORCH_BOX(&image_transfer_backward));
     m.impl("rodrigues", TORCH_BOX(&animation_rodrigues));
@@ -1913,6 +2051,7 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
     m.impl("sample_surface", TORCH_BOX(&sample_surface));
     m.impl("sample_surface_backward", TORCH_BOX(&sample_surface_backward));
     m.impl("rasterize", TORCH_BOX(&rasterize));
+    m.impl("rasterize_window", TORCH_BOX(&rasterize_window));
     m.impl("rasterize_backward", TORCH_BOX(&rasterize_backward));
     m.impl("interpolate", TORCH_BOX(&interpolate));
     m.impl("interpolate_backward", TORCH_BOX(&interpolate_backward));
@@ -1928,6 +2067,47 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CUDA, m) {
 }
 
 STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {
+    m.impl("shading_principled_pairs", TORCH_BOX(&shading_principled_pairs));
+    m.impl("shading_principled_groups", TORCH_BOX(&shading_principled_groups));
+    m.impl("shading_principled_shared_groups", TORCH_BOX(&shading_principled_shared_groups));
+    m.impl("shading_ordered_rgba", TORCH_BOX(&shading_ordered_rgba));
+    m.impl("shading_unit_newton", TORCH_BOX(&shading_unit_newton));
+    m.impl("shading_unit_vectors", TORCH_BOX(&shading_unit_vectors));
+    m.impl("shading_delta_brdf", TORCH_BOX(&shading_delta_brdf));
+    m.impl("shading_opaque_samples", TORCH_BOX(&shading_opaque_samples));
+    m.impl("shading_opaque_albedo", TORCH_BOX(&shading_opaque_albedo));
+    m.impl("shading_principled_pairs_backward", TORCH_BOX(&shading_principled_pairs_backward));
+    m.impl("shading_principled_groups_backward", TORCH_BOX(&shading_principled_groups_backward));
+    m.impl("shading_loss_query", TORCH_BOX(&shading_loss_query));
+    m.impl("shading_loss_query_backward", TORCH_BOX(&shading_loss_query_backward));
+    m.impl("shading_loss_curve", TORCH_BOX(&shading_loss_curve));
+    m.impl("shading_loss_curve_backward", TORCH_BOX(&shading_loss_curve_backward));
+    m.impl("image_gaussian_weights", TORCH_BOX(&image_gaussian_weights));
+    m.impl("image_gaussian_weights_backward", TORCH_BOX(&image_gaussian_weights_backward));
+    m.impl("opaque_quadrature", TORCH_BOX(&opaque_quadrature));
+    m.impl("opaque_material_quadrature", TORCH_BOX(&opaque_material_quadrature));
+    m.impl("opaque_material_batch", TORCH_BOX(&opaque_material_batch));
+    m.impl("opaque_material_batch_rule", TORCH_BOX(&opaque_material_batch_rule));
+    m.impl("opaque_material_prefix_backward", TORCH_BOX(&opaque_material_prefix_backward));
+    m.impl("opaque_material_prefix_backward64", TORCH_BOX(&opaque_material_prefix_backward64));
+    m.impl("opaque_material_prefix_backward80", TORCH_BOX(&opaque_material_prefix_backward80));
+    m.impl("opaque_partition_prepare", TORCH_BOX(&opaque_partition_prepare));
+    m.impl("opaque_partition_prepare64", TORCH_BOX(&opaque_partition_prepare64));
+    m.impl("opaque_partition_prepare80", TORCH_BOX(&opaque_partition_prepare80));
+    m.impl("opaque_partition_emit", TORCH_BOX(&opaque_partition_emit));
+    m.impl("opaque_partition_emit64", TORCH_BOX(&opaque_partition_emit64));
+    m.impl("opaque_partition_emit80", TORCH_BOX(&opaque_partition_emit80));
+    m.impl("opaque_material_batch_backward", TORCH_BOX(&opaque_material_batch_backward));
+    m.impl("opaque_material_batch_rule_backward", TORCH_BOX(&opaque_material_batch_rule_backward));
+    m.impl("opaque_boundary_quadrature", TORCH_BOX(&opaque_boundary_quadrature));
+    m.impl("opaque_boundary_batch64", TORCH_BOX(&opaque_boundary_batch64));
+    m.impl("opaque_boundary_batch80", TORCH_BOX(&opaque_boundary_batch80));
+    m.impl("opaque_quadrature_backward", TORCH_BOX(&opaque_quadrature_backward));
+    m.impl("opaque_material_quadrature_backward", TORCH_BOX(&opaque_material_quadrature_backward));
+    m.impl("opaque_integrate", TORCH_BOX(&opaque_integrate));
+    m.impl("opaque_integrate_backward", TORCH_BOX(&opaque_integrate_backward));
+    m.impl("opaque_coverage", TORCH_BOX(&opaque_coverage));
+    m.impl("opaque_coverage_backward", TORCH_BOX(&opaque_coverage_backward));
     m.impl("image_transfer", TORCH_BOX(&image_transfer));
     m.impl("image_transfer_backward", TORCH_BOX(&image_transfer_backward));
     m.impl("_animation_workspace_size", TORCH_BOX(&animation_workspace_size));
@@ -1965,6 +2145,7 @@ STABLE_TORCH_LIBRARY_IMPL(gffx, CPU, m) {
     m.impl("sample_surface", TORCH_BOX(&sample_surface));
     m.impl("sample_surface_backward", TORCH_BOX(&sample_surface_backward));
     m.impl("rasterize", TORCH_BOX(&rasterize));
+    m.impl("rasterize_window", TORCH_BOX(&rasterize_window));
     m.impl("rasterize_backward", TORCH_BOX(&rasterize_backward));
     m.impl("interpolate", TORCH_BOX(&interpolate));
     m.impl("interpolate_backward", TORCH_BOX(&interpolate_backward));

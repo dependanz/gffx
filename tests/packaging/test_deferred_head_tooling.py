@@ -27,3 +27,12 @@ def test_deferred_head_profile_rejects_other_material_or_light():
     with pytest.raises(ValueError,match='material'):validate_profile(profile(),'custom')
     value=copy.deepcopy(profile());value['scene']['directional_light']['irradiance']=[2.,1.,1.]
     with pytest.raises(ValueError,match='light'):validate_profile(value,'classic')
+
+
+def test_deferred_head_declared_albedo_and_device_profiles():
+    from tools.deferred_head import validate_profile
+    for albedo in ('constant','vertex','gradient','checker'):
+        for device in ('cpu','cuda'):
+            assert validate_profile(profile(),'principled',albedo=albedo,device=device) is None
+    with pytest.raises(ValueError,match='albedo'):validate_profile(profile(),'classic',albedo='custom')
+    with pytest.raises(ValueError,match='device'):validate_profile(profile(),'classic',device='meta')

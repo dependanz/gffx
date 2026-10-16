@@ -33,9 +33,18 @@ set(allowed_includes
     "\"cuda_loader.h\""
     # Phase 2: shared header-only validation helpers for the mesh operations.
     "\"mesh_common.h\""
+    "\"raster_block_bounds.h\""
+    # Owned fixed-capacity polygon arithmetic; remains included in the full scan.
+    "\"opaque_polygon.h\""
+    "\"opaque_quadrature_scalar.h\""
     # Owned implementation fragment; scanned below, never exempt from this gate.
     "\"animation_cuda_dispatch.inc\""
     "\"animation_scalar.h\""
+    "\"gaussian_scalar.h\""
+    "\"principled_curve_scalar.h\""
+    "\"principled_material_scalar.h\""
+    "\"principled_material_impl.inc\""
+    "\"principled_pairs.inc\""
     "\"image_transfer_scalar.h\""
     "\"image_transfer_boundary.h\""
 )

@@ -16,7 +16,10 @@ FUNCTIONS={'ggx':'ggx_distribution','visibility':'smith_visibility','fresnel':'f
 
 
 def raw(value):
-    return bytes(value.detach().cpu().contiguous().reshape(-1).view(torch.uint8).tolist())
+    # contiguous() need not pack a singleton whose original stride is nonunit.
+    flat=torch.empty(value.numel(),dtype=value.dtype,device='cpu')
+    flat.copy_(value.detach().cpu().reshape(-1))
+    return bytes(flat.view(torch.uint8).tolist())
 
 
 def describe(value):
@@ -124,3 +127,45 @@ def test_deferred_principled_captured_stage_attribution(cuda_required,monkeypatc
             assert replayed[device]['outputs']==actual[device]['outputs'],'replay changed stage mathematics'
     # A passing diagnostic validates its capture/replay controls, not parity of
     # differing recorded components; the strict six-case gate stays separate.
+
+
+def test_deferred_principled_curve_primitive_attribution(cuda_required,monkeypatch,record_property):
+    """Localize matched-input curve arithmetic; diagnostic green is not shader parity."""
+    from gffx.torch._loss_curve import _bezier,bounded_slopes,controls
+    from gffx.torch.image import _fixed_sum
+    captured={device:capture(device,monkeypatch) for device in ('cpu','cuda')}
+    stages={}
+    for device,row in captured.items():
+        budget=row['budget'];r=snapshot(row['stages']['losses']['inputs'][2]).requires_grad_()
+        d=budget._data;x=d['_rlog'];cn=d['cosine_nodes']
+        i=(torch.searchsorted(d['roughness_nodes'],r.contiguous(),right=True)-1).clamp(max=len(x)-2)
+        h=x[i+1]-x[i];logr=r.log();u=(logr-x[i])/h
+        values={"roughness_log":logr,"roughness_u":u}
+        for name,y,m,trailing in [('angular',d['_logs'],d['_slopes'],2),('horizon',d['_hlogs'],d['_hslopes'],0)]:
+            width=h.reshape((-1,)+(1,)*trailing)
+            control=torch.stack((y[i],y[i]+width*m[i]/3,y[i+1]-width*m[i+1]/3,y[i+1]))
+            interpolated=_bezier(control,u.reshape((-1,)+(1,)*trailing));output=interpolated.exp()
+            values[name+'_control']=control;values[name+'_log']=interpolated;values[name+'_exp']=output
+        angular=values['angular_exp'].transpose(0,1)
+        slopes=bounded_slopes(d['_clog'],angular,ordered_pairs=True)
+        b=controls(d['_clog'],angular,slopes).permute(2,0,1,3)
+        values['angular_slopes']=slopes;values['angular_controls']=b
+        width=d['_clog'][1:]-d['_clog'][:-1]
+        terms=2*cn[None,2:,None,None].square()*width[None,:,None,None]*b*d['_weights'][None,:,:,None]
+        values['mean_terms']=terms;values['mean_default_sum']=terms.sum(dim=(1,2))
+        values['mean_fixed_sum']=torch.stack([torch.stack([_fixed_sum(frame[...,channel]) for channel in range(2)]) for frame in terms])
+        stages[device]=values
+    summary={}
+    for name,cpu in stages['cpu'].items():
+        gpu=stages['cuda'][name].detach().cpu();host=cpu.detach();different=(host!=gpu)
+        indices=different.reshape(-1).nonzero().reshape(-1).tolist()[:8]
+        summary[name]=dict(shape=list(host.shape),elements=host.numel(),different_values=int(different.sum()),bytes_equal=raw(host)==raw(gpu),
+            max_abs=float((host-gpu).abs().max()) if host.numel() else 0.,
+            first_differences=[dict(index=j,cpu=float(host.reshape(-1)[j]),cuda=float(gpu.reshape(-1)[j])) for j in indices])
+    # Feed identical mean terms to distinguish reduction order from earlier arithmetic.
+    common=stages['cpu']['mean_terms'].detach()
+    means={device:common.to(device).sum(dim=(1,2)) for device in ('cpu','cuda')}
+    fixed={device:torch.stack([torch.stack([_fixed_sum(frame[...,channel]) for channel in range(2)]) for frame in common.to(device)]) for device in ('cpu','cuda')}
+    summary['matched_mean_terms']=dict(default_cpu=describe(means['cpu']),default_cuda=describe(means['cuda']),fixed_cpu=describe(fixed['cpu']),fixed_cuda=describe(fixed['cuda']))
+    assert raw(fixed['cpu'])==raw(fixed['cuda']),'fixed reduction diagnostic is inconsistent'
+    record_property('principled_curve_primitives',json.dumps(summary,sort_keys=True))

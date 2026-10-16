@@ -152,7 +152,7 @@ test('article section links require an existing portable local target',()=>{
 test('all generated textbook links pass the reader policy and fragments resolve',async()=>{
   const root=new URL('learn/',base);
   const names=(await readdir(root)).filter(name=>name.endsWith('.json'));
-  assert.equal(names.length,15);
+  assert.equal(names.length,20);
   for(const name of names){
     const {html}=JSON.parse(await readFile(new URL(name,root),'utf8'));
     // Extract fixtures from trusted generated source; this is not an HTML sanitizer.
@@ -290,6 +290,7 @@ test('guide rendering preserves open details on refresh and copying uses the loa
   const {pathToFileURL}=await import('node:url');const {join}=await import('node:path');
   let source=await readFile(new URL('app.js',base),'utf8');
   source=source.replace('from "/app.js"','from '+JSON.stringify(pathToFileURL(join(process.env.GFFX_DASHBOARD_STATIC,'app.js')).href))
+    .replace("from './portrait-review.js'",'from '+JSON.stringify(new URL('portrait-review.js',base).href))
     .replace('from "./model.js"','from '+JSON.stringify(new URL('model.js',base).href));
   const {TestingApp}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   class Element {
@@ -393,6 +394,7 @@ test('shared-panel reconnect cleans old subscriptions and leaving the page close
   const shared = pathToFileURL(join(process.env.GFFX_DASHBOARD_STATIC,'app.js')).href;
   let source = await readFile(new URL('app.js',base),'utf8');
   source = source.replace('from "/app.js"', 'from '+JSON.stringify(shared))
+    .replace("from './portrait-review.js'", 'from '+JSON.stringify(new URL('portrait-review.js',base).href))
     .replace('from "./model.js"', 'from '+JSON.stringify(new URL('model.js',base).href));
   const {TestingApp} = await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   class Element {
@@ -436,6 +438,7 @@ test('mobile page selection clears old evidence, collapses navigation and return
   const {pathToFileURL}=await import('node:url');const {join}=await import('node:path');
   let source=await readFile(new URL('app.js',base),'utf8');
   source=source.replace('from "/app.js"','from '+JSON.stringify(pathToFileURL(join(process.env.GFFX_DASHBOARD_STATIC,'app.js')).href))
+    .replace("from './portrait-review.js'",'from '+JSON.stringify(new URL('portrait-review.js',base).href))
     .replace('from "./model.js"','from '+JSON.stringify(new URL('model.js',base).href));
   const {TestingApp}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   const elements=new Map();let scrolled=false,href=null,closed=false,polled=false;
@@ -501,6 +504,7 @@ test('coverage meters render accessible progress with exact counts, never a fake
   const {pathToFileURL}=await import('node:url');const {join}=await import('node:path');
   let source=await readFile(new URL('app.js',base),'utf8');
   source=source.replace('from "/app.js"','from '+JSON.stringify(pathToFileURL(join(process.env.GFFX_DASHBOARD_STATIC,'app.js')).href))
+    .replace("from './portrait-review.js'",'from '+JSON.stringify(new URL('portrait-review.js',base).href))
     .replace('from "./model.js"','from '+JSON.stringify(new URL('model.js',base).href));
   const {TestingApp}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   class Element {constructor(tag){this.tag=tag;this.children=[];this.attrs={};}setAttribute(k,v){this.attrs[k]=String(v);}append(...children){this.children.push(...children);}}
@@ -531,6 +535,7 @@ test('slow refresh never collapses visible filters and unchanged results retain 
   const {pathToFileURL}=await import('node:url');const {join}=await import('node:path');
   let source=await readFile(new URL('app.js',base),'utf8');
   source=source.replace('from "/app.js"','from '+JSON.stringify(pathToFileURL(join(process.env.GFFX_DASHBOARD_STATIC,'app.js')).href))
+    .replace("from './portrait-review.js'",'from '+JSON.stringify(new URL('portrait-review.js',base).href))
     .replace('from "./model.js"','from '+JSON.stringify(new URL('model.js',base).href));
   const {TestingApp}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   class Element {
@@ -560,9 +565,20 @@ test('slow refresh never collapses visible filters and unchanged results retain 
     await app.poll();
     assert.equal(elements.get('summary').children[0],summary,'transient network loss cleared last received evidence');
     assert.match(elements.get('connection').textContent,/offline/i);
+    app.get=async()=>{const error=new Error('signal is aborted without reason');error.name='AbortError';throw error;};
+    await app.poll();
+    assert.equal(elements.get('summary').children[0],summary);
+    assert.match(elements.get('error').textContent,/retrying automatically/i);
     app.get=async()=>{const error=new Error('Unknown page');error.status=404;throw error;};
     await app.poll();
     assert.equal(elements.get('summary').children.length,0,'unknown references must still fail closed');
+    app.selected={page:'overview',run:'',path:null,step:null};app.displayedSelection=null;
+    app.get=async()=>{const error=new Error('signal is aborted without reason');error.name='AbortError';throw error;};
+    await app.poll();
+    assert.equal(elements.get('title').textContent,'Where we are in M1');
+    assert.match(elements.get('error').textContent,/dated M1 checkpoint/);
+    assert.match(elements.get('connection').textContent,/Offline/);
+    assert.equal(elements.get('summary').children.length,2);
   } finally {release?.(detail);await pending;delete globalThis.document;}
 });
 
@@ -577,6 +593,7 @@ test('unchanged pagination preserves button identity and focus targets', async (
   const {pathToFileURL}=await import('node:url');const {join}=await import('node:path');
   let source=await readFile(new URL('app.js',base),'utf8');
   source=source.replace('from "/app.js"','from '+JSON.stringify(pathToFileURL(join(process.env.GFFX_DASHBOARD_STATIC,'app.js')).href))
+    .replace("from './portrait-review.js'",'from '+JSON.stringify(new URL('portrait-review.js',base).href))
     .replace('from "./model.js"','from '+JSON.stringify(new URL('model.js',base).href));
   const {TestingApp}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   const pager={children:[],replaceChildren(...children){this.children=children;}};
@@ -584,4 +601,44 @@ test('unchanged pagination preserves button identity and focus targets', async (
   try {const app=Object.create(TestingApp.prototype);app.offset=0;app.selected={page:'mesh/face-geometry'};
     app.pager(60);const previous=pager.children[0];app.pager(60);assert.equal(pager.children[0],previous);
   } finally {delete globalThis.document;}
+});
+
+
+test('M1 orientation keeps limited evidence separate from milestone completion',()=>{
+  assert.deepEqual(model.M1_CHECKPOINT.groups.map(g=>g.number),[1,2,3,4,5]);
+  assert.equal(model.M1_CHECKPOINT.groups.filter(g=>g.state==='Working here').length,1);
+  assert.equal(model.M1_CHECKPOINT.groups[1].state,'Qualified in stated scope');
+  assert.equal(model.M1_CHECKPOINT.groups[2].state,'Qualified in stated scope');
+  assert.equal(model.M1_CHECKPOINT.groups[3].state,'Working here');
+  assert.match(model.M1_CHECKPOINT.groups[0].text,/does not qualify a whole frame/);
+  const pages=[{id:'image/chroma-demo',kind:'tests'},{id:'camera/fit-demo',kind:'demo'}, {id:'fake',kind:'demo'}];
+  assert.deepEqual(model.examplePages(pages),[pages[1]]);
+  assert.equal(model.M1_CHECKPOINT.evidence.page,'fitting/gffit-flame-demo');
+});
+
+
+test('UI source retains readable UTF-8 and compact human labels',async()=>{
+  for(const name of ['model.js','app.js','index.html','checkpoint.json']){
+    const text=await readFile(new URL(name,base),'utf8');
+    assert.doesNotMatch(text,/[\u00c3\u00c2]\S|\ufffd/);
+  }
+  assert.equal(model.pageLabel({kind:'demo',evidence:{}}),'Demonstration · not a test');
+  assert.equal(model.lineRanges([1,2,3]),'1–3');
+});
+
+test('checkpoint separates scientific campaign state from dashboard connectivity',async()=>{
+  const cp=JSON.parse(await readFile(new URL('checkpoint.json',base),'utf8'));
+  assert.ok(['stopped','running','qualifying','investigating','checkpoint','forward accuracy passed'].includes(cp.status));
+  assert.ok(Number.isInteger(cp.acceptedForeground)&&cp.acceptedForeground>=0&&cp.acceptedForeground<=cp.totalForeground);
+  assert.equal(cp.totalForeground,984);
+  const hash='a'.repeat(64),stopped={...cp,status:'stopped',referenceCampaign:'saved subject',recoveryProgress:{
+    schema:'gffx-recovery-progress/1',campaign:'saved subject',status:'stopped',acceptedForeground:214,totalForeground:984,
+    checkedAt:'2026-10-06T17:21:14Z',packetSha256:hash,pipelineStartSha256:hash,frameSha256:{fitted:hash,truth:hash}}};
+  assert.equal(model.withRecoveryProgress(stopped).acceptedForeground,214);
+  const active={...stopped,status:'qualifying',acceptedForeground:0};
+  assert.equal(model.withRecoveryProgress(active).acceptedForeground,0,'old terminal subjects cannot override current qualification');
+  const app=await readFile(new URL('app.js',base),'utf8');
+  assert.ok(app.includes('const checkpoint=withRecoveryProgress(result.checkpoint||M1_CHECKPOINT)'));
+  assert.match(app,/Dashboard online/);
+  assert.ok(app.includes('JSON.stringify([page,checkpoint,directory.total'));
 });

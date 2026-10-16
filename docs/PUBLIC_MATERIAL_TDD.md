@@ -1,5 +1,7 @@
 # Public materials: first test-first contract slice
 
+Current milestone declaration,15October2026: M1, Group4 and finite Group5 are complete for adopted development readiness. See [exact scope and accepted presentation](M1_DEVELOPMENT_READINESS_CLOSEOUT.md). Historical technical evidence below retains its original artifact/device/workload limits; independent filtered qualification and original corpus profiles remain unpassed/unadmitted. No universal current-wheel, consumer-completion, SIGGRAPH-quality or likeness claim.
+
 Authoritative design: devbrain `projects/gffx/SHADING_CONTRACT_V0_1.md` section
 8.12. This document maps execution work, not a second editable interface contract.
 The initial baselines below precede implementation. Current public CPU interfaces
@@ -213,8 +215,7 @@ admitted physical material. No runtime implementation or live demo was added.
 User-approved contract 8.15 separates two synthetic-head reference profiles:
 strict independent correctness for the declared gffx models, and measured Cycles
 differences. Matching Cycles remains a product goal, but full Cycles quality does
-not block M1. M1 means gffit operational on real models and observations,
-not the start of gffit development. The direct-light CPU float64 profile uses a
+not block M1. Historical operational-gffit wording was superseded by D282 on 2026-09-09: M1 means readiness to START gffit/Compositron. See M1_CLOSEOUT_RECONCILIATION.md for current scoped evidence and remaining closeout. The direct-light CPU float64 profile uses a
 128-by-128 linear image with covered-channel atol 1e-10 / rtol 1e-8 on shared
 geometry buffers. That checks shading, not independent rasterization. Physical
 resource acceptance remains separate; model differences cannot loosen these

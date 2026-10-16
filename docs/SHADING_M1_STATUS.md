@@ -1,9 +1,11 @@
 # Shading: the locally tested M1 slice
 
+Current milestone declaration,15October2026: M1, Group4 and finite Group5 are complete for adopted development readiness. See [exact scope and accepted presentation](M1_DEVELOPMENT_READINESS_CLOSEOUT.md). Historical technical evidence below retains its original artifact/device/workload limits; independent filtered qualification and original corpus profiles remain unpassed/unadmitted. No universal current-wheel, consumer-completion, SIGGRAPH-quality or likeness claim.
+
 The local M1 shading gates are complete as of 2026-09-09. This is an
 implementation/evidence map, not a release announcement. Development
 work remains on `m1-camera`; hosted qualification and publication are separate.
-M1 means a real gffit consumer works end to end, not merely that shading works.
+M1 means readiness to START gffit/Compositron, per D282's 2026-09-09 correction. Earlier real-consumer exit wording is superseded. B1 demonstrates public CPU fitting integration and the scoped M1 milestone is complete; independent profile-wide qualification remains separate. See M1_CLOSEOUT_RECONCILIATION.md.
 
 ## What the public interface provides
 

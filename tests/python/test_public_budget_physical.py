@@ -33,7 +33,13 @@ def measurement(request, monkeypatch, tmp_path):
         check()
         data = cost.load_json(Path(location)/(name+'.json'), digest)
         public = PrincipledBudget.from_envelope(probe.envelope(data, name), device='cpu', dtype=torch.float64, allow_unverified=True)
-        assert public.metadata['admission'] == 'experimental'
+        # The original prospective screen predates fine-table catalog admission.
+        # Regress the same bytes; require their actual current identity explicitly.
+        if name == 'fine':
+            assert public.metadata['admission'] == 'accepted'
+            assert public.metadata['resource_id'] == 'ggx-smith-loss-cpu-f64-v1'
+        else:
+            assert public.metadata['admission'] == 'experimental'
         resources.append(probe.PublicComparison(public, cost.construct(data), check))
     yield controls, (*resources, tmp_path)
     check()

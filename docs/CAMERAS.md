@@ -93,3 +93,29 @@ Local Phase 3 verification covers projection and dense/scattered unprojection gr
 to intrinsics and pose on CPU/CUDA, inverse depth/pixel derivatives, and independent
 two-camera gradients under one backward. Float32/64 device fixtures explicitly check
 inherited CUDA composition. These tests do not establish million-point performance budgets.
+
+## Parallel and FLAME weak-perspective projection
+
+`Camera.from_orthographic(fx, fy, cx, cy, image_height, image_width, near, far,
+pose=None)` uses positive pixel-per-view-unit scales rather than focal lengths.
+For a view-space point `(x,y,z)`, pixels are `(fx*x+cx, -fy*y+cy)` independent
+of depth. Clip w is one. View depth is `-z`; NDC depth is
+`(2*view_depth-far-near)/(far-near)`. Near/far retain `0 < near < far`.
+Pose must be affine and invertible. Zero view depth is mathematically defined;
+`in_front_only=True` still excludes points at or behind the camera plane.
+
+`Camera.from_weak_perspective(scale, tx, ty, image_height, image_width, near,
+far, pose=None)` implements the normalized image convention
+`(scale*(x+tx), -scale*(y+ty))`. Positive scale and translations retain their
+PyTorch graphs. It does not introduce a guessed camera distance or change
+geometric depth to a legacy fitted depth heuristic. The caller supplies a pose
+and clipping planes that contain its geometry.
+
+`projection_kind` is `perspective` or `orthographic`; a rig must be homogeneous.
+Sampled deferred rendering preserves this kind through scene camera bindings,
+batching and supersampling. Orthographic view vectors are parallel to the
+camera's positive local z axis in world space, including specular shading.
+Explicit fitting-soft coverage uses the existing approximate profile.
+Filtered opaque rendering currently refuses orthographic cameras: its nonlinear
+integration and streamed camera snapshots require separate qualification.
+This refusal applies to mask-only as well as colour requests, with no fallback.

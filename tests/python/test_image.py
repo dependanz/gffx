@@ -535,3 +535,74 @@ def test_native_transfer_rank_zero_descriptor_preserves_scalar_forward_and_vjp(i
     gradient,=torch.autograd.grad(result,scalar)
     assert result.shape==gradient.shape==torch.Size([])
     assert torch.equal(result.detach(),expected) and torch.equal(gradient,expected_gradient)
+
+
+@pytest.mark.parametrize('dtype',[torch.float32,torch.float64])
+@pytest.mark.parametrize('per_batch',[False,True])
+@pytest.mark.parametrize('masked',[False,True])
+def test_mask_odd_shared_opacity_gradient_independent_sum(image,dtype,per_batch,masked):
+    """An explicit reduction must still equal the independently summed opacity derivative."""
+    pixels=torch.arange(120,dtype=dtype).reshape(2,3,5,4)/256;pixels[...,3]=.8
+    mask=(.2+torch.arange(30,dtype=dtype)/64).reshape(2,3,5,1) if masked else None
+    opacity=torch.tensor([.63,.41] if per_batch else .63,dtype=dtype,requires_grad=True)
+    cot=torch.arange(1,121,dtype=dtype).reshape(pixels.shape)/128
+    actual=torch.autograd.grad(image.apply_mask(pixels,mask,opacity=opacity),opacity,grad_outputs=cot)[0]
+    values=[]
+    for b in range(2):
+        values.append(math.fsum(float(pixels[b,y,x,c])*float(cot[b,y,x,c])*(float(mask[b,y,x,0]) if masked else 1.) for y in range(3) for x in range(5) for c in range(4)))
+    expected=torch.tensor(values if per_batch else math.fsum(values),dtype=dtype)
+    torch.testing.assert_close(actual,expected,atol=2e-5 if dtype==torch.float32 else 2e-12,rtol=2e-4 if dtype==torch.float32 else 2e-12)
+
+
+@pytest.mark.parametrize('dtype',[torch.float32,torch.float64])
+def test_alpha_over_independent_derivatives(image,dtype):
+    """The fixed channel reduction must retain the analytic alpha-over derivative."""
+    import math
+    source=torch.tensor([[[.13,.21,.17,.63],[.23,.11,.07,.41]]],dtype=dtype,requires_grad=True)
+    destination=torch.tensor([[[.19,.29,.31,.83],[.03,.09,.17,.71]]],dtype=dtype,requires_grad=True)
+    cot=torch.tensor([[[.37,-.23,.71,.13],[.19,.43,-.17,.61]]],dtype=dtype)
+    out=image.composite([source],destination)
+    gs,gd=torch.autograd.grad(out,(source,destination),grad_outputs=cot)
+    expected=cot.clone()
+    for j in range(2):
+        expected[0,j,3]=float(cot[0,j,3])-math.fsum(float(cot[0,j,k])*float(destination[0,j,k]) for k in range(4))
+    eps=torch.finfo(dtype).eps
+    torch.testing.assert_close(gs,expected,rtol=8*eps,atol=8*eps)
+    torch.testing.assert_close(gd,cot*(1-source[...,3:4]),rtol=0,atol=0)
+    torch.testing.assert_close(out,source+(1-source[...,3:4])*destination,rtol=0,atol=0)
+
+
+def test_adjust_independent_alpha_and_parameter_derivatives():
+    from gffx.torch import image
+    import math
+    pixels=torch.tensor([[[.12,.24,.31,.7],[.2,.1,.05,.8]]],dtype=torch.float64,requires_grad=True)
+    ev=torch.tensor(-.04,dtype=torch.float64,requires_grad=True);lift=torch.tensor(-.006,dtype=torch.float64,requires_grad=True)
+    cot=torch.tensor([[[.17,-.29,.41,.53],[-.67,.79,-.83,.97]]],dtype=torch.float64)
+    result=image.adjust(pixels,exposure=ev,brightness=lift)
+    gp,ge,gb=torch.autograd.grad(result,(pixels,ev,lift),cot)
+    gain=2**float(ev.detach())
+    expected_rgb=cot[...,:3]*gain
+    expected_alpha=cot[...,3:4]+(cot[...,:3]*lift.detach()).sum(-1,keepdim=True)
+    torch.testing.assert_close(gp,torch.cat((expected_rgb,expected_alpha),-1),atol=1e-15,rtol=1e-15)
+    torch.testing.assert_close(ge,(cot[...,:3]*pixels.detach()[...,:3]).sum()*gain*math.log(2),atol=1e-15,rtol=1e-15)
+    torch.testing.assert_close(gb,(cot[...,:3]*pixels.detach()[...,3:4]).sum(),atol=1e-15,rtol=1e-15)
+    fn=lambda a,b,c:image.adjust(a,exposure=b,brightness=c)
+    assert torch.autograd.gradcheck(fn,(pixels,ev,lift))
+    assert torch.autograd.gradgradcheck(fn,(pixels,ev,lift))
+
+
+def test_masked_multiply_independent_local_mask_derivative():
+    from gffx.torch import image
+    pixels=torch.tensor([[[.12,.24,.31,.7],[.2,.1,.05,.8]]],dtype=torch.float64,requires_grad=True)
+    mask=torch.tensor([[[.37],[.61]]],dtype=torch.float64,requires_grad=True)
+    opacity=torch.tensor(.68,dtype=torch.float64,requires_grad=True)
+    cot=torch.tensor([[[.17,-.29,.41,.53],[-.67,.79,-.83,.97]]],dtype=torch.float64)
+    result=image.apply_mask(pixels,mask,opacity=opacity)
+    a,b,c=torch.autograd.grad(result,(pixels,mask,opacity),cot)
+    terms=(pixels.detach()*cot).sum(-1,keepdim=True)
+    torch.testing.assert_close(a,cot*mask.detach()*opacity.detach(),atol=1e-15,rtol=1e-15)
+    torch.testing.assert_close(b,terms*opacity.detach(),atol=1e-15,rtol=1e-15)
+    torch.testing.assert_close(c,(terms*mask.detach()).sum(),atol=1e-15,rtol=1e-15)
+    fn=lambda x,y,z:image.apply_mask(x,y,opacity=z)
+    assert torch.autograd.gradcheck(fn,(pixels,mask,opacity))
+    assert torch.autograd.gradgradcheck(fn,(pixels,mask,opacity))

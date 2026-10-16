@@ -79,8 +79,18 @@ if(UNIX)
 endif()
 add_test(NAME geometry.image_transfer COMMAND gffx_test_image)
 
+add_executable(gffx_test_opaque_coverage test_opaque_coverage.c)
+target_link_libraries(gffx_test_opaque_coverage PRIVATE gffx_core)
+add_test(NAME geometry.opaque_coverage COMMAND gffx_test_opaque_coverage)
+
+add_executable(gffx_test_opaque_colour test_opaque_colour.c)
+target_link_libraries(gffx_test_opaque_colour PRIVATE gffx_core)
+add_test(NAME geometry.opaque_colour COMMAND gffx_test_opaque_colour)
+
 if(WIN32)
     foreach(test_target IN ITEMS
+        gffx_test_opaque_coverage
+        gffx_test_opaque_colour
         gffx_test_animation
         gffx_test_image
         gffx_test_face_geometry

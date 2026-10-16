@@ -583,3 +583,40 @@ def test_page_creation_dates_are_explicit_and_independent_of_execution(tmp_path)
     start(index)
     index.accept({'event':'collect','run':'one','nodeids':['tests/pytorch/test_face_geometry.py::test_forward']})
     assert {p['id']:p['created_on'] for p in index.pages()}==baseline
+
+
+def test_catalog_cache_invalidates_new_evidence_and_keeps_live_staleness(tmp_path,monkeypatch):
+    model=module('model');index=model.Index(tmp_path/'index.sqlite')
+    monkeypatch.setattr(model,'PAGES',tuple(p for p in model.PAGES if p['id']=='camera/projection'))
+    name='tests/python/test_camera.py::test_cam11_cache_control'
+    start(index,'cache_old');index.accept({'event':'collect','run':'cache_old','nodeids':[name]})
+    original=index.page;calls=[]
+    def counted(*args,**kw):calls.append(args);return original(*args,**kw)
+    monkeypatch.setattr(index,'page',counted)
+    first=index.pages();second=index.pages();assert first==second and len(calls)==1
+    first[0]['evidence']['run']='tampered caller';assert index.pages()[0]['evidence']['run']=='cache_old'
+    updated=second[0]['evidence']['updated'];monkeypatch.setattr(model.time,'time',lambda:updated+20)
+    assert index.pages()[0]['evidence']['stale'] is True
+    start(index,'cache_new');index.accept({'event':'collect','run':'cache_new','nodeids':[name]})
+    fresh=index.pages()[0];assert fresh['evidence']['run']=='cache_new' and fresh['counts']=={'pending':1}
+    index.accept({'event':'report','run':'cache_new','nodeid':name,'when':'call','outcome':'failed'})
+    index.accept({'event':'report','run':'cache_new','nodeid':name,'when':'teardown','outcome':'passed'})
+    index.accept({'event':'finish','run':'cache_new','exit_code':1})
+    assert index.pages()[0]['state']=='failed'
+    index.pin('cache_new',True);assert index.pages()[0]['evidence']['pinned'] is True
+
+
+def test_live_checkpoint_refreshes_without_server_restart(tmp_path, monkeypatch):
+    S=module('server')
+    static=tmp_path/'static';static.mkdir()
+    checkpoint=static/'checkpoint.json'
+    checkpoint.write_text(json.dumps({'status':'running','acceptedForeground':213}),encoding='utf-8')
+    monkeypatch.setattr(S,'STATIC',static)
+    with S.TestingServer(tmp_path/'server',port=0,allow_loopback_for_tests=True) as server:
+        url='http://'+server.address+'/testing/api/pages'
+        with urllib.request.urlopen(url) as response:
+            assert response.headers['Cache-Control']=='no-store'
+            assert json.load(response)['checkpoint']['acceptedForeground']==213
+        checkpoint.write_text(json.dumps({'status':'stopped','acceptedForeground':214}),encoding='utf-8')
+        with urllib.request.urlopen(url) as response:
+            assert json.load(response)['checkpoint']=={'status':'stopped','acceptedForeground':214}

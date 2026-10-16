@@ -114,7 +114,7 @@ The derivative is 0.8 minus 0.2 = 0.6. A negative image gradient would push u up
 <h2>gffx boundary: fitting requires a full connected chain</h2>
 <p>A useful fitting recipe combines exposure, mask/opacity, blur, affine sampling, compositing
 and reconstruction. Isolated derivative tests are necessary but not sufficient: the full-chain
-fixture checks eight fitting parameters through every stage. Even a correct gradient does
+fixture checks nine fitting parameters through every stage: translation, rotation, two scales, opacity, exposure, brightness and blur width. Even a correct gradient does
 not imply a unique inverse problem. Repeated patterns, hidden layers and constant regions can
 produce ambiguity. A recovered image may match while its parameters differ.</p>
 <p>First-order smooth-region tests do not prove higher derivatives, arbitrary convergence,
@@ -123,3 +123,24 @@ undo remain future consumer responsibilities. M1 establishes gffx-side mathemati
 resource readiness to start those projects; it does not implement their document adapters.</p>
 '''),
 )
+
+CHAPTERS[0]['body'] += """
+<h2>A saved fit is evidence with an identity</h2>
+<p>The nine-parameter example adjusts translation, rotation, scale, opacity,
+exposure, brightness and Gaussian width against an independently computed
+synthetic target. The original two solves retain their artifact,79 closure
+counts, locked-input checks and repeatability evidence. Reusing those parameters
+on a newer wheel requires fresh evaluation of the independent objective; it does
+not turn the old optimization into a new solve.</p>
+<p>The current replay gives initial MSE0.00013223659472628245 and final
+MSE2.5634514115042626e-10, within the original one-percent requirement. Independent
+stage and derivative tests and exact CPU/CUDA comparisons remain separate gates.
+The image matches closely although correlated physical parameters are not
+uniquely identified. The recovery board keeps the same error scale before and
+after fitting rather than amplifying each image independently.</p>
+<p>The bounded CI-01 through CI-07 supply prepares Compositron development.
+It does not implement a document editor, image decoding, undo, job cancellation
+or an arbitrary optimization basin. The CHROMA poster and edge/sampling studies
+use actual public image operations. Their finite visual acceptance does not
+close the original-mesh3D renderer or all of M1.</p>
+"""

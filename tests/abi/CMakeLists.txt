@@ -29,6 +29,7 @@ add_test(NAME adapter.cuda_context_lifecycle COMMAND gffx_test_cuda_context_scop
 add_library(gffx_core_test_provider SHARED
     ${PROJECT_SOURCE_DIR}/native/core/animation.c
     ${PROJECT_SOURCE_DIR}/native/core/image.c
+    ${PROJECT_SOURCE_DIR}/native/core/shading.c
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
@@ -93,6 +94,7 @@ endif()
 add_library(gffx_core_self_test SHARED
     ${PROJECT_SOURCE_DIR}/native/core/animation.c
     ${PROJECT_SOURCE_DIR}/native/core/image.c
+    ${PROJECT_SOURCE_DIR}/native/core/shading.c
     ${PROJECT_SOURCE_DIR}/native/core/abi.c
     ${PROJECT_SOURCE_DIR}/native/core/capabilities.c
     ${PROJECT_SOURCE_DIR}/native/core/cuda_loader.c
@@ -169,3 +171,15 @@ add_test(NAME runtime.public_surface
         -DGFFX_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/public_surface.cmake
 )
+
+# Conservative rejection is checked against the retained original pixel predicate.
+add_executable(gffx_test_raster_block_bounds test_raster_block_bounds.c)
+target_include_directories(gffx_test_raster_block_bounds PRIVATE ${PROJECT_SOURCE_DIR}/native/core)
+target_compile_features(gffx_test_raster_block_bounds PRIVATE c_std_11)
+if(MSVC)
+    target_compile_options(gffx_test_raster_block_bounds PRIVATE /fp:strict /UNDEBUG)
+else()
+    target_compile_options(gffx_test_raster_block_bounds PRIVATE -ffp-contract=off -fno-fast-math -UNDEBUG)
+    target_link_libraries(gffx_test_raster_block_bounds PRIVATE m)
+endif()
+add_test(NAME runtime.raster_block_bounds COMMAND gffx_test_raster_block_bounds)

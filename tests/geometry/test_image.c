@@ -35,5 +35,34 @@ int main(void){
      v=view(NULL,0,2,empty_shape,empty_stride);w=view(NULL,1,2,empty_shape,empty_stride);
      CHECK(gffx_image_transfer(&a,0,&c,&b,NULL,&d)==GFFX_STATUS_OK);
      CHECK(gffx_image_transfer_backward(&a,&v,0,&c,&w,NULL,&d)==GFFX_STATUS_OK);}
+    /* Gaussian C boundary: scalar/batch/empty, pre-write domains, aliases and costs. */
+    {
+        double sigma[3]={.1,.83,32.},weights[15],cot[15],grad[3];int j;
+        int64_t bs[1]={3},bstride[1]={1},ws[2]={3,5},wstride[2]={5,1};
+        gffx_tensor_view sv=view(sigma,0,1,bs,bstride),wv=view(weights,1,2,ws,wstride),gv=view(cot,0,2,ws,wstride),dv=view(grad,1,1,bs,bstride);
+        for(j=0;j<15;++j){weights[j]=91.;cot[j]=1.;}
+        CHECK(gffx_image_gaussian_weights_workspace(3,GFFX_DTYPE_FLOAT64,2,&c,&bytes,&align,&d)==GFFX_STATUS_OK&&bytes==0&&align==1);
+        bytes=91;align=92;
+        CHECK(gffx_image_gaussian_weights_workspace(-1,GFFX_DTYPE_FLOAT64,2,&c,&bytes,&align,&d)==GFFX_STATUS_INVALID_ARGUMENT&&bytes==91&&align==92);
+        CHECK(gffx_image_gaussian_weights_workspace(INT64_MAX,GFFX_DTYPE_FLOAT64,32,&c,&bytes,&align,&d)==GFFX_STATUS_OVERFLOW);
+        CHECK(gffx_image_gaussian_weights_workspace(3,GFFX_DTYPE_FLOAT64,33,&c,&bytes,&align,&d)==GFFX_STATUS_INVALID_ARGUMENT);
+        sigma[2]=NAN;CHECK(gffx_image_gaussian_weights(&sv,2,&c,&wv,NULL,&d)==GFFX_STATUS_INVALID_ARGUMENT);
+        for(j=0;j<15;++j)CHECK(weights[j]==91.);sigma[2]=32.;
+        CHECK(gffx_image_gaussian_weights(&sv,2,&c,&wv,NULL,&d)==GFFX_STATUS_OK);
+        for(j=0;j<3;++j)CHECK(weights[5*j]==weights[5*j+4]&&weights[5*j+1]==weights[5*j+3]);
+        CHECK(gffx_image_gaussian_weights_backward(&sv,&gv,2,&c,&dv,NULL,&d)==GFFX_STATUS_OK);
+        for(j=0;j<3;++j)CHECK(isfinite(grad[j])&&fabs(grad[j])<2e-12);
+        grad[0]=91.;cot[14]=NAN;CHECK(gffx_image_gaussian_weights_backward(&sv,&gv,2,&c,&dv,NULL,&d)==GFFX_STATUS_INVALID_ARGUMENT&&grad[0]==91.);cot[14]=1.;
+        CHECK(gffx_image_gaussian_weights_backward(&sv,NULL,2,&c,&dv,NULL,&d)==GFFX_STATUS_INVALID_ARGUMENT);
+        wv.data=sigma;CHECK(gffx_image_gaussian_weights(&sv,2,&c,&wv,NULL,&d)==GFFX_STATUS_INVALID_ARGUMENT);wv.data=weights;
+        ws[1]=4;wstride[0]=4;CHECK(gffx_image_gaussian_weights(&sv,2,&c,&wv,NULL,&d)==GFFX_STATUS_INVALID_ARGUMENT);ws[1]=5;wstride[0]=5;
+        /* A scalar width and its scalar gradient keep rank zero. */
+        {int64_t one=1;sv=view(sigma,0,0,NULL,NULL);wv=view(weights,1,1,&one,bstride);gv=view(cot,0,1,&one,bstride);dv=view(grad,1,0,NULL,NULL);cot[0]=-3.;
+         CHECK(gffx_image_gaussian_weights(&sv,0,&c,&wv,NULL,&d)==GFFX_STATUS_OK&&weights[0]==1.);
+         CHECK(gffx_image_gaussian_weights_backward(&sv,&gv,0,&c,&dv,NULL,&d)==GFFX_STATUS_OK&&grad[0]==0.&&!signbit(grad[0]));}
+        bs[0]=0;ws[0]=0;sv=view(NULL,0,1,bs,bstride);wv=view(NULL,1,2,ws,wstride);gv=view(NULL,0,2,ws,wstride);dv=view(NULL,1,1,bs,bstride);
+        CHECK(gffx_image_gaussian_weights(&sv,2,&c,&wv,NULL,&d)==GFFX_STATUS_OK);
+        CHECK(gffx_image_gaussian_weights_backward(&sv,&gv,2,&c,&dv,NULL,&d)==GFFX_STATUS_OK);
+    }
     return 0;
 }

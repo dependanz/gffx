@@ -143,7 +143,17 @@ def write_report(path, report):
     # Only the new, explicitly selected experiment output is replaced.
     temporary = path.with_suffix(path.suffix+'.tmp')
     temporary.write_text(json.dumps(report, indent=2, allow_nan=False)+'\n', encoding='utf-8')
-    temporary.replace(path)
+    # Windows readers/scanners can briefly deny replacement even though the
+    # existing report is valid. Retry the SAME bytes, not the computation.
+    # All waiting remains charged to the enclosing worker/watchdog clock.
+    for attempt in range(7):
+        try:
+            temporary.replace(path)
+            return
+        except OSError as error:
+            if getattr(error, 'winerror', None) not in (5, 32, 33) or attempt == 6:
+                raise
+            time.sleep(.01 * (2 ** attempt))  # At most .63 s total waiting.
 
 
 def worker(fixtures, output):
@@ -224,6 +234,8 @@ def worker_command(fixtures, output, *, worker_module='tools.material_loss_cost'
     # Launch the real interpreter directly, retaining this environment's module
     # search paths (including its Torch installation) without copying packages.
     bootstrap = ('import sys; sys.path = '+repr(sys.path)+
+                 '; sys.executable = '+repr(sys.executable)+
+                 '; sys.prefix = '+repr(sys.prefix)+'; sys.exec_prefix = '+repr(sys.exec_prefix)+
                  '; from '+worker_module+' import main; raise SystemExit(main())')
     return [getattr(sys, '_base_executable', sys.executable), '-c', bootstrap,
             '--worker', '--fixtures', str(fixtures), '--output', str(output), *worker_args]

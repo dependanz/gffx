@@ -2,7 +2,7 @@
 import sys
 from types import ModuleType
 
-__all__=['render','mesh','visibility','AttributeSource','TextureSource','rasterize','interpolate','texture','texture_pyramid']
+__all__=['opaque_albedo_replay','opaque_material_quadrature_batch','opaque_material_quadrature','opaque_boundary_quadrature','opaque_window','opaque_quadrature','opaque_integrate','opaque_coverage','render','mesh','visibility','AttributeSource','TextureSource','rasterize','interpolate','texture','texture_pyramid']
 _CONSTANTS={'CULL_NONE','CULL_BACK','CULL_FRONT','FILTER_NEAREST','FILTER_BILINEAR',
             'MIP_NEAREST','MIP_LINEAR','WRAP_REPEAT','WRAP_CLAMP','WRAP_MIRROR','WRAP_BORDER'}
 

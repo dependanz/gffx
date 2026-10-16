@@ -57,7 +57,8 @@ def test_deferred_resource_principled_scratch_is_added_to_live_storage():
     lamp=next(p for p in model.prims if type(p)==scene.Light)
     model=scene.Scene([scene.Mesh('q',vertices,faces,material='p'),mat,lamp])
     estimate=d._plan_workload(model,camera,1,67108864,('colour','mask'))
-    expected=3*budget.workspace(12,backward=True)+8*4*192
+    # Sixteen possible selected pixels form one native cohort in this fixture.
+    expected=8+8*16*(64*len(budget._data['cosine_nodes'])+64+192)
     assert estimate['backward'] is True
     assert estimate['components']['material_scratch']==expected
     assert estimate['estimated_bytes']>expected
@@ -120,7 +121,7 @@ def test_deferred_resource_immutable_budget_has_no_duplicate_adjoint_storage():
     plain,fitted=estimate(False),estimate(True)
     persistent=budget.metadata['persistent_tensor_bytes']
     assert fitted['components']['inputs']==3*plain['components']['inputs']-2*persistent
-    assert fitted['components']['material_scratch']==3*budget.workspace(12,backward=True)+8*4*192
+    assert fitted['components']['material_scratch']==8+8*16*(64*len(budget._data['cosine_nodes'])+64+192)
 
 
 def test_deferred_resource_alias_in_ordinary_binding_keeps_derivative_allowance():

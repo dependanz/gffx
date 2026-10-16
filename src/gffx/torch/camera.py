@@ -6,6 +6,26 @@ from ._batching import check_offsets
 from ._common import materialize
 
 
+def _matmul4(a,b):
+    """Fixed four-term reduction; separate products prevent backend GEMM fusion."""
+    terms=[a[..., :,k,None]*b[...,None,k,:] for k in range(4)]
+    return (terms[0]+terms[1])+(terms[2]+terms[3])
+
+
+class _Inverse4(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx,matrix):
+        inverse=torch.linalg.inv(matrix)
+        # Save the output so eager higher derivatives retain the inverse relation.
+        ctx.save_for_backward(inverse)
+        return inverse
+
+    @staticmethod
+    def backward(ctx,gradient):
+        inverse,=ctx.saved_tensors;transposed=inverse.transpose(-1,-2)
+        return -_matmul4(_matmul4(transposed,gradient),transposed)
+
+
 class _Backend:
     xp=torch
     eps=transforms.DEFAULT_EPS
@@ -39,7 +59,7 @@ class _Backend:
 
     @staticmethod
     def inverse(matrix):
-        try:return torch.linalg.inv(matrix)
+        try:return _Inverse4.apply(matrix)
         except torch.linalg.LinAlgError as error:raise ValueError('camera pose/projection must be invertible') from error
 
     @staticmethod

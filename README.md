@@ -6,10 +6,15 @@ design centers on stable tensor-level semantics across autodiff frameworks, a de
 CPU core, isolated accelerator providers, compilation and export, and allocation-controlled
 integration into streaming and edge applications.
 
-The project is pre-release. Thirteen native geometry operations are implemented and carry acceptance fixtures; the
-documentation, packaging, and release work is not done. Read [What works today](#what-works-today)
-and [What does not work yet](#what-does-not-work-yet) together — the second is as load-bearing as
-the first.
+The project is pre-release. M1 is complete for the adopted development-readiness
+scope: finite generic graphics supply, recorded CPU/CUDA profiles, and the B1
+public CPU fitting integration. This is not a public release or universal support
+claim. See [M1 closeout](docs/M1_DEVELOPMENT_READINESS_CLOSEOUT.md) and
+[development wheels](docs/DEVELOPMENT_WHEELS.md) for the artifact boundaries.
+
+The core geometry inventory below is one part of the current camera, scene,
+animation, shading and image supply. Experimental filtered-renderer qualification
+remains a separate, unqualified workstream; its reference campaign is paused.
 
 ![The same ground plane sampled without mipmaps, with mip NEAREST, and
 trilinear](docs/showcase/figures/04-minification.png)

@@ -34,11 +34,14 @@ add_library(gffx_core SHARED
     native/io/ply_file.c
     native/core/points_proximity.c
     native/core/render_rasterize.c
+    native/core/render_opaque_colour.c
+    native/core/render_opaque.c
     native/core/render_texture.c
     native/core/status.c
     native/core/transforms.c
     native/core/animation.c
     native/core/image.c
+    native/core/shading.c
 )
 
 target_compile_features(gffx_core PUBLIC c_std_11)
@@ -70,10 +73,10 @@ function(gffx_link_core_runtime target)
     # Source properties are directory-scoped: set this in each target's own
     # directory, including the two ABI providers created under tests/abi.
     if(MSVC)
-        set_source_files_properties(${PROJECT_SOURCE_DIR}/native/core/image.c
+        set_source_files_properties(${PROJECT_SOURCE_DIR}/native/core/image.c ${PROJECT_SOURCE_DIR}/native/core/shading.c ${PROJECT_SOURCE_DIR}/native/core/render_opaque_colour.c ${PROJECT_SOURCE_DIR}/native/core/render_opaque.c
             TARGET_DIRECTORY ${target} PROPERTIES COMPILE_OPTIONS "/fp:strict")
     else()
-        set_source_files_properties(${PROJECT_SOURCE_DIR}/native/core/image.c
+        set_source_files_properties(${PROJECT_SOURCE_DIR}/native/core/image.c ${PROJECT_SOURCE_DIR}/native/core/shading.c ${PROJECT_SOURCE_DIR}/native/core/render_opaque_colour.c ${PROJECT_SOURCE_DIR}/native/core/render_opaque.c
             TARGET_DIRECTORY ${target}
             PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
     endif()

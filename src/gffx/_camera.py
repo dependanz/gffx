@@ -23,6 +23,7 @@ class Camera:
     exposure = 1.0
     rolling_shutter = None
     lens_stack = None
+    projection_kind = "perspective"
 
     @classmethod
     def from_intrinsics(cls, fx, fy, cx, cy, image_height, image_width, near, far, pose=None):
@@ -54,12 +55,45 @@ class Camera:
         self.near=float(near);self.far=float(far);self.batch_size=batch
         return self
 
+    @classmethod
+    def from_orthographic(cls, fx, fy, cx, cy, image_height, image_width, near, far, pose=None):
+        """Parallel rays: fx/fy are positive pixels per view-space unit.
+
+        u=fx*x_view+cx, v=-fy*y_view+cy. Pose must be affine and invertible.
+        """
+        self=cls.from_intrinsics(fx,fy,cx,cy,image_height,image_width,near,far,pose)
+        b=cls._backend;xp=b.xp
+        if (not bool(xp.all(self.pose[:,3,:3]==0)) or
+                not bool(xp.all(self.pose[:,3,3]==1))):
+            raise ValueError('orthographic pose must be affine with last row [0,0,0,1]')
+        self.projection_kind='orthographic'
+        return self
+
+    @classmethod
+    def from_weak_perspective(cls, scale, tx, ty, image_height, image_width, near, far, pose=None):
+        """Normalized image coordinates s*(x+tx), -s*(y+ty), x right/y down.
+
+        This is parallel projection with scale, not a perspective approximation.
+        Depth stays geometric -z_view; scale does not rescale clipping planes.
+        """
+        c=cls.from_orthographic(scale,scale,tx,ty,image_height,image_width,near,far,pose)
+        fx=c.fx*image_width/2;fy=c.fy*image_height/2
+        cx=(1+c.fx*c.cx)*image_width/2;cy=(1-c.fy*c.cy)*image_height/2
+        return cls.from_orthographic(fx,fy,cx,cy,image_height,image_width,near,far,c.pose)
+
     def projection(self):
         xp=self._backend.xp;z=xp.zeros_like(self.fx);one=xp.ones_like(self.fx)
         n,f=self.near,self.far
-        # Preserve the documented evaluation order, including dtype rounding.
-        return xp.stack((xp.stack((2*self.fx/self.image_width,z,1-2*self.cx/self.image_width,z),axis=-1),
-                         xp.stack((z,2*self.fy/self.image_height,2*self.cy/self.image_height-1,z),axis=-1),
+        # Tensor denominators retain division rather than a backend scalar
+        # reciprocal-multiply shortcut (different last bits for widths like 3).
+        width=one*self.image_width;height=one*self.image_height
+        if self.projection_kind=='orthographic':
+            return xp.stack((xp.stack((2*self.fx/width,z,z,2*self.cx/width-1),axis=-1),
+                             xp.stack((z,2*self.fy/height,z,1-2*self.cy/height),axis=-1),
+                             xp.stack((z,z,one*(2/(n-f)),one*((f+n)/(n-f))),axis=-1),
+                             xp.stack((z,z,z,one),axis=-1)),axis=-2)
+        return xp.stack((xp.stack((2*self.fx/width,z,1-2*self.cx/width,z),axis=-1),
+                         xp.stack((z,2*self.fy/height,2*self.cy/height-1,z),axis=-1),
                          xp.stack((z,z,one*((f+n)/(n-f)),one*((2*f*n)/(n-f))),axis=-1),
                          xp.stack((z,z,-one,z),axis=-1)),axis=-2)
 
@@ -101,11 +135,13 @@ class Camera:
     def view_depth_to_ndc(self, view_depth):
         self._backend.check_float(view_depth,self.fx,cast_dtype=True)
         n,f=self.near,self.far
+        if self.projection_kind=="orthographic":return (2*view_depth-(f+n))/(f-n)
         return -(f+n)/(n-f)+(2*f*n)/(n-f)/view_depth
 
     def ndc_to_view_depth(self, ndc_depth):
         self._backend.check_float(ndc_depth,self.fx,cast_dtype=True)
         n,f=self.near,self.far
+        if self.projection_kind=="orthographic":return (ndc_depth*(f-n)+(f+n))/2
         return ((2*f*n)/(n-f))/(ndc_depth+(f+n)/(n-f))
 
     def _unproject(self, pixels, depth, kind, mask=None):
@@ -116,7 +152,7 @@ class Camera:
         good=xp.isfinite(depth) & xp.all(xp.isfinite(pixels),axis=-1)
         if mask is not None:
             b.check_mask(mask,depth);good=good & mask
-        if kind=='view':good=good & (xp.abs(depth)>b.eps)
+        if kind=='view' and self.projection_kind=='perspective':good=good & (xp.abs(depth)>b.eps)
         safe_depth=xp.where(good,depth,xp.ones_like(depth) if kind=='view' else xp.zeros_like(depth))
         z=self.view_depth_to_ndc(safe_depth) if kind=='view' else safe_depth
         safe_pixels=xp.where(good[...,None],pixels,xp.zeros_like(pixels))
@@ -149,10 +185,13 @@ class Camera:
         if not cameras: raise ValueError('Camera.stack requires at least one camera')
         first=cameras[0]
         if any(not isinstance(c,cls) for c in cameras): raise TypeError('all cameras must use the same backend')
+        if any(c.projection_kind!=first.projection_kind for c in cameras):
+            raise ValueError('stacked cameras must share projection kind')
         attrs=('image_height','image_width','near','far')
         if any(any(getattr(c,k)!=getattr(first,k) for k in attrs) for c in cameras):
             raise ValueError('stacked cameras must share image size and clipping planes')
         b=cls._backend
         for c in cameras:b.check_float(c.fx,first.fx)
         values={k:b.xp.concat([getattr(c,k) for c in cameras],axis=0) for k in ('fx','fy','cx','cy','pose')}
-        return cls.from_intrinsics(**values,**{k:getattr(first,k) for k in attrs})
+        constructor=cls.from_orthographic if first.projection_kind=='orthographic' else cls.from_intrinsics
+        return constructor(**values,**{k:getattr(first,k) for k in attrs})

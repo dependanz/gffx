@@ -164,9 +164,8 @@ without pretending each malformed field was independently tested at every entry.
 **Closure recommendation:** accept the local animation Phase 1 reference,
 Phase 2 device and Phase 3 first-order gradient baselines. No concrete outstanding
 adopted fixture was identified after the Import, Strict and Completion cohorts.
-PLAN.md remains the status authority. This recommendation does not close AN-16:
-the finite rendered showcase, actual visual inspection and verified publication
-remain separate. It also does not qualify new hosts/compilers, export, higher
+PLAN.md remains the status authority. The original numerical recommendation
+alone did not close AN-16; the separate presentation closure below now does. It also does not qualify new hosts/compilers, export, higher
 derivatives, all-input scale gradients or real-time use.
 
 Backward requests allocate only needed gradient outputs. This matters when the
@@ -234,3 +233,19 @@ FLAME validation or a guarantee that arbitrary fitting problems converge.
 The finite Kinetic Bloom showcase uses the same public deformation operations
 on first-party geometry. Authored motion, normal generation and display lighting
 remain distinct from numerical acceptance. See [the source fixture entry](ANIMATION_CORPUS.md).
+
+## Finite presentation closure, 14 September 2026
+
+The internal PC dashboard now serves three visually inspected1280x720 Kinetic
+Bloom poses from the preserved finite24-frame cache. Its explanation includes
+1988 vertices,2684 triangles and maximum native/reference position error
+7.152557373046875e-7 from the pinned historical producer report. These remain
+laptop demonstration measurements; the separately rebuilt PC animation/stream
+qualification is device evidence. Authored motion and display lighting are labelled.
+
+The private HTTPS readback verifies every PNG hash/length, gallery/explanation
+binding and successful execution (pc-saved-animation-gallery2). AN-16 is complete
+for this finite presentation with the existing authored test pages and animation
+lesson. The earlier404/catalog and saved-log-cap failures remain in history.
+No rerender, continuous producer, history deletion or quota increase was needed.
+No claim of live24-frame playback or broader visual/physical fidelity is made.

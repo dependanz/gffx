@@ -66,6 +66,8 @@ class Index:
         self.max_tests = max_tests
         self.max_checks, self.max_pages = max_checks, max_pages
         self.lock = threading.RLock()
+        self._catalog_cache = None
+        self._catalog_revision = 0
         with self._db() as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS runs(
@@ -133,7 +135,11 @@ class Index:
                 if 'full' in str(error).lower():
                     raise ValueError('metadata storage budget reached; preview eligible history cleanup; protected evidence is not discarded') from error
                 raise
-            finally: db.close()
+            finally:
+                if db.total_changes:
+                    self._catalog_revision += 1
+                    self._catalog_cache = None
+                db.close()
         return connection()
 
     def accept(self, event):
@@ -392,7 +398,21 @@ class Index:
 
     def pages(self):
         """Small permanent catalog with page-local summaries, not run navigation."""
-        return [self.page(p['id'], summary_only=True) for p in PAGES]
+        from copy import deepcopy
+        # Cache only the small catalog projection, never artifacts or history.
+        # Every local write invalidates it. File identity also detects external
+        # changes; article fingerprints remain part of the current projection.
+        with self.lock:
+            files=[self.path,*sorted((Path(__file__).parent/'static/learn').glob('*.json'))]
+            key=(self._catalog_revision,tuple((str(p),p.stat().st_mtime_ns,p.stat().st_size) for p in files))
+            if self._catalog_cache is None or self._catalog_cache[0]!=key:
+                self._catalog_cache=(key,[self.page(p['id'],summary_only=True) for p in PAGES])
+            result=deepcopy(self._catalog_cache[1])
+            now=time.time()
+            for page in result:
+                evidence=page.get('evidence')
+                if evidence is not None:evidence['stale']=evidence['state']=='running' and now-evidence['updated']>15
+            return result
 
     def directory(self, *, offset=0, limit=50):
         offset=int(offset);limit=int(limit)

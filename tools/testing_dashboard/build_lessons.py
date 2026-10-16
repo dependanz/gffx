@@ -50,6 +50,12 @@ def articles():
             html.escape(c['source'])+'</code>. Check the current tests for exact supported behavior.</p>'+
             navigation(c['id'])+'</article>')
         result[c['id']]={'id':c['id'],'updated_on':'2026-09-09','source_sha256':fingerprint(),'html':body}
+        if c['id'] in ('learn/numerics','learn/deferred-rendering'):
+            result[c['id']]['updated_on']='2026-09-14'
+            result[c['id']]['html']=body.replace('updated 9 September 2026','updated 14 September 2026')
+        if c['id']=='learn/numerics':
+            result[c['id']]['updated_on']='2026-10-02'
+            result[c['id']]['html']=result[c['id']]['html'].replace('updated 14 September 2026','updated 2 October 2026')
     contents=''.join('<li>'+link(c['id'],c['title'])+'</li>' for c in CHAPTERS)
     body=('<article class="lesson"><p class="lesson-notice">A growing, original mini-textbook for gffx users. '
         'Start with the foundations or follow a test page back to its mathematics. This is not a claim that every topic is implemented.</p>'+

@@ -8,6 +8,8 @@ device; compiled/export and device qualification are separate from eager support
 import math
 
 import torch
+from ._reference_channels import multiply, expand
+from ._reference_power import power_unit
 
 __all__ = ['lambert', 'blinn_phong', 'ggx_distribution', 'smith_visibility', 'fresnel_schlick']
 
@@ -23,9 +25,16 @@ def _inputs(**fields):
             raise TypeError(f'{name} must have the same dtype')
         if value.device != first.device:
             raise ValueError(f'{name} must have the same device')
-    for name, value in fields.items():
-        if not bool(torch.isfinite(value).all()):
-            raise ValueError(f'{name} must be finite')
+    if first.device.type == 'cuda' and len(fields)>1:
+        # All metadata checks precede value checks. One small flag readback
+        # preserves their original first-error order without per-field stalls.
+        flags=torch.stack([torch.isfinite(value).all() for value in fields.values()]).tolist()
+        for name,valid in zip(fields,flags):
+            if not valid:raise ValueError(f'{name} must be finite')
+    else:
+        for name, value in fields.items():
+            if not bool(torch.isfinite(value).all()):
+                raise ValueError(f'{name} must be finite')
 
 
 def _domain(value, name, *, positive=False, upper=1.):
@@ -96,7 +105,7 @@ def blinn_phong(n_dot_h, exponent):
     n = _scalar(exponent, q, 'exponent')
     active = q > 0
     safe = torch.where(active, q, torch.ones_like(q))
-    interior = (n / (8*math.pi) + 1/math.pi) * safe.pow(n)
+    interior = (n / n.new_tensor(8*math.pi) + 1/math.pi) * power_unit(safe, n)
     boundary = torch.where(n == 0, torch.full_like(q, 1/math.pi), torch.zeros_like(q))
     return _result(torch.where(active, interior, boundary), n_dot_h)
 
@@ -113,7 +122,7 @@ def ggx_distribution(n_dot_h, roughness):
     denominator = ((1-c)*(1+c) + a2*c.square()).square()
     if bool((denominator == 0).any()):
         raise ValueError('GGX denominator is not representable')
-    return _result((a2 / denominator) / math.pi, n_dot_h)
+    return _result((a2 / denominator) / c.new_tensor(math.pi), n_dot_h)
 
 
 def smith_visibility(n_dot_v, n_dot_l, roughness):
@@ -147,10 +156,13 @@ def fresnel_schlick(v_dot_h, f0):
     _domain(f0, 'f0')
     b, p = c.shape
     if f0.shape == (3,):
-        value = f0.expand(b, p, 3)
+        value = expand(f0, (b, p, 3))
     else:
         value = f0[None] if f0.shape == (p, 3) else f0
         if value.ndim != 3 or value.shape[1:] != (p, 3) or value.shape[0] not in (1, b):
             raise ValueError('f0 shape/batch must be [3], [P,3], [1,P,3] or [B,P,3]')
-        value = value.expand(b, p, 3)
-    return _result(value + (1-value)*(1-c[..., None]).pow(5), v_dot_h)
+        value = expand(value, (b, p, 3))
+    distance = 1-c[..., None]
+    square = distance*distance
+    fifth = (square*square)*distance
+    return _result(value + multiply(1-value, fifth), v_dot_h)

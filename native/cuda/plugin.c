@@ -1,6 +1,11 @@
 #include "plugin_api.h"
 #include "gffx_cuda_ptx.h"
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 #include <cuda.h>
 
 #include <stddef.h>
@@ -401,6 +406,24 @@ static CUfunction gffx_cuda_texture_backward_pyramid_atomic[2] = {NULL, NULL};
 static CUfunction gffx_cuda_transform_backward_points[2] = {NULL, NULL};
 static CUfunction gffx_cuda_transform_backward_matrices[2] = {NULL, NULL};
 
+/* A DLL resource keeps the same immutable payload inside the provider and
+ * returns its mapped address without a copy or retained allocation. */
+static const void *gffx_cuda_ptx_payload(void) {
+#if defined(_WIN32)
+    static const char anchor = 0;
+    HMODULE module = NULL; HRSRC resource; HGLOBAL loaded; const unsigned char *bytes;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           &anchor, &module)) return NULL;
+    resource = FindResourceA(module, MAKEINTRESOURCEA(GFFX_PTX_RESOURCE_ID), MAKEINTRESOURCEA(10));
+    if (!resource || SizeofResource(module, resource) != gffx_cuda_embedded_ptx_size + 1UL) return NULL;
+    loaded = LoadResource(module, resource); if (!loaded) return NULL;
+    bytes = (const unsigned char *)LockResource(loaded);
+    return bytes && bytes[gffx_cuda_embedded_ptx_size] == 0 ? bytes : NULL;
+#else
+    return gffx_cuda_embedded_ptx;
+#endif
+}
+
 static gffx_status gffx_cuda_ensure_module(gffx_diagnostic_buffer *diagnostic) {
     CUcontext current = NULL;
     if (cuCtxGetCurrent(&current) != CUDA_SUCCESS || current == NULL) {
@@ -410,7 +433,12 @@ static gffx_status gffx_cuda_ensure_module(gffx_diagnostic_buffer *diagnostic) {
     if (gffx_cuda_module != NULL && gffx_cuda_module_context == current) {
         return GFFX_STATUS_OK;
     }
-    if (cuModuleLoadData(&gffx_cuda_module, gffx_cuda_embedded_ptx) != CUDA_SUCCESS) {
+    const void *payload = gffx_cuda_ptx_payload();
+    if (payload == NULL) {
+        return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
+                              "the embedded PTX payload is absent or incorrectly terminated");
+    }
+    if (cuModuleLoadData(&gffx_cuda_module, payload) != CUDA_SUCCESS) {
         gffx_cuda_module = NULL;
         return gffx_cuda_fail(diagnostic, GFFX_STATUS_BACKEND_FAILURE,
                               "the driver could not load the embedded PTX module; it is likely "
@@ -685,6 +713,28 @@ static gffx_status GFFX_CALL gffx_cuda_op_workspace(
                               "workspace query result pointers must not be null");
     }
     switch (operation) {
+        case GFFX_CUDA_OP_RENDER_OPAQUE_QUADRATURE:
+            if(dtype!=GFFX_DTYPE_FLOAT32&&dtype!=GFFX_DTYPE_FLOAT64)return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"opaque quadrature dtype");
+            *required_bytes=1048576;*required_alignment=8;return GFFX_STATUS_OK;
+        case GFFX_CUDA_OP_SHADING_PRINCIPLED:
+        case GFFX_CUDA_OP_SHADING_PRINCIPLED_GROUPS:
+            if(!shape||shape_count!=3||shape[2]<0||shape[2]>1||shape[0]<0||shape[0]>(operation==GFFX_CUDA_OP_SHADING_PRINCIPLED_GROUPS?128:(shape[2]?4:8))||shape[1]<0||shape[1]>1024||shape[0]*shape[1]>1024||dtype!=GFFX_DTYPE_FLOAT64)
+                return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"CUDA Principled point/light limits invalid");
+            *required_bytes=8+8*(uint64_t)shape[0]*(uint64_t)(shape[1]?shape[1]:1);*required_alignment=8;return GFFX_STATUS_OK;
+        case GFFX_CUDA_OP_SHADING_LOSS_QUERY:
+            if(!shape||shape_count!=3||shape[0]<0||shape[0]>32||shape[1]<1||shape[1]>512||shape[2]<0||shape[2]>1056||(!shape[0]&&shape[2])||dtype!=GFFX_DTYPE_FLOAT64)
+                return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"CUDA query workspace extents invalid");
+            *required_bytes=8+8*(uint64_t)shape[0]*(uint64_t)(4*shape[1]>shape[2]?4*shape[1]:shape[2]);*required_alignment=8;return GFFX_STATUS_OK;
+        case GFFX_CUDA_OP_SHADING_LOSS_CURVE:
+            if(!shape||shape_count!=2||shape[0]<0||shape[0]>32||shape[1]<1||shape[1]>512||dtype!=GFFX_DTYPE_FLOAT64)
+                return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"CUDA curve workspace batch/nodes invalid");
+            *required_bytes=8+8*(uint64_t)shape[0]*(uint64_t)(10*shape[1]-6>4*shape[1]?10*shape[1]-6:4*shape[1]);
+            *required_alignment=8;return GFFX_STATUS_OK;
+        case GFFX_CUDA_OP_IMAGE_GAUSSIAN_WEIGHTS:
+            if(shape==NULL||shape_count!=2||shape[0]<0||shape[1]<0||shape[1]>32||
+               (dtype!=GFFX_DTYPE_FLOAT32&&dtype!=GFFX_DTYPE_FLOAT64))
+                return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"CUDA Gaussian workspace requires floating [batch,radius]");
+            *required_bytes=8;*required_alignment=8;return GFFX_STATUS_OK;
         case GFFX_CUDA_OP_IMAGE_TRANSFER:
             if(shape==NULL||shape_count!=1||shape[0]<0||
                (dtype!=GFFX_DTYPE_FLOAT32&&dtype!=GFFX_DTYPE_FLOAT64))
@@ -1201,22 +1251,28 @@ static gffx_status GFFX_CALL gffx_cuda_op_closest_point_on_mesh(
                             arguments, context, diagnostic);
 }
 
-static gffx_status GFFX_CALL gffx_cuda_op_rasterize(
+static gffx_status GFFX_CALL gffx_cuda_rasterize_region(
     const gffx_tensor_view *ndc_vertices, const gffx_tensor_view *faces,
     const gffx_tensor_view *vertex_offsets, const gffx_tensor_view *face_offsets,
-    int64_t image_height, int64_t image_width, int64_t faces_per_pixel, double blur_radius_px,
+    int64_t image_height, int64_t image_width, int64_t global_height, int64_t global_width,
+    int64_t row_offset, int64_t column_offset, int64_t faces_per_pixel, double blur_radius_px,
     uint32_t cull_mode, double eps, const gffx_execution_context *context,
     gffx_tensor_view *face_index, gffx_tensor_view *barycentric, gffx_tensor_view *depth,
     gffx_tensor_view *signed_distance, const gffx_buffer *workspace,
     gffx_diagnostic_buffer *diagnostic
 ) {
+    long long full_height=global_height,full_width=global_width,row_start=row_offset,column_start=column_offset;
+    if (global_height<=0 || global_width<=0 || image_height<=0 || image_width<=0 ||
+        row_offset<0 || column_offset<0 || image_height>global_height || image_width>global_width ||
+        row_offset>global_height-image_height || column_offset>global_width-image_width)
+        return gffx_cuda_fail(diagnostic,GFFX_STATUS_INVALID_ARGUMENT,"invalid raster window bounds");
     gffx_status status;
     long long pixel_count;
     long long height = (long long)image_height;
     long long width = (long long)image_width;
     long long per_pixel = (long long)faces_per_pixel;
     double blur_squared = blur_radius_px * blur_radius_px;
-    void *arguments[14];
+    void *arguments[18];
     gffx_dtype dtype;
 
     if (context == NULL || context->device_type != GFFX_DEVICE_CUDA) {
@@ -1290,9 +1346,45 @@ static gffx_status GFFX_CALL gffx_cuda_op_rasterize(
     arguments[11] = (void *)&barycentric->data;
     arguments[12] = (void *)&depth->data;
     arguments[13] = (void *)&signed_distance->data;
+    arguments[14]=&full_height;arguments[15]=&full_width;arguments[16]=&row_start;arguments[17]=&column_start;
     (void)vertex_offsets;
+    /* Bound padded coordinates and the one-dimensional CUDA grid. The original
+       kernel remains available for larger layouts and packed batches. */
+    if (face_index->shape[0] == 1 && image_height <= INT32_MAX && image_width <= INT32_MAX
+        && ((image_height-1)/16+1)*((image_width-1)/16+1) <= INT32_MAX) {
+        long long spatial_threads=((image_height-1)/16+1)*((image_width-1)/16+1)*256;
+        CUfunction cooperative;
+        const char *name=dtype==GFFX_DTYPE_FLOAT64?"gffx_cuda_rasterize_cooperative_f64":"gffx_cuda_rasterize_cooperative_f32";
+        if(cuModuleGetFunction(&cooperative,gffx_cuda_module,name)!=CUDA_SUCCESS)
+            return gffx_cuda_fail(diagnostic,GFFX_STATUS_BACKEND_FAILURE,"cooperative raster kernel missing");
+        return gffx_cuda_launch(cooperative,spatial_threads,arguments,context,diagnostic);
+    }
     return gffx_cuda_launch(gffx_cuda_rasterize[gffx_cuda_dtype_slot(dtype)], pixel_count,
                             arguments, context, diagnostic);
+}
+static gffx_status GFFX_CALL gffx_cuda_op_rasterize(
+    const gffx_tensor_view *ndc_vertices, const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets, const gffx_tensor_view *face_offsets,
+    int64_t image_height, int64_t image_width, int64_t faces_per_pixel, double blur_radius_px,
+    uint32_t cull_mode, double eps, const gffx_execution_context *context,
+    gffx_tensor_view *face_index, gffx_tensor_view *barycentric, gffx_tensor_view *depth,
+    gffx_tensor_view *signed_distance, const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+ return gffx_cuda_rasterize_region(ndc_vertices,faces,vertex_offsets,face_offsets,image_height,image_width,image_height,image_width,0,0,faces_per_pixel,blur_radius_px,cull_mode,eps,context,face_index,barycentric,depth,signed_distance,workspace,diagnostic);
+}
+
+static gffx_status GFFX_CALL gffx_cuda_op_rasterize_window(
+    const gffx_tensor_view *ndc_vertices, const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets, const gffx_tensor_view *face_offsets,
+    int64_t global_height,int64_t global_width,int64_t row_offset,int64_t column_offset,
+    int64_t image_height,int64_t image_width,int64_t faces_per_pixel, double blur_radius_px,
+    uint32_t cull_mode, double eps, const gffx_execution_context *context,
+    gffx_tensor_view *face_index, gffx_tensor_view *barycentric, gffx_tensor_view *depth,
+    gffx_tensor_view *signed_distance, const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+) {
+ return gffx_cuda_rasterize_region(ndc_vertices,faces,vertex_offsets,face_offsets,image_height,image_width,global_height,global_width,row_offset,column_offset,faces_per_pixel,blur_radius_px,cull_mode,eps,context,face_index,barycentric,depth,signed_distance,workspace,diagnostic);
 }
 
 /*
@@ -2514,6 +2606,12 @@ static gffx_status GFFX_CALL gffx_cuda_op_sample_surface_backward(
 
 #include "animation_plugin.inc"
 #include "image_plugin.inc"
+#include "gaussian_plugin.inc"
+#include "principled_curve_plugin.inc"
+#include "principled_pairs_plugin.inc"
+#include "opaque_samples_plugin.inc"
+#include "opaque_albedo_plugin.inc"
+#include "opaque_quadrature_plugin.inc"
 
 static const gffx_cuda_operations gffx_cuda_operation_table = {
     (uint32_t)sizeof(gffx_cuda_operations),
@@ -2540,7 +2638,35 @@ static const gffx_cuda_operations gffx_cuda_operation_table = {
     gffx_cuda_op_fk,gffx_cuda_op_fk_backward,
     gffx_cuda_op_skin_lbs,gffx_cuda_op_skin_lbs_backward,
     gffx_cuda_op_bary,gffx_cuda_op_bary_backward,
-    gffx_cuda_op_image_transfer,gffx_cuda_op_image_transfer_backward
+    gffx_cuda_op_image_transfer,gffx_cuda_op_image_transfer_backward,
+    gffx_cuda_op_image_gaussian_weights,gffx_cuda_op_image_gaussian_weights_backward,
+    gffx_cuda_op_shading_loss_curve,gffx_cuda_op_shading_loss_curve_backward,
+    gffx_cuda_op_shading_loss_query,gffx_cuda_op_shading_loss_query_backward,
+    gffx_cuda_op_shading_principled_pairs,gffx_cuda_op_shading_principled_pairs_backward,
+    gffx_cuda_op_shading_principled_pairs,gffx_cuda_op_shading_principled_pairs_backward,
+    gffx_cuda_op_rasterize_window,
+    gffx_cuda_op_opaque_quadrature,
+    gffx_cuda_op_opaque_boundary,
+    gffx_cuda_op_opaque_material,
+    gffx_cuda_op_opaque_batch,
+    gffx_cuda_op_shading_principled_pairs,
+    gffx_cuda_op_shading_ordered_rgba,
+    gffx_cuda_op_shading_unit_newton,
+    gffx_cuda_op_shading_unit_vectors,
+    gffx_cuda_op_shading_delta_brdf,
+    gffx_cuda_op_shading_opaque_samples,
+    gffx_cuda_op_shading_opaque_albedo,
+    gffx_cuda_op_opaque_batch_rule,
+    gffx_cuda_op_opaque_partition,
+    gffx_cuda_op_opaque_prefix_backward,
+    gffx_cuda_op_opaque_partition,
+    gffx_cuda_op_opaque_prefix_backward64,
+    gffx_cuda_op_opaque_batch_rule,
+    gffx_cuda_op_opaque_boundary_batch64,
+    gffx_cuda_op_opaque_partition,
+    gffx_cuda_op_opaque_prefix_backward80,
+    gffx_cuda_op_opaque_batch_rule,
+    gffx_cuda_op_opaque_boundary_batch80
 };
 
 GFFX_CUDA_PLUGIN_API gffx_status GFFX_CALL gffx_cuda_plugin_handshake_v1(

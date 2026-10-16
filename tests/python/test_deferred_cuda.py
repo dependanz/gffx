@@ -36,10 +36,15 @@ def fixture(device,dtype,*,principled=False):
 def exact(cpu,cuda,label):
     value=cuda.detach().cpu()
     assert cpu.dtype==value.dtype and cpu.shape==value.shape,label+' layout'
-    # Lift scalars before the byte view; retain empty shapes in the layout guard.
-    # Floating torch.equal alone considers +0 and -0 identical, unlike bytes.
-    left=cpu.detach().contiguous().reshape(-1).view(torch.uint8)
-    right=value.contiguous().reshape(-1).view(torch.uint8)
+    # A singleton can be contiguous while retaining a nonunit stride. Copy
+    # logical values into explicitly flat storage before reinterpreting bytes.
+    # Keep the original shape/dtype guard and distinguish signed zero.
+    left=torch.empty(cpu.numel(),dtype=cpu.dtype,device='cpu')
+    right=torch.empty(value.numel(),dtype=value.dtype,device='cpu')
+    left.copy_(cpu.detach().reshape(-1))
+    right.copy_(value.reshape(-1))
+    left=left.view(torch.uint8)
+    right=right.view(torch.uint8)
     assert torch.equal(left,right),label+' CPU/CUDA bytes are not exactly equal'
 
 

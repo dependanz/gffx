@@ -120,3 +120,14 @@ def test_gaussian_rounded_contract_reports_overflow_not_clipping():
     row = dict(dtype='float32',weights=[Decimal(1)],derivatives=[Decimal(2)])
     assert decode_bits(0x7f7fffff,'float32').is_finite()
     with pytest.raises(OverflowError): rounded_contract(row,[0x7f7fffff])
+
+
+@pytest.mark.parametrize('dtype', ['float32','float64'])
+def test_gaussian_radius_zero_contract_vjp_is_positive_zero(dtype):
+    from tools.gaussian_weights_oracle import bits_from_float,reference,rounded_contract
+    row=reference(bits_from_float(.83,dtype),dtype,0)
+    for cotangent in (-3.,-0.,0.,2.):
+        result=rounded_contract(row,[bits_from_float(cotangent,dtype)])
+        assert result['vjp_bits']==0
+    with pytest.raises(ValueError):
+        rounded_contract(row,[bits_from_float(float('inf'),dtype)])

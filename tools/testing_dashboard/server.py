@@ -17,6 +17,7 @@ class TestingServer(Server):
         self.index = Index(Path(root) / "testing.sqlite",history_keep=history_keep,
                            max_active=max_active,metadata_bytes=metadata_bytes)
         self.presentation_root=Path(root)/'presentation'
+        self.review_root=Path(root)
 
     def _open_run_locked(self, name, *, default=True):
         if self.index.is_retired(name):raise ProtocolError('execution evidence retired by retention policy')
@@ -166,7 +167,11 @@ class TestingServer(Server):
                 from .presentation import read_asset
                 try:reply(read_asset(self.presentation_root,url.path.removeprefix('/testing/media/')),mime='image/png')
                 except (FileNotFoundError,OSError):reply({'error':'Presentation asset unavailable'},404)
-            elif url.path == "/testing/api/pages": reply({"pages":self.index.pages()})
+            elif url.path == '/testing/api/portrait-review':
+                from .portrait_review import load_review
+                try:reply(load_review(self.review_root))
+                except FileNotFoundError:reply({'error':'Portrait review not installed'},404)
+            elif url.path == "/testing/api/pages": reply({"pages":self.index.pages(), "checkpoint":json.loads((STATIC/"checkpoint.json").read_text(encoding="utf-8"))})
             elif url.path == '/testing/api/directory': reply(self.index.directory(offset=query.get('offset',0),limit=query.get('limit',50)))
             elif url.path == "/testing/api/page":
                 reply(self.index.page(query['page'],run=query.get('run'),offset=query.get('offset',0),search=query.get('search',''),outcome=query.get('outcome','')))
@@ -180,7 +185,7 @@ class TestingServer(Server):
             elif url.path == "/testing/api/coverage": reply(self.index.coverage(query["run"],offset=query.get("offset",0),layer=query.get('layer','python')))
             else:
                 name = "index.html" if url.path in ("/testing","/testing/") else url.path.removeprefix("/testing/")
-                if name not in ("index.html","app.js","app.css","model.js","playback.js","cinema.js"):
+                if name not in ("index.html","app.js","app.css","model.js","playback.js","cinema.js","portrait-review.js"):
                     reply({"error":"not found"},404)
                 else:
                     mime = {"html":"text/html; charset=utf-8","js":"text/javascript; charset=utf-8","css":"text/css; charset=utf-8"}[name.rsplit(".",1)[1]]

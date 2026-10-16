@@ -41,3 +41,14 @@ def test_deferred_head_cost_requires_matching_explicit_point_partition():
     del small['estimate']
     with pytest.raises(ValueError,match='partition'):
         projected_seconds(small,large,'a'*64,point_block_limit=1)
+
+
+def test_deferred_cuda_crop_forecast_keeps_original_margin_and_caps():
+    from tools.deferred_head import projected_seconds
+    rows=[calibration(16,1),calibration(32,2)]
+    for row in rows:
+        row['profile']['device']='cuda';row['peak_allocated_bytes']=1024
+        row['supervisor']['sampled_peak_working_set_bytes']=1200*1024**2
+    assert projected_seconds(*rows,'a'*64,device='cuda',covered_pixels=3268)==2*3268/256+30
+    rows[0]['peak_allocated_bytes']=67108865
+    with pytest.raises(ValueError,match='GPU'):projected_seconds(*rows,'a'*64,device='cuda',covered_pixels=3268)

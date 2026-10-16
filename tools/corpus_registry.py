@@ -121,7 +121,8 @@ def _load_manifest(root,record):
         raise ValueError('development entries cannot assert measured profiles')
     source=manifest['source']; _keys(source,('path','commit','base_commit','sha256','snapshot'))
     _hex(source['sha256']); _hex(source['base_commit'],40)
-    if source['commit'] is not None or source['path']!='tools/synthetic_face_fixture.py' or source['snapshot']!='generator.py.txt':
+    paths={'synthetic_face_m1':'tools/synthetic_face_fixture.py','synthetic_flame_m1':'tools/synthetic_flame_fixture.py'}
+    if source['commit'] is not None or source['path']!=paths.get(manifest['id']) or source['snapshot']!='generator.py.txt':
         raise ValueError('invalid development source provenance')
     license=manifest['license']; _keys(license,('id','file'))
     if license!={'id':'MIT','file':'LICENSE.txt'}:raise ValueError('missing/unsupported license')
@@ -173,19 +174,25 @@ def load_entry(root,entry_id,*,allow_development=False,require_profile=None):
     return result
 
 
-def register_synthetic(root,source_root,*,base_commit):
+def register_synthetic(root,source_root,*,base_commit,recipe="synthetic_face_m1"):
     """Run the local generator; never overwrite or execute stored snapshots/Git writes."""
-    from tools import synthetic_face_fixture as generator
+    if recipe=='synthetic_face_m1':
+        from tools import synthetic_face_fixture as generator
+        generator_path='tools/synthetic_face_fixture.py'
+    elif recipe=='synthetic_flame_m1':
+        from tools import synthetic_flame_fixture as generator
+        generator_path='tools/synthetic_flame_fixture.py'
+    else:raise ValueError('unsupported fixed development recipe')
     _hex(base_commit,40)
     root=Path(root).absolute(); source_root=Path(source_root).absolute()
     _no_links(root)
-    if Path(generator.__file__).resolve()!=(source_root/'tools/synthetic_face_fixture.py').resolve():
+    if Path(generator.__file__).resolve()!=(source_root/generator_path).resolve():
         raise ValueError('generator source root does not match imported module')
-    source=_read(source_root/'tools/synthetic_face_fixture.py',MAX_FILE_BYTES)
+    source=_read(source_root/generator_path,MAX_FILE_BYTES)
     license=_read(source_root/'LICENSE',MAX_FILE_BYTES)
     if not license.startswith(b'MIT License'):raise ValueError('missing MIT license')
     scene=generator.generate(); blob=generator.encode(scene)
-    if _read(source_root/'tools/synthetic_face_fixture.py',MAX_FILE_BYTES)!=source:raise ValueError('generator changed during execution')
+    if _read(source_root/generator_path,MAX_FILE_BYTES)!=source:raise ValueError('generator changed during execution')
     entry_id=scene['id']; revision='dev-'+_hash(blob+source+license)[:16]
     root.mkdir(parents=True,exist_ok=True)
     lock=_safe(root,'registration.lock')
@@ -205,9 +212,9 @@ def register_synthetic(root,source_root,*,base_commit):
                 handle.write(data); handle.flush(); os.fsync(handle.fileno())
             descriptors.append(dict(path=name,role=role,bytes=len(data),sha256=_hash(data)))
         manifest=dict(schema_version=1,id=entry_id,revision=revision,status='development',
-                      source=dict(path='tools/synthetic_face_fixture.py',commit=None,base_commit=base_commit,sha256=_hash(source),snapshot='generator.py.txt'),
+                      source=dict(path=generator_path,commit=None,base_commit=base_commit,sha256=_hash(source),snapshot='generator.py.txt'),
                       license=dict(id='MIT',file='LICENSE.txt'),
-                      generation=dict(generator_sha256=_hash(source),python=platform.python_version(),platform=platform.system(),parameters=scene['parameters'],invocation='tools.synthetic_face_fixture.generate()'),
+                      generation=dict(generator_sha256=_hash(source),python=platform.python_version(),platform=platform.system(),parameters=scene['parameters'],invocation=generator.__name__+'.generate()'),
                       scene=scene['scene'],reference_for=['synthetic_test_inputs'],renderer=None,comparison=None,
                       profiles=dict(gffx_model_m1='not_measured',cycles_fidelity='not_measured'),files=descriptors)
         manifest_blob=_json_bytes(manifest)

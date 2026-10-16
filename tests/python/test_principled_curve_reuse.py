@@ -34,10 +34,10 @@ def test_call_local_losses_match_three_queries_and_all_partials(budget, cosines)
 
 def test_material_builds_one_curve_per_point_without_retaining_graph(budget,monkeypatch):
     from gffx.torch import material
-    calls=[]; original=type(budget)._curve
-    def observed(self,r):
-        calls.append(tuple(r.shape)); return original(self,r)
-    monkeypatch.setattr(type(budget),'_curve',observed)
+    calls=[]; original=type(budget)._prepare_curve
+    def observed(self,r,**options):
+        calls.append(tuple(r.shape)); return original(self,r,**options)
+    monkeypatch.setattr(type(budget),'_prepare_curve',observed)
     n=t([[0.,0.,1.],[0.,0.,1.]])
     l=t([[.1,.2,1.],[-.2,.1,1.],[.1,-.1,-1.]])
     r=t([.213,.827],True); f=t([[.07,.47,.93],[.93,.47,.07]],True)
@@ -54,7 +54,7 @@ def test_material_builds_one_curve_per_point_without_retaining_graph(budget,monk
 
 def test_material_rejects_old_limit_before_any_curve(budget,monkeypatch):
     from gffx.torch import material
-    monkeypatch.setattr(type(budget),'_curve',lambda *a:pytest.fail('curve allocated before rejection'))
+    monkeypatch.setattr(type(budget),'_prepare_curve',lambda *a:pytest.fail('curve allocated before rejection'))
     n=t([[0.,0.,1.]]*8,True)
     with pytest.raises(ValueError,match='workspace'):
         material.principled(n,n,t([[0.,0.,1.]]),albedo=t([.2,.4,.6]),roughness=t(1.),f0=t(.04),budget=budget)

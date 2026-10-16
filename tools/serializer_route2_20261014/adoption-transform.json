@@ -1,0 +1,111 @@
+[
+  {
+    "original": "D:\\devspace\\gffit\\qualification-20261006\\boundary-sh28\\gradient136-source20-checkpoint2\\whole_pixel_integrals295.py",
+    "candidate": "route2_producer.py",
+    "replacements": [
+      [
+        "P=Path(__file__).parent;sys.path.insert(0,'C:/dev/gffx')",
+        "from route2_common import ROOT as P\nsys.path.insert(0,'C:/dev/gffx')"
+      ],
+      [
+        "P=Path(__file__).parent;H=",
+        "from route2_common import ROOT as P\nH="
+      ],
+      [
+        "from whole_image_admission292 import",
+        "from route2_admission import"
+      ],
+      [
+        "from phase_metrics347 import",
+        "from route2_phases import"
+      ],
+      [
+        "from measured_serializer348 import dump_exact",
+        "from route2_serializer import dump_exact"
+      ],
+      [
+        "finally:d['phase_metrics']=phases.finish();d['seconds']=time.perf_counter()-start;cost.write_report(a.output,d)",
+        "finally:d['serializer_adoption']=finish_context();d['phase_metrics']=phases.finish();d['seconds']=time.perf_counter()-start;cost.write_report(a.output,d)"
+      ],
+      [
+        "with phases.measure('worker_prerequisite_verification'):prior=before_arrays(i)",
+        "with phases.measure('worker_prerequisite_verification'):prior=before_arrays(i)\n   configure(P,a.launch_index,checkpoint=lambda:cost.check_deadline(start+task['spec']['seconds']))"
+      ],
+      [
+        " with Recorder(a.output) as phases, Scope(cost,a.output):\n  try:",
+        " with Recorder(a.output) as phases, Scope(cost,a.output):\n  from route2_serializer import configure,finish_context\n  try:"
+      ]
+    ],
+    "original_numerical_AST_unchanged_after_control_binding_reversal": true
+  },
+  {
+    "original": "D:\\devspace\\gffit\\qualification-20261006\\boundary-sh28\\gradient136-source20-checkpoint2\\whole_pixel_group_audit315.py",
+    "candidate": "route2_auditor.py",
+    "replacements": [
+      [
+        "P=Path(__file__).parent;sys.path.insert(0,'C:/dev/gffx')",
+        "from route2_common import ROOT as P\nsys.path.insert(0,'C:/dev/gffx')"
+      ],
+      [
+        "P=Path(__file__).parent;H=",
+        "from route2_common import ROOT as P\nH="
+      ],
+      [
+        "from whole_image_admission292 import",
+        "from route2_admission import"
+      ],
+      [
+        "from phase_metrics347 import",
+        "from route2_phases import"
+      ],
+      [
+        "from measured_serializer348 import dump_exact",
+        "from route2_serializer import dump_exact"
+      ],
+      [
+        "finally:d['phase_metrics']=phases.finish();d['seconds']=time.perf_counter()-start;cost.write_report(a.output,d)",
+        "finally:d['serializer_adoption']=finish_context();d['phase_metrics']=phases.finish();d['seconds']=time.perf_counter()-start;cost.write_report(a.output,d)"
+      ],
+      [
+        "with phases.measure('worker_prerequisite_verification'):prior=before_arrays(i)",
+        "with phases.measure('worker_prerequisite_verification'):prior=before_arrays(i)\n   configure(P,a.launch_index,checkpoint=lambda:cost.check_deadline(start+task['spec']['seconds']))"
+      ],
+      [
+        " with Recorder(a.output) as phases, Scope(cost,a.output):\n  try:",
+        " with Recorder(a.output) as phases, Scope(cost,a.output):\n  from route2_serializer import configure,finish_context\n  try:"
+      ]
+    ],
+    "original_numerical_AST_unchanged_after_control_binding_reversal": true
+  },
+  {
+    "original": "D:\\devspace\\gffit\\qualification-20261006\\boundary-sh28\\gradient136-source20-checkpoint2\\qualify_source20_checkpoint349.py",
+    "candidate": "route2_gate.py",
+    "replacements": [
+      [
+        "P=Path(__file__).parent;sys.path.insert(0,'C:/dev/gffx')",
+        "from route2_common import ROOT as P\nsys.path.insert(0,'C:/dev/gffx')"
+      ],
+      [
+        "P=Path(__file__).parent;H=",
+        "from route2_common import ROOT as P\nH="
+      ],
+      [
+        "from whole_image_admission292 import",
+        "from route2_admission import"
+      ],
+      [
+        "from phase_metrics347 import",
+        "from route2_phases import"
+      ],
+      [
+        "from measured_serializer348 import dump_exact",
+        "from route2_serializer import dump_exact"
+      ],
+      [
+        "d.update(phase='fixture-gate',all_current_COMPLETE_and_stopped_typed_chains_before_arrays=True);cost.write_report(a.output,d)",
+        "d.update(phase='fixture-gate',all_current_COMPLETE_and_stopped_typed_chains_before_arrays=True);cost.write_report(a.output,d)\n            binding=p['binding_evidence'];assert sha(binding['path'])==binding['sha256'];b=read(binding['path']);assert b['status']=='passed' and b['failures']==b['errors']==b['skips']==0 and b['tests']==binding['tests']\n            for path,h in b['sources'].items():assert sha(path)==h,path\n            d.update(binding_tests_passed=True,serializer_adoption={'verified':True,'calls':0,'reused_focused_evidence':binding,'prototype_sha256':'56184c56fed001b9f5e7585da10a5bfbc324ceb7540662b930d7bddad023d391'})"
+      ]
+    ],
+    "original_numerical_AST_unchanged_after_control_binding_reversal": true
+  }
+]

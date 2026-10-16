@@ -634,3 +634,69 @@ def test_odd_batch_multilayer_independent_leaf_vjps(dtype,alpha,record_property)
         return tuple(v.detach().cpu() for v in (out,*grads))
     _compare_device_rows(evaluate('cpu'),evaluate('cuda'),evaluate('cuda'),
                          ('pixels','bottom_vjp','middle_vjp','top_vjp','background_vjp'),record_property)
+
+
+@pytest.mark.parametrize('dtype',[torch.float32,torch.float64])
+def test_multilayer_alpha_stages_matched_cotangent(dtype,record_property):
+    """Expose alpha conversion versus over arithmetic with identical local cotangents."""
+    from gffx.torch import image
+    from test_deferred_principled_stages import raw
+    def exact(a,b):
+        return a.shape==b.shape and a.dtype==b.dtype and raw(a)==raw(b)
+    source=torch.arange(120,dtype=dtype).reshape(2,3,5,4)/256
+    source[...,3]=.8;source[0,0,0,3]=0
+    cot=torch.arange(1,121,dtype=dtype).reshape(source.shape)/128
+    other=source*.41
+    failures=[]
+    stages=(('premultiply',(source,),lambda x:image._premultiply(x,'straight')),
+            ('represent',(source,),lambda x:image._represent(x,'straight')),
+            ('over',(source,other),lambda x,y:x+(1-x[...,3:4])*y))
+    for label,host,fn in stages:
+        rows=[]
+        for device in ('cpu','cuda','cuda'):
+            args=tuple(v.to(device).clone().requires_grad_() for v in host)
+            incoming=cot.to(device)
+            assert all(exact(a,h) for a,h in zip(args,host)) and exact(incoming,cot)
+            out=fn(*args);grads=torch.autograd.grad(out,args,grad_outputs=incoming)
+            rows.append(tuple(v.detach().cpu() for v in (out,*grads)))
+        for index,(a,b,c) in enumerate(zip(*rows)):
+            mismatch=not exact(a,b);repeat=not exact(b,c)
+            record_property(f'{label}_{index}_different',mismatch)
+            record_property(f'{label}_{index}_max_abs',float((a-b).abs().max()))
+            if mismatch or repeat:failures.append(f'{label}/{index}')
+    assert not failures,failures
+
+
+@pytest.mark.parametrize('dtype',[torch.float32,torch.float64])
+def test_multilayer_captured_alpha_operands(dtype,record_property):
+    """Replay actual intermediate values and incoming gradients from the failed layer recipe."""
+    from gffx.torch import image
+    from test_deferred_principled_stages import raw
+    source=torch.arange(120,dtype=dtype).reshape(2,3,5,4)/256
+    source[...,3]=.8;source[0,0,0,3]=0
+    background=source.clone();background[...,3]=1
+    host=tuple(v.clone().requires_grad_() for v in (source*.73,source*.41,source*.29,background))
+    cot=torch.arange(1,121,dtype=dtype).reshape(source.shape)/128
+    stages=[]
+    def capture(label,args,fn):
+        out=fn(*args);stages.append((label,args,fn,out));return out
+    pm=[capture(f'premultiply{i}',(x,),lambda x:image._premultiply(x,'straight')) for i,x in enumerate(host)]
+    value=pm[-1]
+    for i,x in enumerate(pm[:-1]):value=capture(f'over{i}',(x,value),image._AlphaOver.apply)
+    out=capture('represent',(value,),lambda x:image._represent(x,'straight'))
+    incoming=torch.autograd.grad(out,tuple(s[3] for s in stages),grad_outputs=cot,retain_graph=True)
+    failures=[]
+    for (label,args,fn,_),inc in zip(stages,incoming):
+        rows=[]
+        for device in ('cpu','cuda','cuda'):
+            inputs=tuple(x.detach().to(device).clone().requires_grad_() for x in args)
+            gradient=inc.detach().to(device)
+            assert all(raw(a)==raw(b) for a,b in zip(inputs,args)) and raw(gradient)==raw(inc)
+            y=fn(*inputs);g=torch.autograd.grad(y,inputs,grad_outputs=gradient)
+            rows.append(tuple(x.detach().cpu() for x in (y,*g)))
+        for index,(a,b,c) in enumerate(zip(*rows)):
+            bad=raw(a)!=raw(b) or raw(b)!=raw(c)
+            record_property(f'{label}_{index}_different',bad)
+            record_property(f'{label}_{index}_max_abs',float((a-b).abs().max()))
+            if bad:failures.append(f'{label}/{index}')
+    assert not failures,failures

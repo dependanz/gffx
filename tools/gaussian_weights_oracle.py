@@ -165,6 +165,10 @@ def rounded_contract(row, cotangent_bits):
         while len(values) > 1:
             values = [_rounded_finite(values[i]+values[i+1],dtype)
                       for i in range(0,len(values)-1,2)] + (values[-1:] if len(values)%2 else [])
+    # The adopted radius-zero boundary explicitly returns +0 even for a
+    # negative cotangent; decoding above still rejects nonfinite cotangents.
+    if row.get('radius') == 0:
+        values[0] = Decimal(0)
     return dict(weight_bits=[round_bits(v,dtype) for v in row['weights']],
                 derivative_bits=derivative_bits, vjp_bits=round_bits(values[0],dtype),
                 meaning='ideal rounded derivative/product/fixed-tree contract, not mathematical VJP')

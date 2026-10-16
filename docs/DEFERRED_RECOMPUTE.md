@@ -56,3 +56,32 @@ latency are measured under the existing1GiB CPU/2GiB CUDA host,64MiB GPU and
 120s/180s worker limits. Only after that checkpoint may64/256 pixel profiles be
 predeclared. Chunking does not remove the full renderer's geometry/output/graph
 storage limits and is not a blanket1080p or real-time claim.
+
+
+## Ordered native groups on danziepc, 2026-09-14
+
+The approved renderer-internal bridge keeps the four-point gradient partition and
+batches up to32 such groups (128 points,1024 point/light pairs) into one native
+call. Existing public material8/4-point and raw32-owner query limits remain.
+Capacity is selected inside the already charged material workspace reserve;
+this is dispatch grouping, not an increased memory allowance.
+
+One renderer autograd node saves original inputs. Backward recomputes bounded
+cohorts, then explicitly adds four-point contributions in reverse group order.
+Shared roughness uses the already qualified adjacent-pair broadcast reduction,
+matching shared RGB fields. Point slices retain their original owners. No input
+is updated between groups, and higher derivatives remain unsupported.
+
+Candidate groups35 passes15 installed-wheel controls: exact ordered-reference
+and CPU/CUDA values and all first gradients, independent two-step differences,
+saved-input ownership and20 fresh CUDA graphs with stable3212288-byte live
+allocation and25089536-byte peak. Complete hard/soft quad shared material and
+light VJPs also pass exact device checks in the73-pass integration/regression
+batch. Two saved-large-batch report checks skip because explicit measured reports were
+not supplied to that worker; these are not passed gates.
+
+Groups33 and34 failed exact shared-gradient comparisons; those artifacts and
+reports remain historical evidence. The repaired accumulation does not relax
+tolerances, replace the independent physical oracle or qualify arbitrary
+caller-created PyTorch broadcast graphs. Larger-frame speed, complete parameter
+profiles and final demonstrations require their own measured acceptance.

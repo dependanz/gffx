@@ -19,3 +19,11 @@ def test_deferred_lesson_premultiplied_example_and_boundaries():
     assert chapter['id']=='learn/deferred-rendering'
     for phrase in ('zero active normal','candidate','NDC units','recomputation','not a path tracer'):
         assert phrase in chapter['body']
+
+
+def test_opaque_candidate_pages_precede_packaging_fallback():
+    from tools.testing_dashboard.catalog import page_for,definition
+    for path in ('tests/packaging/test_opaque_pixel_oracle.py','tests/packaging/test_opaque_boundary_models.py','tests/python/test_opaque_visibility.py'):
+        assert page_for(path+'::test_example')=='render/opaque-coverage'
+    assert definition('render/opaque-demo')['kind']=='demo'
+    assert page_for('tests/packaging/test_wheel.py::test_example')=='infrastructure/packaging'

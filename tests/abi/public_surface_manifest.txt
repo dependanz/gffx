@@ -72,6 +72,9 @@ op gffx_mesh_skin_lbs_workspace
 op gffx_mesh_evaluate_barycentric
 op gffx_mesh_evaluate_barycentric_backward
 op gffx_mesh_evaluate_barycentric_workspace
+op gffx_image_gaussian_weights
+op gffx_image_gaussian_weights_backward
+op gffx_image_gaussian_weights_workspace
 op gffx_image_transfer
 op gffx_image_transfer_backward
 op gffx_image_transfer_workspace
@@ -89,4 +92,43 @@ setup gffx_io_ply_read_file
 # The self-test entry point must sit in the export table because tests/abi resolves it by name
 # at runtime, but it carries no compatibility promise and lives in an internal header. Classifying
 # it here is what keeps it visible in the record rather than ambient in the export table.
+op gffx_shading_loss_curve_workspace
+op gffx_shading_loss_curve
+op gffx_shading_loss_curve_backward
 private gffx_private_self_test
+
+op gffx_shading_loss_query_workspace
+op gffx_shading_loss_query
+op gffx_shading_loss_query_backward
+
+op gffx_shading_principled_pairs_workspace
+op gffx_shading_principled_pairs
+op gffx_shading_principled_pairs_backward
+
+op gffx_shading_principled_groups_workspace
+op gffx_shading_principled_groups
+op gffx_shading_principled_groups_backward
+
+op gffx_render_rasterize_window
+
+op gffx_render_opaque_coverage_workspace
+op gffx_render_opaque_coverage
+op gffx_render_opaque_coverage_backward
+
+op gffx_render_opaque_integrate_workspace
+op gffx_render_opaque_integrate
+op gffx_render_opaque_integrate_backward
+
+op gffx_render_opaque_quadrature_workspace
+op gffx_render_opaque_quadrature
+op gffx_render_opaque_quadrature_backward
+
+op gffx_render_opaque_boundary_quadrature
+
+op gffx_render_opaque_material_batch
+op gffx_render_opaque_material_batch_backward
+
+op gffx_render_opaque_material_quadrature_workspace
+op gffx_render_opaque_material_quadrature
+op gffx_render_opaque_material_quadrature_backward
+op gffx_render_opaque_material_batch_workspace

@@ -100,3 +100,20 @@ src/gffx/*.pyd
 .venv/
 venv/
 env/
+
+# In-source CMake / MSBuild products are local outputs, never source.
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+DartConfiguration.tcl
+cmake_install.cmake
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.dir/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+x64/
+Testing/

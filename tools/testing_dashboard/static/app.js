@@ -1,6 +1,7 @@
+import { portraitReview } from './portrait-review.js';
 // The developer shell composes the installed general-purpose viewer objects.
 import { Store, Connection, PANEL_KINDS } from "/app.js";
-import { selection, reference, coverageLabel, pageLabel, testTitle, coveragePercent, coverageFile, lineRanges, newestPages, creationLabel, setupTheme, pageArtifacts, referenceLabel, panelBinding, attachPlayback, learningArticle, attachShowcase, demoClipGroup, enhanceDemoPanels, attachCinema } from "./model.js";
+import { M1_CHECKPOINT, withRecoveryProgress, examplePages, selection, reference, coverageLabel, pageLabel, testTitle, coveragePercent, coverageFile, lineRanges, newestPages, creationLabel, setupTheme, pageArtifacts, referenceLabel, panelBinding, attachPlayback, learningArticle, attachShowcase, demoClipGroup, enhanceDemoPanels, attachCinema, attachGallery } from "./model.js";
 const $ = id => document.getElementById(id);
 const node = (tag,text="",attrs={}) => {
   const element = document.createElement(tag); element.textContent = text;
@@ -57,30 +58,105 @@ export class TestingApp {
     if(document.hidden||this.busy)return;
     this.busy=true;const generation=this.generation;
     try {
-      const result=await this.get("pages");
+      let result,offlineOverview=false;
+      try{result=await this.get("pages");}catch(error){
+        if(this.selected.page!=='overview'||this.displayedSelection===JSON.stringify(this.selected)||(error.status>=400&&error.status<500))throw error;
+        // A dated explanation remains useful on first load without the index.
+        // No test result, live status or substitute evidence is invented.
+        result={pages:[]};offlineOverview=true;
+      }
       if(generation!==this.generation)return;
+      const checkpoint=withRecoveryProgress(result.checkpoint||M1_CHECKPOINT);
+      const progressUpdated=Date.parse(checkpoint.referenceProgressTime||"");
+      const progressStale=checkpoint.status==='running' && (!Number.isFinite(progressUpdated)||Date.now()-progressUpdated>60000);
       const pages=result.pages;this.navigation(pages);
-      $("connection").textContent="Connected · refreshed "+new Date().toLocaleTimeString();
+      $("connection").textContent="Dashboard online · checked "+new Date().toLocaleTimeString();
       document.querySelectorAll("[data-page]").forEach(b=>b.setAttribute("aria-current",b.dataset.page===this.selected.page?"page":"false"));
       const page=this.selected.page;
-      if(page==="overview"){
-        const directory=await this.get('directory',{limit:5});if(generation!==this.generation)return;
-        $("filters").hidden=true;this.closePanels();this.pager(null);
-        this.header("Project overview","Inspect a feature, its checks and its visual evidence. Pages stay in place as development progresses.","GFFX / DEVELOPMENT");
-        const checks=pages.filter(p=>p.kind==="tests");
-        this.replaceSummary(['overview',directory.total,checks.map(p=>[p.state,p.evidence?.stale])],()=>[this.metric("Inspection pages",String(directory.total)),
-          this.metric("Awaiting evidence",String(checks.filter(p=>!p.evidence).length)),
-          this.metric("Need attention",String(checks.filter(p=>p.evidence && (p.state!=="passed" || p.evidence.stale)).length))]);
-        $("evidence-context").textContent="Page results may come from different executions or revisions. This is not a combined suite pass or milestone-completion claim.";
+      if(page==="overview" || page==="visuals" || page==="features"){
+        const directory={total:pages.length};if(generation!==this.generation)return;
+        $("filters").hidden=true;$("explanation").hidden=true;this.closePanels();this.pager(null);
         this.execution(null);
-        const key=JSON.stringify(['overview',directory, pages.map(p=>[p.id,p.title,p.created_on,p.state,p.counts,p.evidence?.run,p.evidence?.stale])]);
+        const isOverview=page==='overview',isVisuals=page==='visuals';
+        this.header(isOverview?'Where we are in M1':isVisuals?'See gffx in action':'Features & evidence',
+          isOverview?checkpoint.purpose:isVisuals?'Saved graphics and fitting examples. Each page explains its scope and where the output came from.':'The detailed lab notebook. A page result covers one selected execution, not the whole feature.',
+          isOverview?'GFFX / MILESTONE 1':'GFFX / EXPLORE');
+        this.replaceSummary([page,checkpoint.groups],()=>isOverview?[this.metric('Milestone','M1 unfinished'),this.metric('Current work',`Group ${checkpoint.groups.find(g=>g.state==='Working here').number} of ${checkpoint.groups.length}`)]:[]);
+        $('evidence-context').textContent=isOverview?'Dated checkpoint · '+checkpoint.date+' · progress is not a percentage of test pages.':
+          'Historical failures and older demonstrations remain available. Demonstrations are not milestone acceptance.';
+        const key=JSON.stringify([page,checkpoint,directory.total,progressStale,pages.map(p=>[p.id,p.state,p.evidence?.run])]);
         if(this.contentKey!==key){
-          const cards=pages.map(p=>{const b=button("",()=>this.navigate(p.id));b.className="page-card";
-            b.append(node("span",p.group,{class:"eyebrow"}),node("h2",p.title),node("p",p.description),node("span",pageLabel(p),{class:"badge",'data-state':p.state}));return b;});
-          const grid=node("div","",{class:"page-cards"});grid.append(...cards);
-          $("details").replaceChildren(node("h2","Recently created pages"),this.creationList(directory.items,5),
-            button("All pages by creation date",()=>this.navigate("newest")),node("h2","Explore features"),grid);this.contentKey=key;
+          const card=p=>{const b=button('',()=>this.navigate(p.id));b.className='page-card';
+            b.append(node('span',p.group,{class:'eyebrow'}),node('h2',p.title),node('p',p.description),
+              node('span',p.kind==='tests'?'Selected checks: '+pageLabel(p):pageLabel(p),{class:'badge'}));return b;};
+          const grid=list=>{const g=node('div','',{class:'page-cards'});g.append(...list.map(card));return g;};
+          if(isOverview){
+            const focus=node('section','',{class:'m1-focus','data-status':checkpoint.status||'checkpoint'});
+            focus.append(node('p',checkpoint.status==='stopped'?'CAMPAIGN STOPPED':progressStale?'PROGRESS UPDATE DELAYED':checkpoint.status==='running'?(checkpoint.progressStage==='images'?'FRESH IMAGE RENDERS RUNNING':'INDEPENDENT CHECKS RUNNING'):checkpoint.status==='forward accuracy passed'?'FORWARD ACCURACY VERIFIED':'RECORDED CHECKPOINT',{class:'eyebrow'}),node('h2',checkpoint.current),node('p',checkpoint.blocker),
+              button('See FLAME working in gffit',()=>this.navigate('fitting/gffit-flame-demo')),
+              button('Review portrait landmarks and skin mask',()=>this.navigate('portrait-review')),
+              button(checkpoint.staticReport?'Open the earlier fitting checkpoint':'Read the latest engineering checkpoint',()=>this.navigate(checkpoint.evidence.page,checkpoint.evidence.run)));
+            const qualification=checkpoint.qualificationProgress;
+            if(qualification && Number.isInteger(qualification.passed) && Number.isInteger(qualification.total) &&
+               qualification.total>0 && qualification.passed>=0 && qualification.passed<=qualification.total){
+              const section=node('section','',{class:'m1-progress','aria-label':'Current qualification stage'});
+              const heading=node('div','',{class:'m1-progress-heading'});
+              heading.append(node('label',qualification.title||'Current qualification',{for:'m1-qualification-progress'}),
+                node('strong',`${qualification.passed.toLocaleString()} / ${qualification.total.toLocaleString()}`));
+              section.append(heading,node('progress','',{id:'m1-qualification-progress',max:qualification.total,value:qualification.passed}),
+                node('p',qualification.scope||'Passing reports in the current stage; other acceptance gates remain separate.',{class:'m1-progress-note'}));
+              focus.insertBefore(section,focus.children[3]);
+            }
+            const segments=checkpoint.replacementSegmentsPassed,segmentTotal=checkpoint.replacementSegmentsTotal;
+            if(Number.isInteger(segments)&&Number.isInteger(segmentTotal)&&segmentTotal>0&&segments>=0&&segments<=segmentTotal){
+              const section=node('section','',{class:'m1-progress','aria-label':'Fresh CPU and CUDA rendering progress'});
+              const heading=node('div','',{class:'m1-progress-heading'});
+              heading.append(node('label',checkpoint.renderProgressLabel||'Fresh image segments rendered and matched on CPU/CUDA',{for:'m1-render-progress'}),node('strong',`${segments.toLocaleString()} / ${segmentTotal.toLocaleString()}`));
+              section.append(heading,node('progress','',{id:'m1-render-progress',max:segmentTotal,value:segments}),node('p','Four pixels per segment. Rendering progress is separate from independent accuracy and gradient acceptance.',{class:'m1-progress-note'}));
+              focus.append(section);
+            }
+            const accepted=checkpoint.acceptedForeground,total=checkpoint.totalForeground;
+            if(Number.isInteger(accepted)&&Number.isInteger(total)&&total>0&&accepted>=0&&accepted<=total){
+              const progress=node('section','',{class:'m1-progress','aria-label':'Independent image comparison progress'});
+              const heading=node('div','',{class:'m1-progress-heading'});
+              heading.append(node('label',checkpoint.accuracyProgressLabel||'Foreground pixels independently checked',{for:'m1-accuracy-progress'}),
+                node('strong',`${accepted.toLocaleString()} / ${total.toLocaleString()} · ${(100*accepted/total).toFixed(1)}%`));
+              const bar=node('progress','',{id:'m1-accuracy-progress',max:total,value:accepted,'aria-describedby':'m1-progress-scope'});
+              const scope=node('p','Pixel checks only — not overall M1 completion or time remaining. Transparent background and final whole-image checks are separate.',{id:'m1-progress-scope',class:'m1-progress-note'});
+              const timing=Number.isFinite(progressUpdated)?`Results checked at ${new Date(progressUpdated).toLocaleTimeString()}. `:'';
+              progress.append(heading,bar,scope,
+                node('p',timing+(progressStale?'Updates are delayed; the last verified count is shown.':checkpoint.status==='running'?'Results refresh about every 20 seconds; this page polls every 2 seconds while visible.':'This campaign is not reporting live progress.'),{class:'m1-progress-note'}),
+                node('p','The count advances when a complete pixel passes both colour and coverage checks. Revalidating saved certificates or calculating several parts of one pixel can leave it unchanged.',{class:'m1-progress-note'}));
+              focus.append(progress);
+            }
+            if(checkpoint.staticReport){
+              const report=checkpoint.staticReport,figure=node('figure','',{class:'m1-static-report'});
+              const link=node('a','',{href:report.url,target:'_blank',rel:'noopener','aria-label':'Open the saved validation image at full size'});
+              link.append(node('img','',{src:report.url,alt:report.alt,width:1600,height:960,loading:'lazy',style:'display:block;width:100%;height:auto;border-radius:8px'}));
+              figure.append(link,node('figcaption',report.caption));focus.append(figure);
+            }
+            const roadmap=node('ol','',{class:'m1-roadmap','aria-label':'M1 exit checklist'});
+            for(const g of checkpoint.groups){const row=node('li','',{'data-current':String(g.state==='Next'||g.state==='Working here')});
+              row.append(node('span',g.state,{class:'eyebrow'}),node('h3',g.title),node('p',g.text));roadmap.append(row);}
+            const why=node('details','',{class:'m1-why'});why.append(node('summary','Why has M1 taken so long?'),node('p',checkpoint.why));
+            const library=node('details','',{class:'m1-why'});library.append(node('summary','What is already built?'),
+              node('p','Geometry and cameras, scene assembly, animation and deformation, image layers, textures, materials, lighting, and CPU/CUDA execution all have implementation and test evidence. The remaining work qualifies the expanded opaque-rendering and integration requirements.'),
+              button('Explore features and their checks',()=>this.navigate('features')));
+            $('details').replaceChildren(focus,node('h2','The M1 closeout checklist'),roadmap,why,library,
+              node('h2','Start with a visual example'),node('p','These are existing saved demonstrations, not the final M1 3D showcase.'),grid(examplePages(pages)),
+              button('Browse all demonstrations',()=>this.navigate('visuals')),
+              node('p','Need the details? Newest pages is the chronological lab notebook; green checks there do not mean M1 is complete.',{class:'m1-footnote'}));
+          }else $('details').replaceChildren(grid(pages.filter(p=>isVisuals?p.kind==='demo':true)));
+          this.contentKey=key;
         }
+      } else if(page==='portrait-review'){
+        const review=await this.get('portrait-review');if(generation!==this.generation)return;
+        $('filters').hidden=true;$('explanation').hidden=true;this.closePanels();this.execution(null);this.pager(null);
+        this.header('Review the portrait inputs','Toggle the overlays and inspect the observations before fitting.','GFFX / GROUP 4 / INPUT REVIEW');
+        this.replaceSummary([page,review.revision_sha256],()=>[this.metric('Status','Draft annotations'),this.metric('Landmarks','68')]);
+        $('evidence-context').textContent='Not a fitted result or a passing test. The original photo is unchanged.';
+        const key=JSON.stringify([page,review.revision_sha256]);
+        if(this.contentKey!==key){$('details').replaceChildren(portraitReview(review));this.contentKey=key;}
       } else if(page==="newest"){
         const directory=await this.get('directory',{offset:this.offset});if(generation!==this.generation)return;
         $("filters").hidden=true;this.closePanels();this.execution(null);
@@ -99,12 +175,13 @@ export class TestingApp {
           this.metric('Eligible for cleanup',String(info.candidates.length))]);
         $('evidence-context').textContent='Cleanup is explicit, never triggered by viewing this page. Latest evidence, active executions and pins are protected. Live window and snapshot settings are unchanged.';
         const key=JSON.stringify(['history',info]);if(this.contentKey!==key){
+          const raw=node('details','',{class:'m1-why'});raw.append(node('summary','Technical retention inventory'),node('pre',JSON.stringify({eligible:info.candidates,blocked:info.blocked},null,2)));
           $('details').replaceChildren(node('p','Retain '+info.history_keep+' extra older executions, plus all protected evidence. This is not a lifetime execution cap.'),
             node('p','Active executions: '+info.active+' / '+info.max_active+'. Stale sessions still need explicit completion.'),
             node('p','Metadata: '+(info.metadata_used_bytes/1048576).toFixed(2)+' MiB used / '+(info.metadata_limit_bytes/1048576).toFixed(0)+' MiB budget. Freed SQLite pages are reused.'),
             node('p','Saved-log budget: '+(info.log_limit_bytes/1048576).toFixed(0)+' MiB. Shared presentation assets have a separate preserve-and-stop budget.'),
             node('p','Pin important evidence under its Execution details. Ask the developer to preview and apply eligible cleanup; this page cannot delete history.'),
-            node('pre',JSON.stringify({eligible:info.candidates,blocked:info.blocked},null,2)));this.contentKey=key;
+            raw);this.contentKey=key;
         }
       } else if(page==="coverage"){
         $("filters").hidden=true;
@@ -112,7 +189,7 @@ export class TestingApp {
         const cov=await this.get("latest-coverage",{...(this.selected.run?{run:this.selected.run}:{}),offset:this.offset,layer:this.coverageLayer||'python'});
         if(generation!==this.generation)return;
         this.header("Code coverage","What code did the instrumented tests exercise? Select a layer; there is no misleading whole-repository percentage.","GFFX / EVIDENCE");
-        $("evidence-context").textContent="Coverage measures execution, not correctness. A Python or host test does not measure GPU device code. Uninstrumented files and missing layers are not zero-percent coverage. Reports stay attached to their execution.";
+        $("evidence-context").textContent="Coverage remeasurement is deferred until after M1. Coverage measures execution, not correctness. A Python or host test does not measure GPU device code. Uninstrumented files and missing layers are not zero-percent coverage. Reports stay attached to their execution.";
         this.execution(cov.evidence);
         this.coverageView(cov);
         if(cov.measured)this.pager(cov.total_files);else this.pager(null);
@@ -132,7 +209,7 @@ export class TestingApp {
         }else{
         this.explanation(detail);
         this.replaceSummary([page,pageLabel(detail),detail.counts],()=>[
-          node("div",pageLabel(detail),{class:"badge",'data-state':detail.state}),
+          node("div",(detail.kind==='tests'?'Selected execution · ':'')+pageLabel(detail),{class:"badge",'data-state':detail.state}),
           ...(detail.kind==="tests"?Object.entries(detail.counts).map(([label,count])=>this.metric(label,String(count))):[])]);
         $("evidence-context").textContent=detail.kind==='check' ? "Named check in the selected test execution. Parent test: "+detail.parent_outcome+". A passing check does not make the whole test pass." : detail.kind==="demo" ? "DEMONSTRATION · illustrative visuals, never test acceptance." :
           "Evidence covers the collected checks for this page in one execution, not the entire feature contract. Visuals appear below when published; no fabricated figures.";
@@ -170,18 +247,19 @@ export class TestingApp {
         if(detail.kind==="tests"&&detail.evidence)this.pager(detail.total);else this.pager(null);
         }
       }
-      this.displayedSelection=JSON.stringify(this.selected);this.lastSuccess=new Date().toLocaleTimeString();
-      $("error").hidden=true;
+      this.displayedSelection=offlineOverview?null:JSON.stringify(this.selected);if(!offlineOverview)this.lastSuccess=new Date().toLocaleTimeString();
+      $("error").hidden=!offlineOverview;
+      if(offlineOverview){$('error').textContent='The evidence index is temporarily unavailable. Showing the dated M1 checkpoint; live results and demonstration links will return when the connection recovers.';$('connection').textContent='Offline · dated checkpoint';}
     } catch(error){
       if(generation!==this.generation)return;
       if(this.displayedSelection===JSON.stringify(this.selected) && !(error.status>=400 && error.status<500)){
-        $("error").hidden=false;$("error").textContent="Refresh unavailable; showing last received evidence from "+this.lastSuccess+". "+error.message;
+        $("error").hidden=false;$("error").textContent="Refresh unavailable; showing last received evidence from "+this.lastSuccess+". "+(error.name==='AbortError'?'The server took too long to respond; retrying automatically.':error.message);
         $("connection").textContent="Offline · showing last received evidence";return;
       }
       this.closePanels();this.contentKey=null;this.summaryKey=null;this.pagerKey=null;this.execution(null);
       for(const id of ["details","summary","pager","evidence-context","explanation"])$(id).replaceChildren();
       this.guideKey=null;this.pageTitle=null;this.titlePage=null;
-      $("error").hidden=false;$("error").textContent=error.message;$("connection").textContent="Unavailable";
+      $("error").hidden=false;$('error').textContent=error.name==='AbortError'?'The evidence index is taking too long to respond. Retrying automatically.':error.message;$('connection').textContent='Unavailable';
     }
     finally{this.busy=false;if(generation!==this.generation&&!document.hidden)queueMicrotask(()=>this.poll());}
   }
@@ -200,6 +278,7 @@ export class TestingApp {
     return list;
   }
   header(title,description,eyebrow) {
+    const referenceBar=$("reference-bar");if(referenceBar)referenceBar.hidden=this.selected.page==='overview';
     $("description").hidden=false;
     $("copy-details").hidden=this.selected.page.startsWith('learn/');
     this.pageTitle=title;this.titlePage=this.selected.page;
@@ -272,11 +351,11 @@ export class TestingApp {
     const key=JSON.stringify(pages.map(p=>[p.id,p.group,p.title]));
     if(this.catalogKey!==key){
       $("page-groups").replaceChildren();const groups=new Map();
-      for(const p of pages){if(!groups.has(p.group)){const section=node("details","",{class:"nav-group"});section.open=true;section.append(node("summary",p.group));groups.set(p.group,section);$("page-groups").append(section);}
+      for(const p of pages){if(!groups.has(p.group)){const section=node("details","",{class:"nav-group"});section.open=false;section.append(node("summary",p.group));groups.set(p.group,section);$("page-groups").append(section);}
         const b=button(p.title,()=>this.navigate(p.id));b.dataset.page=p.id;b.setAttribute("aria-label",p.title);b.append(node("span","",{'data-page-status':p.id,class:"nav-status"}));groups.get(p.group).append(b);}
       this.catalogKey=key;
     }
-    for(const p of pages){const badge=[...document.querySelectorAll("[data-page-status]")].find(b=>b.dataset.pageStatus===p.id);badge.textContent=p.kind==='article'?'article':p.evidence?(p.evidence.stale?"stale":p.state):"not measured";badge.setAttribute("data-state",p.state);}
+    for(const p of pages){const badge=[...document.querySelectorAll("[data-page-status]")].find(b=>b.dataset.pageStatus===p.id);badge.textContent=p.kind==='article'?'article':p.evidence?(p.evidence.stale?"stale":p.kind==='tests'?"checks: "+p.state:p.state):"not measured";badge.setAttribute("data-state",p.state);}
   }
   execution(evidence, historyItems=[]) {
     this.evidenceRun=evidence?.run||"";this.provenance=evidence?.provenance||{};
@@ -356,8 +435,9 @@ export class TestingApp {
           panel.el.classList.add('static-artifact');
           if(spec.kind==='text'){
             const explanation=node('details','',{class:'demo-explanation'});
+            explanation.open=!this.layout.panels.some(p=>['image','mesh','plot'].includes(p.kind));
             explanation.append(node('summary','Explanation, mathematics & limits'),panel.el);section.append(explanation);
-          }else grid.append(panel.el);
+          }else if(spec.kind==='record'){const technical=node('details','',{class:'demo-explanation'});technical.append(node('summary','Technical record · '+(spec.label||spec.path)),panel.el);grid.append(technical);}else grid.append(panel.el);
         }else $("evidence").append(panel.el);
         if(spec.label){const label=panel.head.querySelector('.path');if(label)label.textContent=spec.label;}
         const available=this.store.paths.has(spec.path)||(spec.kind==='plot'&&[...this.store.paths.keys()].some(path=>path.startsWith(spec.path+'/')));
@@ -369,7 +449,7 @@ export class TestingApp {
         }
       }
       if(this.staticEvidence&&this.selected.step===null){enhanceDemoPanels(this);this.disposeShowcase=attachShowcase(this,$("evidence"));}
-      if(this.staticEvidence&&!this.selected.path&&this.selected.step===null){try{this.disposeCinema=attachCinema(this,$("evidence"));}catch(error){$("error").hidden=false;$("error").textContent=error.message;}}
+      if(this.staticEvidence&&!this.selected.path&&this.selected.step===null){try{this.disposeCinema=attachCinema(this,$("evidence"))||attachGallery(this,$("evidence"));}catch(error){$("error").hidden=false;$("error").textContent=error.message;}}
       if(this.selected.path&&!artifacts.some(a=>a.path===this.selected.path)){this.closePanels();$("evidence").textContent="Referenced artifact is not on this page.";}
     };
     this.connection.connect();

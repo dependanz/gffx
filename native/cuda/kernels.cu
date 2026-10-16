@@ -1,3 +1,5 @@
+#define GFFX_RASTER_INLINE static __device__ __forceinline__
+#include "../core/raster_block_bounds.h"
 /*
  * GFFX CUDA device kernels.
  *
@@ -532,7 +534,8 @@ extern "C" __global__ void gffx_cuda_rasterize_##SUFFIX(                        
     const int *__restrict__ face_offsets, long long image_height, long long image_width,       \
     long long faces_per_pixel, double blur_squared, unsigned int cull_mode, double eps,        \
     long long pixel_count, int *__restrict__ face_index, SCALAR *__restrict__ barycentric,     \
-    SCALAR *__restrict__ depth, SCALAR *__restrict__ signed_distance                           \
+    SCALAR *__restrict__ depth, SCALAR *__restrict__ signed_distance,                           \
+    long long global_height,long long global_width,long long row_offset,long long column_offset                           \
 ) {                                                                                            \
     long long pixel = (long long)blockIdx.x * blockDim.x + threadIdx.x;                        \
     if (pixel >= pixel_count) return;                                                          \
@@ -542,10 +545,10 @@ extern "C" __global__ void gffx_cuda_rasterize_##SUFFIX(                        
     long long pixel_base = pixel * faces_per_pixel;                                            \
     long long first_face = (long long)face_offsets[batch];                                     \
     long long last_face = (long long)face_offsets[batch + 1];                                  \
-    double half_width = (double)image_width * 0.5;                                             \
-    double half_height = (double)image_height * 0.5;                                           \
-    double px = (double)column + 0.5;                                                          \
-    double py = (double)row + 0.5;                                                             \
+    double half_width = (double)global_width * 0.5;                                             \
+    double half_height = (double)global_height * 0.5;                                           \
+    double px = (double)(column+column_offset) + 0.5;                                                          \
+    double py = (double)(row+row_offset) + 0.5;                                                             \
     for (long long slot = 0; slot < faces_per_pixel; ++slot) {                                 \
         long long entry = pixel_base + slot;                                                   \
         face_index[entry] = -1;                                                                \
@@ -588,6 +591,7 @@ extern "C" __global__ void gffx_cuda_rasterize_##SUFFIX(                        
         w1 = e1 / area2;                                                                       \
         w2 = e2 / area2;                                                                       \
         inside = (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0);                                        \
+        if (!inside && gffx_raster_far(gffx_raster_make_box(ax,ay,bx,by,cx,cy,(double)global_width,(double)global_height),px,py,px,py,blur_squared)) continue;\
         distance_squared = gffx_cuda_boundary_distance_squared(px, py, ax, ay, bx, by, cx, cy);\
         if (!inside && distance_squared > blur_squared) continue;                              \
         fragment_depth = w0 * nz0 + w1 * nz1 + w2 * nz2;                                       \
@@ -627,6 +631,7 @@ extern "C" __global__ void gffx_cuda_rasterize_##SUFFIX(                        
 
 GFFX_CUDA_RASTERIZE(f32, float, __int_as_float(0x7f800000))
 GFFX_CUDA_RASTERIZE(f64, double, __longlong_as_double(0x7ff0000000000000LL))
+#include "raster_cooperative_kernels.cuh"
 
 /* ------------------------------------------------- render.texture_pyramid and render.texture
  *
@@ -2407,3 +2412,12 @@ GFFX_CUDA_SAMPLE_SURFACE_BACKWARD(f64, double)
 
 #include "animation_kernels.cuh"
 #include "image_kernels.cuh"
+#include "gaussian_kernels.cuh"
+#include "principled_curve_kernels.cuh"
+
+#include "principled_pairs_kernels.cuh"
+
+#include "opaque_quadrature_kernels.cuh"
+
+#include "opaque_samples_kernels.cuh"
+#include "opaque_albedo_kernels.cuh"

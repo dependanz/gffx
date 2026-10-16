@@ -20,6 +20,11 @@ int main(int argc,char **argv){
     CHECK(bytes==91&&align==92);
     CHECK(gffx_image_transfer(&x,0,&c,&y,NULL,NULL)==GFFX_STATUS_UNSUPPORTED);
     CHECK(gffx_image_transfer_backward(&x,&g,1,&c,&y,NULL,NULL)==GFFX_STATUS_UNSUPPORTED);
+    {int64_t taps[2]={3,3},tap_strides[2]={3,1};gffx_tensor_view gy=y,gg=g,gs=y;
+     gy.rank=gg.rank=2;gy.shape=gg.shape=taps;gy.strides=gg.strides=tap_strides;
+     CHECK(gffx_image_gaussian_weights_workspace(3,x.dtype,1,&c,&bytes,&align,NULL)==GFFX_STATUS_UNSUPPORTED&&bytes==91&&align==92);
+     CHECK(gffx_image_gaussian_weights(&x,1,&c,&gy,NULL,NULL)==GFFX_STATUS_UNSUPPORTED);
+     CHECK(gffx_image_gaussian_weights_backward(&x,&gg,1,&c,&gs,NULL,NULL)==GFFX_STATUS_UNSUPPORTED);}
     x.struct_size=8;CHECK(gffx_image_transfer(&x,0,&c,&y,NULL,NULL)==GFFX_STATUS_ABI_MISMATCH);
     return 0;
 }

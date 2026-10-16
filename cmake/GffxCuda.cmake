@@ -59,26 +59,53 @@ add_custom_command(
             "${CMAKE_CURRENT_SOURCE_DIR}/native/core/animation_scalar.h"
             "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/image_kernels.cuh"
             "${CMAKE_CURRENT_SOURCE_DIR}/native/core/image_transfer_scalar.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/gaussian_kernels.cuh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/gaussian_scalar.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/principled_curve_kernels.cuh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/principled_curve_scalar.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/raster_block_bounds.h"
             "${CMAKE_CURRENT_SOURCE_DIR}/native/core/image_transfer_boundary.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/opaque_polygon.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/opaque_quadrature_scalar.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/opaque_batch_cursor.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/opaque_batch_scalar.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/core/opaque_exact_orientation.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/opaque_quadrature_kernels.cuh"
     COMMENT "Compiling GFFX CUDA kernels to PTX (${GFFX_CUDA_ARCH_FLOOR})"
     VERBATIM
 )
 
-add_custom_command(
-    OUTPUT "${gffx_cuda_ptx_header}"
-    COMMAND ${CMAKE_COMMAND}
-            -DGFFX_PTX_INPUT=${gffx_cuda_ptx}
-            -DGFFX_PTX_OUTPUT=${gffx_cuda_ptx_header}
-            -DGFFX_PTX_SYMBOL=gffx_cuda_embedded_ptx
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtx.cmake"
-    DEPENDS "${gffx_cuda_ptx}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtx.cmake"
-    COMMENT "Embedding GFFX PTX into the plugin"
-    VERBATIM
-)
-
+if(WIN32)
+    # Avoid expanding megabytes of PTX literals through the C compiler AST.
+    # RC stores exact bytes inside the same DLL, with no external runtime file.
+    enable_language(RC)
+    set(gffx_cuda_ptx_payload "${CMAKE_CURRENT_BINARY_DIR}/generated/gffx_cuda_ptx.bin")
+    set(gffx_cuda_ptx_resource "${CMAKE_CURRENT_BINARY_DIR}/generated/gffx_cuda_ptx.rc")
+    add_custom_command(
+        OUTPUT "${gffx_cuda_ptx_header}" "${gffx_cuda_ptx_payload}" "${gffx_cuda_ptx_resource}"
+        COMMAND "${Python_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtxResource.py"
+                --input "${gffx_cuda_ptx}" --payload "${gffx_cuda_ptx_payload}"
+                --rc "${gffx_cuda_ptx_resource}" --header "${gffx_cuda_ptx_header}"
+        DEPENDS "${gffx_cuda_ptx}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtxResource.py"
+        COMMENT "Embedding exact PTX as a Windows DLL resource"
+        VERBATIM
+    )
+else()
+    add_custom_command(
+        OUTPUT "${gffx_cuda_ptx_header}"
+        COMMAND ${CMAKE_COMMAND}
+                -DGFFX_PTX_INPUT=${gffx_cuda_ptx}
+                -DGFFX_PTX_OUTPUT=${gffx_cuda_ptx_header}
+                -DGFFX_PTX_SYMBOL=gffx_cuda_embedded_ptx
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtx.cmake"
+        DEPENDS "${gffx_cuda_ptx}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtx.cmake"
+        COMMENT "Embedding GFFX PTX into the plugin"
+        VERBATIM
+    )
+endif()
 add_custom_target(gffx_cuda_ptx_target DEPENDS "${gffx_cuda_ptx_header}")
+add_library(gffx_cuda12 MODULE ${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/plugin.c ${gffx_cuda_ptx_resource})
 
-add_library(gffx_cuda12 MODULE ${CMAKE_CURRENT_SOURCE_DIR}/native/cuda/plugin.c)
 target_compile_features(gffx_cuda12 PRIVATE c_std_11)
 target_include_directories(gffx_cuda12 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

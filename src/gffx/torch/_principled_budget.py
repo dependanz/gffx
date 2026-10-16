@@ -15,6 +15,8 @@ from types import MappingProxyType
 import torch
 from ._loss_curve import bounded_slopes, bernstein_weights, controls, _bezier
 from . import _budget_catalog
+from ._reference_channels import multiply
+from ._curve_math import roughness_interpolate, sum_last, log_unit
 
 MAX_BYTES = 8*1024**2
 WORKSPACE_BYTES = 64*1024**2
@@ -127,6 +129,40 @@ def _lane(device, dtype, *, allow_unverified=False):
     return torch.device('cpu')
 
 
+class _NativeLossCurve(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx,axis,coefficients,u):
+        if axis.requires_grad or coefficients.requires_grad:
+            raise ValueError('native curve axes/coefficients must be immutable resource constants')
+        value,partial=torch.ops.gffx.shading_loss_curve(axis,coefficients,u)
+        ctx.save_for_backward(partial)
+        return value
+
+    @staticmethod
+    @torch.autograd.function.once_differentiable
+    def backward(ctx,gradient):
+        partial,=ctx.saved_tensors
+        return None,None,torch.ops.gffx.shading_loss_curve_backward(partial,gradient.contiguous())
+
+
+class _NativeLossQuery(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx,cn,logs,weights,coefficients,u,cosine,owners):
+        if any(t.requires_grad for t in (cn,logs,weights,coefficients)):
+            raise ValueError('native query coefficients must be immutable resource constants')
+        value,partial=torch.ops.gffx.shading_loss_curve(logs,coefficients,u)
+        query,mean=torch.ops.gffx.shading_loss_query(cn,logs,weights,value,partial,cosine,owners)
+        ctx.save_for_backward(query,mean,owners)
+        return query[:,:2].contiguous(),mean[:,:2].contiguous()
+
+    @staticmethod
+    @torch.autograd.function.once_differentiable
+    def backward(ctx,gradient,mean_gradient):
+        query,mean,owners=ctx.saved_tensors
+        gu,gc=torch.ops.gffx.shading_loss_query_backward(query,mean,owners,gradient.contiguous(),mean_gradient.contiguous())
+        return None,None,None,None,gu,gc,None
+
+
 class PrincipledBudget:
     """Immutable-by-public-interface budget; admission derives from exact identity."""
     __slots__ = ('_data', '_metadata', '_envelope')
@@ -173,11 +209,11 @@ class PrincipledBudget:
         data = {key: torch.tensor(payload[key], dtype=torch.float64, device='cpu')
                 for key in ('roughness_nodes', 'cosine_nodes', 'losses')}
         rn, cn, values = (data[k] for k in ('roughness_nodes', 'cosine_nodes', 'losses'))
-        logs, hlogs = values[:, 1:].log(), values[:, 0, 0].log()
-        data.update(_rlog=rn.log(), _clog=cn[1:].log(), _logs=logs, _hlogs=hlogs,
-                    _slopes=bounded_slopes(rn.log(), logs, ordered_pairs=True),
-                    _hslopes=bounded_slopes(rn.log(), hlogs),
-                    _weights=bernstein_weights(cn[2:].log()-cn[1:-1].log()))
+        logs, hlogs = log_unit(values[:, 1:]), log_unit(values[:, 0, 0])
+        data.update(_rlog=log_unit(rn), _clog=log_unit(cn[1:]), _logs=logs, _hlogs=hlogs,
+                    _slopes=bounded_slopes(log_unit(rn), logs, ordered_pairs=True),
+                    _hslopes=bounded_slopes(log_unit(rn), hlogs),
+                    _weights=bernstein_weights(log_unit(cn[2:])-log_unit(cn[1:-1])))
         if any(not bool(torch.isfinite(x).all()) for x in data.values()):
             raise ValueError('resource coefficients are not representable')
         # Constants are constructed in the validated float64 coefficient recipe.
@@ -251,14 +287,45 @@ class PrincipledBudget:
         needed=self.workspace(owner.numel(),backward=torch.is_grad_enabled() and any(x.requires_grad for x in parameters.values()))
         if needed>limit: raise ValueError('workspace budget exceeded before curve allocation')
 
+    def _prepare_curve(self,r,*,with_width=False):
+        # Only selected immutable controls are packed. The native call owns no
+        # resource cache and the derivative stays in this call's autograd graph.
+        d=self._data; cn=d['cosine_nodes']; x=d['_rlog']; n=len(cn)-1
+        i=(torch.searchsorted(d['roughness_nodes'],r.contiguous(),right=True)-1).clamp(max=len(x)-2)
+        h=x[i+1]-x[i]; u=(log_unit(r)-x[i])/h
+        pieces=[]
+        for y,m,trailing in ((d['_logs'],d['_slopes'],2),(d['_hlogs'],d['_hslopes'],0)):
+            width=h.reshape((-1,)+(1,)*trailing)
+            three=width.new_tensor(3.)
+            pieces.append(torch.stack((y[i],y[i]+width*m[i]/three,y[i+1]-width*m[i+1]/three,y[i+1]),dim=-1).reshape(len(r),-1,4))
+        coefficients=torch.cat(pieces,dim=1)
+        return (cn,coefficients,u,h) if with_width else (cn,coefficients,u)
+
     def _curve(self,r):
+        cn,coefficients,u=self._prepare_curve(r);n=len(cn)-1
+        value=_NativeLossCurve.apply(self._data['_clog'],coefficients,u)
+        return cn,value[:,:2*n].reshape(len(r),n,2),value[:,2*n:2*n+2],value[:,2*n+2:].reshape(len(r),n-1,4,2)
+
+    def _native_pairs(self,r,c,owners):
+        cn,coefficients,u=self._prepare_curve(r)
+        pair,average=_NativeLossQuery.apply(cn[1:],self._data['_clog'],self._data['_weights'],
+                                           coefficients,u,c.contiguous(),owners.to(dtype=torch.int32).contiguous())
+        for value,is_mean in ((pair,False),(average,True)):
+            if not bool((torch.isfinite(value)&(value>=0)&(value<=1)).all()
+                        and (value[:,0]>=value[:,1]).all()
+                        and ((value>0).all() if is_mean else True)):
+                raise ValueError('bounded curve arithmetic is not representable')
+        return pair,average
+
+    def _curve_reference(self,r):
         d=self._data; cn=d['cosine_nodes']; x=d['_rlog']
         i=(torch.searchsorted(d['roughness_nodes'],r.contiguous(),right=True)-1).clamp(max=len(x)-2)
-        h=x[i+1]-x[i]; u=(r.log()-x[i])/h
+        h=x[i+1]-x[i]; u=(log_unit(r)-x[i])/h
         def interpolate(y,m,trailing):
             width=h.reshape((-1,)+(1,)*trailing)
-            control=torch.stack((y[i],y[i]+width*m[i]/3,y[i+1]-width*m[i+1]/3,y[i+1]))
-            return _bezier(control,u.reshape((-1,)+(1,)*trailing)).exp()
+            three=width.new_tensor(3.)
+            control=torch.stack((y[i],y[i]+width*m[i]/three,y[i+1]-width*m[i+1]/three,y[i+1]))
+            return roughness_interpolate(control,u.reshape((-1,)+(1,)*trailing))
         values=interpolate(d['_logs'],d['_slopes'],2)
         horizon=interpolate(d['_hlogs'],d['_hslopes'],0)
         horizon=torch.stack((horizon,horizon*0),dim=-1)
@@ -268,7 +335,10 @@ class PrincipledBudget:
         return cn,values,horizon,b
 
     def _pairs(self,c,r,*,direction,mean):
-        return self._curve_pairs(self._curve(r),c,direction=direction,mean=mean)
+        cosine=c if direction else r.new_empty((0,))
+        owners=torch.arange(len(cosine),dtype=torch.int32,device=r.device)
+        pair,average=self._native_pairs(r,cosine,owners)
+        return pair if direction else None,average if mean else None
 
     def _curve_pairs(self,curve,c,*,direction,mean,indices=None):
         cn,values,horizon,b=curve
@@ -285,15 +355,17 @@ class PrincipledBudget:
                 # Safe inactive log branch preserves exact horizon gradients.
                 active=c>=cn[1]; safe=torch.where(active,c,cn[1])
                 i=(torch.searchsorted(cn,safe.contiguous(),right=True)-1).clamp(max=len(cn)-2)
-                u=(safe.log()-cn[i].log())/(cn[i+1].log()-cn[i].log())
+                logs=self._data['_clog']
+                u=(log_unit(safe)-logs[i-1])/(logs[i]-logs[i-1])
                 selected=b[indices,i-1].transpose(0,1)
                 cubic=_bezier(selected,u[:,None])
                 pair=torch.where(active[:,None],cubic,linear)
         if mean:
             width=self._data['_clog'][1:]-self._data['_clog'][:-1]
-            average=cn[1].square()*(horizon+2*values[:,0])/3
-            average=average+(2*cn[None,2:,None,None].square()*width[None,:,None,None]
-                              *b*self._data['_weights'][None,:,:,None]).sum(dim=(1,2))
+            average=cn[1].square()*(horizon+2*values[:,0])/cn.new_tensor(3.)
+            terms=(2*cn[None,2:,None,None].square()*width[None,:,None,None]
+                   *b*self._data['_weights'][None,:,:,None])
+            average=average+sum_last(terms.permute(0,3,1,2).reshape(len(values),2,-1))
         for value,is_mean in ((pair,False),(average,True)):
             if value is not None and not bool((torch.isfinite(value)&(value>=0)&(value<=1)).all()
                                              and (value[:,0]>=value[:,1]).all()
@@ -309,11 +381,11 @@ class PrincipledBudget:
         F0 mixes the two endpoint losses; it does not alter curve construction.
         Only four angular controls are gathered per light, not the entire curve.
         """
-        curve=self._curve(roughness)
-        view,mean=self._curve_pairs(curve,view_cosine,direction=True,mean=True)
-        incident,_=self._curve_pairs(curve,light_cosine,direction=True,mean=False,indices=indices)
+        owners=torch.cat((torch.arange(len(roughness),device=roughness.device),indices))
+        query,mean=self._native_pairs(roughness,torch.cat((view_cosine,light_cosine)),owners)
+        view,incident=query[:len(roughness)],query[len(roughness):]
         def mix(pair,f):
-            return (1-f)*pair[:,0,None]+f*pair[:,1,None]
+            return multiply(1-f,pair[:,0,None])+multiply(f,pair[:,1,None])
         return mix(view,f0),mix(mean,f0),mix(incident,f0[indices])
 
     def _query(self,owner,r,f,*,direction,mean,workspace_limit_bytes):

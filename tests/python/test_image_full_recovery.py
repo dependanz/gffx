@@ -279,3 +279,43 @@ def test_full_image_recipe_recovers_and_repeats_with_locked_inputs(record_proper
     record_property("recovered_parameters", str(first[0].tolist()))
     record_property("absolute_parameter_errors", str((first[0]-target.new_tensor(TARGET)).abs().tolist()))
     record_property("recovery_boundary", "one fixed local basin; image improvement is not unique parameter recovery")
+
+
+def test_full_image_recipe_cuda_exact_matched_cotangent(record_property):
+    """The complete nine-parameter chain must retain device bytes on matched incoming gradients."""
+    if not torch.cuda.is_available():raise RuntimeError('explicit CUDA qualification required')
+    from test_deferred_principled_stages import raw
+    fixed=sources();cot=(torch.arange(SIZE*SIZE*4,dtype=torch.float64).reshape(SIZE,SIZE,4).remainder(17)-8)*.03125
+    rows=[]
+    for device in ('cpu','cuda','cuda'):
+        inputs=tuple(v.to(device) for v in fixed)
+        parameters=torch.tensor(INITIAL,dtype=torch.float64,device=device,requires_grad=True)
+        output=evaluate(inputs,parameters)
+        gradient=torch.autograd.grad(output,parameters,cot.to(device))[0]
+        rows.append((output.detach().cpu(),gradient.detach().cpu()))
+    failures=[]
+    for index,(a,b,c) in enumerate(zip(*rows)):
+        record_property('full_recipe_'+str(index)+'_max_abs',float((a-b).abs().max()))
+        if raw(a)!=raw(b) or raw(b)!=raw(c):failures.append('pixels' if index==0 else 'nine physical derivatives')
+    assert not failures,failures
+
+
+def test_full_image_recipe_cuda_gradient_attribution(record_property):
+    """Diagnostic records complete gradients and matched local adjustment VJPs."""
+    import json
+    from gffx.torch import image
+    from test_deferred_principled_stages import raw
+    fixed=sources();cot=(torch.arange(SIZE*SIZE*4,dtype=torch.float64).reshape(SIZE,SIZE,4).remainder(17)-8)*.03125
+    complete=[]
+    for device in ('cpu','cuda'):
+        p=torch.tensor(INITIAL,dtype=torch.float64,device=device,requires_grad=True)
+        stages=evaluate(tuple(v.to(device) for v in fixed),p,return_stages=True)
+        grad,inc=torch.autograd.grad(stages['composite'],(p,stages['adjust']),cot.to(device))
+        complete.append((grad.cpu(),stages['intake'].detach().cpu(),inc.cpu()))
+    record_property('parameters',json.dumps({name:{'cpu':float(a),'cuda':float(b),'same_bytes':raw(a)==raw(b)} for name,a,b in zip(NAMES,complete[0][0],complete[1][0])}))
+    matched=[]
+    for device in ('cpu','cuda'):
+        value=complete[0][1].to(device).requires_grad_();ev=torch.tensor(INITIAL[6],dtype=torch.float64,device=device,requires_grad=True);lift=torch.tensor(INITIAL[7],dtype=torch.float64,device=device,requires_grad=True)
+        out=image.adjust(value,exposure=ev,brightness=lift)
+        gradients=torch.autograd.grad(out,(value,ev,lift),complete[0][2].to(device));matched.append(tuple(v.detach().cpu() for v in (out,*gradients)))
+    record_property('adjust_local',json.dumps({name:{'same_bytes':raw(a)==raw(b),'max_abs':float((a-b).abs().max())} for name,a,b in zip(('value','pixels','exposure','brightness'),*matched)}))

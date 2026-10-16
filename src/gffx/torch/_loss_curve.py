@@ -50,15 +50,54 @@ def bounded_slopes(x,y,*,ordered_pairs=False):
 
 def controls(x,y,m):
     h=_axis(x[1:]-x[:-1],y)
-    return torch.stack((y[:-1],y[:-1]+h*m[:-1]/3,y[1:]-h*m[1:]/3,y[1:]),dim=1)
+    three=y.new_tensor(3.)
+    return torch.stack((y[:-1],y[:-1]+h*m[:-1]/three,y[1:]-h*m[1:]/three,y[1:]),dim=1)
 
 
-def _bezier(b,u):
+def _bezier_value(b,u):
     # de Casteljau: convex combinations preserve the control bounds.
     p=(1-u)*b[0]+u*b[1]
     q=(1-u)*b[1]+u*b[2]
     s=(1-u)*b[2]+u*b[3]
     return (1-u)*((1-u)*p+u*q)+u*((1-u)*q+u*s)
+
+
+class _AngularBezier(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx,b,u):
+        ctx.save_for_backward(b,u)
+        return _bezier_value(b,u)
+
+    @staticmethod
+    @torch.autograd.function.once_differentiable
+    def backward(ctx,gradient):
+        b,u=ctx.saved_tensors
+        gb=gu=None
+        if ctx.needs_input_grad[0]:
+            # Preserve the original coefficient-adjoint graph and rounding.
+            # Only the coordinate derivative needs the cancellation repair.
+            with torch.enable_grad():
+                coefficients=b.detach().requires_grad_()
+                value=_bezier_value(coefficients,u.detach())
+                gb,=torch.autograd.grad(value,coefficients,gradient)
+        if ctx.needs_input_grad[1]:
+            p=(1-u)*(b[1]-b[0])+u*(b[2]-b[1])
+            q=(1-u)*(b[2]-b[1])+u*(b[3]-b[2])
+            gu=gradient*(3*((1-u)*p+u*q))
+            # The material's two endpoint channels share each coordinate.
+            # Reduce every broadcast axis with the established fixed tree.
+            from ._curve_math import sum_last
+            shape=(1,)*(gu.ndim-u.ndim)+tuple(u.shape)
+            reduced=[i for i,(a,z) in enumerate(zip(shape,gu.shape)) if a==1 and z!=1]
+            if reduced:
+                kept=[i for i in range(gu.ndim) if i not in reduced]
+                extent=math.prod(gu.shape[i] for i in reduced)
+                gu=sum_last(gu.permute(kept+reduced).reshape(*(gu.shape[i] for i in kept),extent))
+            gu=gu.reshape(u.shape)
+        return gb,gu
+
+
+_bezier=_AngularBezier.apply
 
 
 def bernstein_weights(widths):

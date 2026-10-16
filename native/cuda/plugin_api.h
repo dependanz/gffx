@@ -211,6 +211,12 @@ typedef gffx_status (GFFX_CALL *gffx_cuda_render_interpolate_backward_fn)(
 #define GFFX_CUDA_OP_MESH_SKIN_LBS UINT32_C(17)
 #define GFFX_CUDA_OP_MESH_EVALUATE_BARYCENTRIC UINT32_C(18)
 #define GFFX_CUDA_OP_IMAGE_TRANSFER UINT32_C(19)
+#define GFFX_CUDA_OP_IMAGE_GAUSSIAN_WEIGHTS UINT32_C(20)
+#define GFFX_CUDA_OP_SHADING_LOSS_CURVE UINT32_C(21)
+#define GFFX_CUDA_OP_SHADING_LOSS_QUERY UINT32_C(22)
+#define GFFX_CUDA_OP_SHADING_PRINCIPLED UINT32_C(23)
+#define GFFX_CUDA_OP_SHADING_PRINCIPLED_GROUPS UINT32_C(24)
+#define GFFX_CUDA_OP_RENDER_OPAQUE_QUADRATURE UINT32_C(25)
 
 typedef gffx_status (GFFX_CALL *gffx_cuda_animation_three_backward_fn)(
     const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,
@@ -262,6 +268,37 @@ typedef gffx_status (GFFX_CALL *gffx_cuda_workspace_fn)(
  * the outer handshake struct, and so a host reading it applies the same offsetof-based check it
  * already applies to the outer one. Entries are NULL until implemented.
  */
+typedef gffx_status (GFFX_CALL *gffx_cuda_loss_curve_fn)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+typedef gffx_status (GFFX_CALL *gffx_cuda_loss_curve_backward_fn)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+typedef gffx_status (GFFX_CALL *gffx_cuda_loss_query_fn)(const gffx_tensor_view *cn,const gffx_tensor_view *logs,const gffx_tensor_view *weights,const gffx_tensor_view *curve,const gffx_tensor_view *partial,const gffx_tensor_view *cosine,const gffx_tensor_view *owners,const gffx_execution_context *context,gffx_tensor_view *query,gffx_tensor_view *mean,const gffx_buffer *workspace,gffx_diagnostic_buffer *diagnostic);
+typedef gffx_status (GFFX_CALL *gffx_cuda_loss_query_backward_fn)(const gffx_tensor_view *query,const gffx_tensor_view *mean,const gffx_tensor_view *owners,const gffx_tensor_view *gradient,const gffx_tensor_view *mean_gradient,const gffx_execution_context *context,gffx_tensor_view *grad_u,gffx_tensor_view *grad_cosine,const gffx_buffer *workspace,gffx_diagnostic_buffer *diagnostic);
+
+typedef gffx_status (GFFX_CALL *gffx_cuda_principled_pairs_fn)(const gffx_tensor_view *cn,const gffx_tensor_view *logs,const gffx_tensor_view *curve,const gffx_tensor_view *partial,const gffx_tensor_view *mean,const gffx_tensor_view *width,const gffx_tensor_view *normal,const gffx_tensor_view *view,const gffx_tensor_view *light,const gffx_tensor_view *albedo,const gffx_tensor_view *roughness,const gffx_tensor_view *f0,uint32_t options,const gffx_execution_context *context,gffx_tensor_view *value,gffx_tensor_view *jacobian,const gffx_buffer *workspace,gffx_diagnostic_buffer *diagnostic);
+typedef gffx_status (GFFX_CALL *gffx_cuda_principled_pairs_backward_fn)(const gffx_tensor_view *jacobian,const gffx_tensor_view *gradient,const gffx_execution_context *context,gffx_tensor_view *point_gradient,gffx_tensor_view *light_gradient,const gffx_buffer *workspace,gffx_diagnostic_buffer *diagnostic);
+typedef gffx_status (GFFX_CALL *gffx_cuda_render_rasterize_window_fn)(
+    const gffx_tensor_view *ndc_vertices,
+    const gffx_tensor_view *faces,
+    const gffx_tensor_view *vertex_offsets,
+    const gffx_tensor_view *face_offsets,
+    int64_t global_height,
+    int64_t global_width,
+    int64_t row_offset,
+    int64_t column_offset,
+    int64_t image_height,
+    int64_t image_width,
+    int64_t faces_per_pixel,
+    double blur_radius_px,
+    uint32_t cull_mode,
+    double eps,
+    const gffx_execution_context *context,
+    gffx_tensor_view *face_index,
+    gffx_tensor_view *barycentric,
+    gffx_tensor_view *depth,
+    gffx_tensor_view *signed_distance,
+    const gffx_buffer *workspace,
+    gffx_diagnostic_buffer *diagnostic
+);
+typedef gffx_status (GFFX_CALL *gffx_cuda_opaque_quadrature_fn)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,int64_t,int64_t,double,double,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
 typedef struct gffx_cuda_operations {
     uint32_t struct_size;
     uint32_t reserved0;
@@ -308,6 +345,47 @@ typedef struct gffx_cuda_operations {
     gffx_cuda_animation_bary_backward_fn mesh_evaluate_barycentric_backward;
     gffx_cuda_image_transfer_fn image_transfer;
     gffx_cuda_image_transfer_backward_fn image_transfer_backward;
+    /* Additive Gaussian tail, same signature shape but a distinct operation. */
+    gffx_cuda_image_transfer_fn image_gaussian_weights;
+    gffx_cuda_image_transfer_backward_fn image_gaussian_weights_backward;
+    gffx_cuda_loss_curve_fn shading_loss_curve;
+    gffx_cuda_loss_curve_backward_fn shading_loss_curve_backward;
+    gffx_cuda_loss_query_fn shading_loss_query;
+    gffx_cuda_loss_query_backward_fn shading_loss_query_backward;
+    gffx_cuda_principled_pairs_fn shading_principled_pairs;
+    gffx_cuda_principled_pairs_backward_fn shading_principled_pairs_backward;
+    /* Append-only renderer grouping; original pair fields retain their bounds. */
+    gffx_cuda_principled_pairs_fn shading_principled_groups;
+    gffx_cuda_principled_pairs_backward_fn shading_principled_groups_backward;
+    /* Append-only forward global-window extension. */
+    gffx_cuda_render_rasterize_window_fn render_rasterize_window;
+    gffx_cuda_opaque_quadrature_fn render_opaque_quadrature;
+    /* Appended provider tail: old providers remain valid, boundary calls refuse. */
+    gffx_status (GFFX_CALL *render_opaque_boundary)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,int64_t,int64_t,double,double,int32_t,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    /* Append-only explicit material-integral transport; raw quadrature unchanged. */
+    gffx_cuda_opaque_quadrature_fn render_opaque_material;
+    /* Append-only bounded single-pixel continuation. Metadata arrays are host-owned. */
+    gffx_status (GFFX_CALL *render_opaque_batch)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    /* Append-only shared immutable curve row; legacy grouped shapes unchanged. */
+    gffx_cuda_principled_pairs_fn shading_principled_shared_groups;
+    /* Append-only ordered sample carry, no changed legacy operation. */
+    gffx_status (GFFX_CALL *shading_ordered_rgba)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *shading_unit_newton)(const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *shading_unit_vectors)(const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *shading_delta_brdf)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *shading_opaque_samples)(const gffx_tensor_view *const *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *shading_opaque_albedo)(const gffx_tensor_view *const *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *render_opaque_batch_rule)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t);
+    gffx_status (GFFX_CALL *opaque_partition)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,gffx_tensor_view *,int32_t *,int,int,gffx_tensor_view *,gffx_tensor_view *,const gffx_execution_context *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *opaque_prefix_backward)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t *);
+    gffx_status (GFFX_CALL *opaque_partition64)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,gffx_tensor_view *,int32_t *,int,int,gffx_tensor_view *,gffx_tensor_view *,const gffx_execution_context *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *opaque_prefix_backward64)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t *);
+    gffx_status (GFFX_CALL *render_opaque_batch_rule64)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t);
+    gffx_status (GFFX_CALL *render_opaque_boundary_batch64)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t);
+    gffx_status (GFFX_CALL *opaque_partition80)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,gffx_tensor_view *,int32_t *,int,int,gffx_tensor_view *,gffx_tensor_view *,const gffx_execution_context *,const gffx_buffer *,gffx_diagnostic_buffer *);
+    gffx_status (GFFX_CALL *opaque_prefix_backward80)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t *);
+    gffx_status (GFFX_CALL *render_opaque_batch_rule80)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t);
+    gffx_status (GFFX_CALL *render_opaque_boundary_batch80)(const gffx_tensor_view *,const gffx_tensor_view *,const gffx_tensor_view *,double,double,const int32_t *,int32_t *,const gffx_tensor_view *,const gffx_execution_context *,gffx_tensor_view *,gffx_tensor_view *,const gffx_buffer *,gffx_diagnostic_buffer *,int32_t,int32_t);
 } gffx_cuda_operations;
 
 /* Short-circuit the size check before touching a potentially absent tail field. */

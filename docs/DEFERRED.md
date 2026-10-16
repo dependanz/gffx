@@ -32,10 +32,13 @@ finite local derivatives and explicit cutoff/internal-edge limitations. It is
 not transparency, seamless multi-triangle silhouette union or physical filtering.
 
 The original implementation refused more than four gradient-bearing Principled
-points. A bounded first-order recomputation implementation is now under
-qualification; its four tiny CPU value/gradient/storage controls passed, but this
-does not admit a large-image memory profile. Small point
-shading qualification is not permission to retain a full image of graphs.
+points. The PC renderer now recomputes ordered four-point groups and batches up
+to128 points/1024 light pairs through a separate native operation, inside its
+existing material workspace reserve. Exact values, shared first gradients,
+independent directional differences and retained/repeated storage are qualified
+on the groups35 installed candidate. Public material8/4-point and standalone
+32-owner query limits remain unchanged. See `DEFERRED_RECOMPUTE.md` for the
+explicit reduction order and preserved failed candidates.
 Workspace preflight is a conservative tensor estimate, not a measured process
 memory guarantee. Numerical, device, gradient, full-image and consumer acceptance
 remain separate gates. No compilation/export or real-time profile is admitted.
@@ -53,3 +56,20 @@ oracle. See `DEFERRED_RECOMPUTE.md` for the explicit graph and ownership boundar
 `tests/python/test_deferred_integration.py` covers manual native-chain equivalence,
 independent inverse-square images and light gradients, named camera/light
 hierarchies, two-sided lighting, diffuse SH coefficients, and material separation.
+
+
+## Limited raster acceleration
+
+The current CPU implementation reuses projected triangle setup in32x32 internal
+pixel blocks. Conservative rejection preserves the original rounded coverage and
+distance predicates;uncertain and extreme inputs retain the original calculation.
+CUDA retains its pixel traversal and skips proven-outside distance work. Face IDs,
+tie order,precision and output ownership remain unchanged. This internal block
+size is not the caller's memory-window setting. No persistent cache or extra heap
+workspace is introduced. See RASTER_BLOCK_ACCELERATION.md for the bound and tests.
+
+The measurement-only streamed constant-albedo profile prepares pointwise lighting
+once per already admitted material cohort. It retains the original four-point
+partials and reverse global gradient order. This does not extend streaming to
+arbitrary losses or geometry backward. Complete large jobs must still pass their
+own time and memory admission;current results are recorded in devbrain.

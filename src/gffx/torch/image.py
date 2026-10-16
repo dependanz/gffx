@@ -88,17 +88,42 @@ def _premultiply(value, alpha):
     _alpha(alpha)
     value = _canonical(_image(value))
     if alpha == "straight":
-        return torch.cat((value[..., :3]*value[..., 3:4], value[..., 3:4]), -1)
+        return _AlphaConvert.apply(value,True)
     return value
 
 
 def _represent(value, alpha):
     if alpha == "straight":
-        a = value[..., 3:4]
-        safe = torch.where(a > 0, a, torch.ones_like(a))
-        rgb = torch.where(a > 0, value[..., :3]/safe, torch.zeros_like(value[..., :3]))
-        return torch.cat((rgb, a), -1)
+        return _AlphaConvert.apply(value,False)
     return _canonical(value)
+
+
+class _AlphaConvert(torch.autograd.Function):
+    """Alpha representation with explicit three-channel first-gradient reduction."""
+    @staticmethod
+    def forward(ctx,value,premultiply):
+        ctx.save_for_backward(value);ctx.premultiply=premultiply
+        a=value[...,3:4];rgb=value[...,:3]
+        if premultiply:rgb=rgb*a
+        else:
+            safe=torch.where(a>0,a,torch.ones_like(a))
+            rgb=torch.where(a>0,rgb/safe,torch.zeros_like(rgb))
+        return torch.cat((rgb,a),-1)
+
+    @staticmethod
+    def backward(ctx,gradient):
+        value,=ctx.saved_tensors
+        a=value[...,3:4];rgb=value[...,:3];g=gradient[...,:3]
+        if ctx.premultiply:
+            color_gradient=g*a
+            terms=g*rgb
+        else:
+            safe=torch.where(a>0,a,torch.ones_like(a))
+            color_gradient=torch.where(a>0,g/safe,torch.zeros_like(g))
+            terms=torch.where(a>0,-(g*(rgb/safe))/safe,torch.zeros_like(g))
+        p=terms.unbind(-1)
+        alpha_gradient=gradient[...,3:4]+((p[0]+p[1])+p[2]).unsqueeze(-1)
+        return torch.cat((color_gradient,alpha_gradient),-1),None
 
 
 def convert_alpha(image, *, source="straight", target="premultiplied"):
@@ -139,6 +164,22 @@ def linear_to_srgb(rgb):
     return _finish(_Transfer.apply(materialize(rgb),1), "linear_to_srgb")
 
 
+class _MaskedMultiply(torch.autograd.Function):
+    """Fixed four-channel VJP for one spatial mask/opacity value per RGBA pixel."""
+    @staticmethod
+    def forward(ctx,pixels,weight):
+        ctx.save_for_backward(pixels,weight)
+        return pixels*weight
+
+    @staticmethod
+    def backward(ctx,gradient):
+        pixels,weight=ctx.saved_tensors
+        g=gradient*pixels
+        p=g.unbind(-1)
+        return (gradient*weight if ctx.needs_input_grad[0] else None,
+                ((p[0]+p[1])+(p[2]+p[3])).unsqueeze(-1) if ctx.needs_input_grad[1] else None)
+
+
 def apply_mask(image, mask=None, *, opacity=1.0, alpha="premultiplied"):
     """Multiply source-space mask, existing alpha and opacity in premultiplied space."""
     pm = _premultiply(image, alpha)
@@ -150,8 +191,38 @@ def apply_mask(image, mask=None, *, opacity=1.0, alpha="premultiplied"):
             raise ValueError("mask must match image layout with exactly one channel")
         if bool(((mask < 0) | (mask > 1)).any()):
             raise ValueError("mask must be in [0,1]")
-        q = q*mask
-    return _finish(_represent(pm*q, alpha), "apply_mask")
+        q = _WeightedMultiply.apply(mask,q)
+        result = _MaskedMultiply.apply(pm,q)
+    else:
+        result = _WeightedMultiply.apply(pm,q)
+    return _finish(_represent(result, alpha), "apply_mask")
+
+
+class _AlphaOver(torch.autograd.Function):
+    """Four-channel alpha VJP with a declared adjacent-pair reduction.
+
+    Forward values and destination derivatives use the original operation order.
+    Only the source-alpha reduction is explicit; no cross-pixel reduction or
+    persistent frame state is introduced.
+    """
+    @staticmethod
+    def forward(ctx,source,destination):
+        ctx.save_for_backward(source,destination)
+        return source+(1-source[...,3:4])*destination
+
+    @staticmethod
+    def backward(ctx,gradient):
+        source,destination=ctx.saved_tensors
+        alpha=source[...,3:4]
+        source_gradient=None
+        if ctx.needs_input_grad[0]:
+            p=gradient*destination
+            terms=p.unbind(-1)
+            total=(terms[0]+terms[1])+(terms[2]+terms[3])
+            source_gradient=torch.cat((gradient[...,:3],
+                                       gradient[...,3:4]-total.unsqueeze(-1)),-1)
+        destination_gradient=gradient*(1-alpha) if ctx.needs_input_grad[1] else None
+        return source_gradient,destination_gradient
 
 
 def composite(layers, background, *, alpha="premultiplied"):
@@ -165,7 +236,7 @@ def composite(layers, background, *, alpha="premultiplied"):
         _same(src, value, "layer")
         prepared.append(src)
     for src in prepared:
-        value = src+(1-src[..., 3:4])*value
+        value = _AlphaOver.apply(src,value)
     return _finish(_represent(value, alpha), "composite")
 
 
@@ -308,7 +379,10 @@ def adjust(image, *, exposure=0.0, brightness=0.0, alpha="premultiplied"):
     ev = _parameter(exposure, pm, "exposure")
     lift = _parameter(brightness, pm, "brightness")
     gain = _finish(torch.pow(pm.new_tensor(2), ev), "adjust exposure scale")
-    result = torch.cat((pm[..., :3]*gain+lift*pm[..., 3:4],pm[..., 3:4]), -1)
+    from ._reference_channels import expand
+    rgb=pm[..., :3]
+    alpha_rgb=expand(pm[..., 3:4],rgb.shape)
+    result = torch.cat((_WeightedMultiply.apply(rgb,gain)+_WeightedMultiply.apply(alpha_rgb,lift),pm[..., 3:4]), -1)
     return _finish(_represent(result, alpha), "adjust")
 
 
@@ -340,6 +414,22 @@ class _WeightedMultiply(torch.autograd.Function):
         return pixel_gradient,weight_gradient
 
 
+class _GaussianWeights(torch.autograd.Function):
+    """Native normalized taps with recomputed, explicitly first-order sigma VJP."""
+    @staticmethod
+    def forward(ctx,sigma,radius):
+        sigma=materialize(sigma);ctx.save_for_backward(sigma);ctx.radius=radius
+        try:return torch.ops.gffx.image_gaussian_weights(sigma,radius)
+        except RuntimeError as error:raise translate_native_error(error) from None
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx,gradient):
+        sigma,=ctx.saved_tensors
+        try:return torch.ops.gffx.image_gaussian_weights_backward(sigma,materialize(gradient),ctx.radius),None
+        except RuntimeError as error:raise translate_native_error(error) from None
+
+
 def gaussian_blur(image, sigma, *, radius, border="transparent", alpha="premultiplied"):
     """Fixed-support separable Gaussian on premultiplied RGBA, horizontal then vertical."""
     pm = _premultiply(image, alpha)
@@ -349,11 +439,9 @@ def gaussian_blur(image, sigma, *, radius, border="transparent", alpha="premulti
     width = _parameter(sigma, pm, "sigma", lower=.1, upper=32)
     if radius == 0:
         return _finish(_represent(pm+width*0, alpha), "gaussian_blur")
-    weights = [torch.exp(-.5*(i/width).square()) for i in range(-radius,radius+1)]
-    total = weights[0]
-    for weight in weights[1:]:
-        total = total+weight
-    weights = [weight/total for weight in weights]
+    sigma_input=width.reshape(-1) if width.ndim else width
+    taps=_GaussianWeights.apply(sigma_input,radius)
+    weights=[tap.reshape(-1,1,1,1) for tap in taps.unbind(-1)] if width.ndim else list(taps.unbind(-1))
     result = pm
     for axis in (-2,-3):
         indices = torch.arange(result.shape[axis],device=pm.device)
@@ -435,7 +523,8 @@ def capabilities():
                 ownership="caller inputs unchanged; fresh outputs/graphs; no cache or I/O",
                 cancellation="consumer checkpoints between calls; no in-flight preemption",
                 operations={name: dict(parameters=parameters[name], first_derivatives=fields,
-                                       higher_derivatives="unsupported: first-order custom VJP" if name in ("warp_affine","srgb_to_linear","linear_to_srgb") else "unqualified",
-                                       implementation="native C11/CUDA transfer" if name in ("srgb_to_linear","linear_to_srgb") else
+                                       higher_derivatives="unsupported: first-order custom VJP" if name in ("warp_affine","srgb_to_linear","linear_to_srgb","gaussian_blur") else "unqualified",
+                                       implementation="native C11/CUDA Gaussian weights with tensor convolution" if name == "gaussian_blur" else
+                                       "native C11/CUDA transfer" if name in ("srgb_to_linear","linear_to_srgb") else
                                        "native texture composition" if name == "warp_affine" else "tensor composition")
                             for name,fields in gradients.items()})

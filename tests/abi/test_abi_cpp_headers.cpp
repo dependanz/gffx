@@ -1,3 +1,5 @@
+#include <gffx/render.h>
+#include <gffx/shading.h>
 #include <gffx/abi.h>
 #include <gffx/animation.h>
 #include <gffx/image.h>

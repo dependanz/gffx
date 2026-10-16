@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from collections.abc import Mapping
 import torch
+from ._reference_channels import sum3, divide, sqrt_unit
 
 __all__ = ['Attribute','Mesh','Material','Light','Camera','Rig','Scene','PackedScene','PackedAttribute']
 _DOMAINS={'constant':1,'uniform':2,'vertex':2,'face_varying':3}
@@ -213,8 +214,8 @@ class Scene:
                         normal_matrix=torch.linalg.inv(a)*torch.linalg.det(a).sign()[:,None,None]
                         corners=torch.einsum('bfkc,bcd->bfkd',corners,normal_matrix)
                         scale=corners.abs().amax(-1,keepdim=True)
-                        corners=corners/scale
-                        corners=corners/torch.linalg.vector_norm(corners,dim=-1,keepdim=True)
+                        corners=divide(corners,scale)
+                        corners=divide(corners,sqrt_unit(sum3(corners.square())).unsqueeze(-1))
                     _float(corners,'packed attribute '+name,dtype,device)
                 attrs[name].append(corners);presence[name].append(torch.full((f.shape[0],),attr is not None,dtype=torch.bool,device=device))
         def offsets(step):return torch.arange(batch+1,dtype=torch.int32,device=device)*step

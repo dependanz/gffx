@@ -69,3 +69,39 @@ export function attachCinema(app,host){
   const hidden=()=>{if(document.hidden){player.pause();request?.abort();}};document.addEventListener('visibilitychange',hidden);player.seek(0);
   return ()=>{closed=true;ticket++;player.dispose();request?.abort();target?.close();current?.close();document.removeEventListener('visibilitychange',hidden);root.remove();diagnostics.remove();};
 }
+
+// Saved output gallery: one verified PNG decoded at a time, never a live producer.
+export function validateGallery(value){
+  const text=(x,n)=>typeof x==='string'&&x.length>0&&x.length<=n;
+  if(!value||value.version!==1||!text(value.title,200)||!Array.isArray(value.images)||value.images.length<1||value.images.length>16)throw Error('Invalid saved gallery');
+  for(const item of value.images){
+    const a=item?.asset;
+    if(!text(item?.label,200)||!text(item?.caption,4000)||!a||!Number.isInteger(a.bytes)||a.bytes<1||a.bytes>MAX_BYTES||!/^[a-f0-9]{64}$/.test(a.sha256)||a.url!=='/testing/media/'+a.sha256+'.png')throw Error('Invalid saved gallery image');
+  }
+  return value;
+}
+
+export function attachGallery(app,host){
+  const raw=app.store.paths.get('presentation/gallery')?.latest?.value;if(!raw)return null;
+  const gallery=validateGallery(raw),el=(tag,text='')=>{const n=document.createElement(tag);n.textContent=text;return n;};
+  const root=el('section'),title=el('h2',gallery.title),controls=el('div'),canvas=el('canvas'),caption=el('p'),status=el('p');
+  root.className='saved-gallery';controls.className='cinema-controls';canvas.style.width='100%';canvas.style.height='auto';
+  root.append(title,controls,canvas,caption,status);host.prepend(root);
+  let closed=false,current=null,request=null,ticket=0;
+  const buttons=[];
+  async function show(index){
+    const id=++ticket;request?.abort();request=new AbortController();status.textContent='Loading saved image…';
+    const item=gallery.images[index];
+    try{
+      const next=await bitmap(item.asset,request.signal);
+      if(closed||id!==ticket){next.close();return;}
+      current?.close();current=next;canvas.width=next.width;canvas.height=next.height;
+      canvas.setAttribute('aria-label',item.label);canvas.getContext('2d').drawImage(next,0,0);
+      caption.textContent=item.caption;status.textContent=`${index+1} / ${gallery.images.length} · ${next.width} × ${next.height} · saved output`;
+      buttons.forEach((b,i)=>b.setAttribute('aria-pressed',String(i===index)));
+    }catch(error){if(!closed&&id===ticket)status.textContent=error.message;}
+  }
+  gallery.images.forEach((item,index)=>{const button=el('button',item.label);button.onclick=()=>show(index);buttons.push(button);controls.append(button);});
+  show(0);
+  return ()=>{closed=true;ticket++;request?.abort();current?.close();root.remove();};
+}
