@@ -47,7 +47,7 @@
     },
     {
       "path": ".github/workflows/publish-alpha.yml",
-      "sha256": "8d763655a1747830ebfed17f59b6a395207687390441f8b80f48fa2246d2e919"
+      "sha256": "123c8b6287a8d80ec7f0dbee6e8b04df03c26366fce989a549f52a258ef36c87"
     },
     {
       "path": ".github/workflows/windows-functional.yml",
@@ -143,15 +143,15 @@
     },
     {
       "path": "docs/RELEASE_POLICY_0_2_0.md",
-      "sha256": "a8faa7c5fb1e54c7fe521aa25f1b8667f402e218a4d4ad4f5efbe73ca1e822fe"
+      "sha256": "a4533850690daa5f1e7e9564d58f978efe8beaa2c7f283d88a72b7d19da2281f"
     },
     {
       "path": "docs/SUPPORT_STATUS.md",
-      "sha256": "52a49980bfcb28bec166bca74e5aa62f2905a1193a6c2c9bcee10dc63fcb2c6e"
+      "sha256": "3a10c8c96f129e6c70ad7cab591184f69aacdb098fc5c04a566a5b1cef240c18"
     },
     {
       "path": "docs/support-0.2.0.json",
-      "sha256": "a144d46da5298cd304990012278749cc41fcbb701b5dbe092fb891086724dc54"
+      "sha256": "bd68d9dc7df2cd54eeca9a71ace06848015cb25106d0ee3a78d56bf732ee0a81"
     },
     {
       "path": "include/gffx/abi.h",
@@ -1135,7 +1135,7 @@
     },
     {
       "path": "tests/packaging/test_metadata_contract.py",
-      "sha256": "eb87103efb1d17a4d5e36dc72a655e6937496cfa355e1a91d30d40a7a1d4b0b2"
+      "sha256": "45ffcc2d6e3eab3e40e57ff558c6f1ea0e5b0e4d027b7ba74f702ecb8cf812c1"
     },
     {
       "path": "tests/packaging/test_opaque_adaptive_order.py",
@@ -2083,7 +2083,7 @@
     },
     {
       "path": "tests/packaging/test_stable_release.py",
-      "sha256": "fd801dce3fe0e02bc589395093087f25b06a247de819669697801f40b4cfef7e"
+      "sha256": "bb003e2aad639d74470de871148d381066288698951681d1bb35c15d839eee61"
     },
     {
       "path": "tests/packaging/test_synthetic_flame_fixture.py",
@@ -3535,7 +3535,7 @@
     },
     {
       "path": "tools/stable_release.py",
-      "sha256": "fe0fa2109b7b58ab9308a99fa1469c4de41869e2d533567d1017c5e82f525b4f"
+      "sha256": "c2f0b7de141a2ee91752cc8d7c70afff4920208833454e7e0d08bd6ff01d1d8a"
     },
     {
       "path": "tools/stable_validation.py",
@@ -3661,23 +3661,17 @@
     "native_tests": 12,
     "installation_cases": 4,
     "installation_commands": 30,
-    "foundation_passed": 72,
+    "foundation_passed": 100,
     "foundation_skipped": 1,
-    "foundation_skip_reason": "A separate below-Torch-floor compatibility lane; no below-floor Torch installed in the advertised 2.10 runtime",
+    "foundation_skip_reason": "Separate below-Torch-floor compatibility lane, not a selected functional skip",
+    "release_controls_passed": 44,
     "strict_twine": "passed",
     "native_imports_provider_ptx_record": "passed",
-    "hosted_ci": "prepared_not_yet_executed"
-  },
-  "soak": {
-    "started_at": "2026-10-16T09:30:07.306593+00:00",
-    "last_blocking_change_at": "2026-10-16T09:30:07.306593+00:00",
-    "minimum_days": 14,
-    "clean_days": 7,
-    "open_blockers": [],
-    "midpoint_due_at": "2026-10-23T09:30:07.306593+00:00",
-    "earliest_publication_at": "2026-10-30T09:30:07.306593+00:00",
-    "midpoint_validation": null,
-    "final_validation": null
+    "hosted_ci": {
+      "run_id": 38885078757,
+      "status": "success",
+      "jobs": 6
+    }
   },
   "boundaries": {
     "campaign": "paused_indefinitely",
@@ -3685,6 +3679,186 @@
     "numerical_methods_changed": false,
     "historical_failures": "preserved; not superseded by excluding their scientific obligations",
     "security_reporting": "prepared; currently disabled; must be enabled in approved publication transaction",
-    "hosted_ci": "source publication and default-branch integration need approval before execution"
+    "hosted_ci": "Actual source935816f functional CI passed; revised owner-signoff publisher is locally checked and awaits approved publication execution.",
+    "release_admission": "Explicit owner sign-off after concrete checks; no fixed calendar wait or elapsed-soak claim"
+  },
+  "history": {
+    "superseded_calendar_soak": {
+      "started_at": "2026-10-16T09:30:07.306593+00:00",
+      "last_blocking_change_at": "2026-10-16T09:30:07.306593+00:00",
+      "minimum_days": 14,
+      "clean_days": 7,
+      "open_blockers": [],
+      "midpoint_due_at": "2026-10-23T09:30:07.306593+00:00",
+      "earliest_publication_at": "2026-10-30T09:30:07.306593+00:00",
+      "midpoint_validation": null,
+      "final_validation": null,
+      "state": "superseded_by_user_explicit_0_2_0_signoff_policy",
+      "elapsed_soak_claimed": false
+    },
+    "initial_other_validation": {
+      "native_tests": 12,
+      "installation_cases": 4,
+      "installation_commands": 30,
+      "foundation_passed": 72,
+      "foundation_skipped": 1,
+      "foundation_skip_reason": "A separate below-Torch-floor compatibility lane; no below-floor Torch installed in the advertised 2.10 runtime",
+      "strict_twine": "passed",
+      "native_imports_provider_ptx_record": "passed",
+      "hosted_ci": "prepared_not_yet_executed"
+    }
+  },
+  "admission": {
+    "mode": "explicit_owner_release_signoff",
+    "owner": "dependanz",
+    "fixed_calendar_wait": false,
+    "policy_basis": "Explicit maintainer instruction on 2026-10-16; docs/RELEASE_POLICY_0_2_0.md",
+    "open_blockers": [],
+    "publication_signoff": "Required from actual owner-published normal v0.2.0 release event, after separate user approval of the exact transaction",
+    "final_validation": {
+      "completed_at": "2026-10-16T10:47:06.880944+00:00",
+      "profiles": [
+        {
+          "profile": "cpu310",
+          "python": "3.10.11",
+          "torch": "2.10.0+cpu",
+          "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+          "passed": 323,
+          "failed": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "selected_nodeids_sha256": "ae9e5afbf9091b2b383273caa8d9fac7664525ef266bb19d8f1b0b16ccc3dd84",
+          "completed_at": "2026-10-16T10:46:19.019981+00:00",
+          "evidence": "signoff-20261016-1/final-profiles/cpu310/result.json",
+          "evidence_sha256": "f49e0514e4efecbec5dcdccece7242065cf43d7b5e369493730ae53c41f675be"
+        },
+        {
+          "profile": "cpu311",
+          "python": "3.11.8",
+          "torch": "2.10.0+cpu",
+          "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+          "passed": 323,
+          "failed": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "selected_nodeids_sha256": "ae9e5afbf9091b2b383273caa8d9fac7664525ef266bb19d8f1b0b16ccc3dd84",
+          "completed_at": "2026-10-16T10:46:26.314591+00:00",
+          "evidence": "signoff-20261016-1/final-profiles/cpu311/result.json",
+          "evidence_sha256": "95d5c455961048e390bf6814dafc12cc6d28cce899c2a1baea39700af779a6fa"
+        },
+        {
+          "profile": "cpu312",
+          "python": "3.12.1",
+          "torch": "2.10.0+cpu",
+          "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+          "passed": 323,
+          "failed": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "selected_nodeids_sha256": "ae9e5afbf9091b2b383273caa8d9fac7664525ef266bb19d8f1b0b16ccc3dd84",
+          "completed_at": "2026-10-16T10:46:33.667988+00:00",
+          "evidence": "signoff-20261016-1/final-profiles/cpu312/result.json",
+          "evidence_sha256": "d1d3122d0d7c15542b36ba2f3659a45b67a31a260e767289ed1a6a94483f255d"
+        },
+        {
+          "profile": "cpu313",
+          "python": "3.13.16",
+          "torch": "2.10.0+cpu",
+          "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+          "passed": 323,
+          "failed": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "selected_nodeids_sha256": "ae9e5afbf9091b2b383273caa8d9fac7664525ef266bb19d8f1b0b16ccc3dd84",
+          "completed_at": "2026-10-16T10:46:40.828316+00:00",
+          "evidence": "signoff-20261016-1/final-profiles/cpu313/result.json",
+          "evidence_sha256": "7cd30666f564b148ba54e5c1f36ce47d0a2ce10d5626e82fc1e480bc4c81b09a"
+        },
+        {
+          "profile": "cpu314",
+          "python": "3.14.6",
+          "torch": "2.10.0+cpu",
+          "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+          "passed": 323,
+          "failed": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "selected_nodeids_sha256": "ae9e5afbf9091b2b383273caa8d9fac7664525ef266bb19d8f1b0b16ccc3dd84",
+          "completed_at": "2026-10-16T10:46:47.669862+00:00",
+          "evidence": "signoff-20261016-1/final-profiles/cpu314/result.json",
+          "evidence_sha256": "bcdbdc30e1a89524c8b5885e3a3d25c0512d922bdfe4eb5ef8b86fccbd961c35"
+        },
+        {
+          "profile": "cuda-torch-cpu314",
+          "python": "3.14.6",
+          "torch": "2.10.0+cu126",
+          "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+          "passed": 323,
+          "failed": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "selected_nodeids_sha256": "ae9e5afbf9091b2b383273caa8d9fac7664525ef266bb19d8f1b0b16ccc3dd84",
+          "completed_at": "2026-10-16T10:46:55.493071+00:00",
+          "evidence": "signoff-20261016-1/final-profiles/cuda-torch-cpu314/result.json",
+          "evidence_sha256": "23313366c04d61c6af56aeea0453e7699cb27983c93d73156c91fe28bd5a8a78"
+        },
+        {
+          "profile": "gpu314",
+          "python": "3.14.6",
+          "torch": "2.10.0+cu126",
+          "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+          "passed": 285,
+          "failed": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "selected_nodeids_sha256": "b89f6af790be38f8fea1dadf3ee478cc28698497dfe49b40f98b17b12f81b2e9",
+          "completed_at": "2026-10-16T10:47:05.976892+00:00",
+          "evidence": "signoff-20261016-1/final-profiles/gpu314/result.json",
+          "evidence_sha256": "f670220a94185fda526555b964ac951a71b608ab4eb1329976acbb5ff23078d7"
+        }
+      ],
+      "source_inventory_sha256": "956b933d2d584bcc9cdd47051fafd1a0c9eb71d87de7ba7c0c61e28f499de6a3"
+    },
+    "concrete_checks": {
+      "artifact_audit": {
+        "status": "passed",
+        "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+        "record_hashes_verified": true,
+        "strict_twine": true,
+        "provider_ptx_import_audit": "passed"
+      },
+      "native": {
+        "status": "passed",
+        "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+        "passed": 12,
+        "failed": 0,
+        "core_sha256": "786374c93001607298994b9293bdab1221895f7deb38e5e8f427df540f580785",
+        "evidence": "Unchanged exact-wheel core; retained nativechecks/tests.xml"
+      },
+      "installation": {
+        "status": "passed",
+        "wheel_sha256": "0385d27a028b04b98500766be11b81d95b7e3415436c681cd040329ccebe2ed4",
+        "cases": 4,
+        "commands": 30,
+        "evidence": "Unchanged wheel; retained fresh/0.1.4/a1/a2 installation-lifecycle/result.json"
+      },
+      "release_controls": {
+        "status": "passed",
+        "passed": 44,
+        "failed": 0,
+        "skipped": 0,
+        "source_inventory_sha256": "956b933d2d584bcc9cdd47051fafd1a0c9eb71d87de7ba7c0c61e28f499de6a3",
+        "evidence": "Focused foundation cohort100pass/1separate below-Torch-floor compatibility skip; all44releasecontrols pass"
+      },
+      "hosted_cpu_ci": {
+        "status": "passed",
+        "jobs_passed": 6,
+        "runtime_inputs_unchanged": true,
+        "commit": "935816fb2e22711ce61085ae80e31b79a0c52568",
+        "run_id": 38885078757,
+        "url": "https://github.com/dependanz/gffx/actions/runs/38885078757",
+        "scope": "One CPU CI wheel, five minors323pass each; runtime/functional selector and tests unchanged. Final publisher independently tests exact attached release wheel before upload."
+      }
+    }
   }
 }

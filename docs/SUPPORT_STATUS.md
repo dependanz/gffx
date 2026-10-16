@@ -3,7 +3,7 @@
 A candidate is admitted only after the complete release gates pass.
 
 The Windows0.2.0 support contract requires exact-artifact
-validation, the14-day RC/seven-clean-day gates, functional release CI and final
+validation, fresh final checks, functional release CI and explicit owner
 publication approval. [Release evidence](RELEASE_0_2_0.md) records actual outcomes;
 [the adopted contract](RELEASE_POLICY_0_2_0.md) defines the supported/experimental boundary.
 

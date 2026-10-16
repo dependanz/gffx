@@ -1,12 +1,15 @@
 # Published alpha history and publishing configuration
 
-The originala2 instructions below describe the frozen alpha transaction. The
-prepared normal0.2.0 release has a separate exact-artifact gate in
-`tools/stable_release.py`: real14-day/seven-clean-day hold, complete unchanged
-profile checkpoints, no open blockers, source hashes and metadata. The existing
-publisher workflow adds a stable-only normal-release path and tests its exact
-wheel on five CPU profiles before upload. The tag policy/private-reporting/main
-integration operations remain unexecuted pending final publication approval.
+The original a2 instructions below describe the frozen alpha transaction. The
+normal 0.2.0 release uses a separate exact-artifact gate in `tools/stable_release.py`:
+fresh complete concrete checks, no open blockers, source/metadata integrity and
+the actual owner-published normal-release event at the reviewed commit. The user
+replaced the initial 0.2.0 calendar wait with explicit release sign-off. `--check`
+reports readiness without approval; the publisher accepts neither that mode nor
+`--candidate`. It tests the exact attached release wheel on five CPU profiles
+before OIDC upload. Source/default-main integration and functional CI have passed;
+the new v0.2.0 tag policy/private-reporting/release/upload actions await final
+approval. See [the 0.2.0 policy](RELEASE_POLICY_0_2_0.md).
 
 
 The publisher uploads the already tested wheel. It does not rebuild a candidate,

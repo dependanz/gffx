@@ -1,8 +1,9 @@
 # gffx 0.2.0 release evidence
 
 Initial candidate checkpoint: 2026-10-16T09:30:07.306593+00:00. This is an unpublished Windows x64
-candidate. The initial local matrix passes; the retained soak and hosted CI are
-not yet complete. Publication requires approval after all gates pass.
+candidate. The initial local matrix passes; subsequent source/hosted CI results
+and the explicitly amended admission policy are recorded below. Publication
+requires final user approval after the concrete checks pass.
 
 ## Exact artifact and scope
 
@@ -51,28 +52,37 @@ CI. The GPU launcher now sets the existing camera fixture's device correctly;
 no mathematical tolerance or runtime geometry/rendering code changed. Stale
 packaging tests and the development pytest pin were repaired, not hidden.
 
-## Outstanding admission gates
+## Revised 0.2.0 admission
 
-The real soak started at 2026-10-16T09:30:07.306593+00:00; midpoint checks are due no earlier than
-2026-10-23T09:30:07.306593+00:00, and stable eligibility no earlier than
-2026-10-30T09:30:07.306593+00:00. Seven clean days after the last
-blocking change are also required. Run the same seven exact-artifact profiles at
-each checkpoint and record actual outcomes. Age alone cannot pass admission.
+On 16 October 2026 the maintainer replaced the initial 14-day/seven-clean-day
+calendar hold with explicit final release sign-off after concrete checks. No
+elapsed or completed soak is claimed. Earlier clock/validation evidence remains
+preserved in project memory and the release manifest's history.
 
-`releases/0.2.0.json` seals the wheel, implementation/test/controller sources and
-actual initial results. `python tools/stable_release.py --dist <wheel-folder>`
-must refuse the current early/incomplete state. `--candidate` checks bytes/source
-only and is never allowed in the publisher. Synthetic unit-test dates are not
-soak evidence. Blocking code/dependency/workflow/artifact changes reset the
-appropriate clock; factual checkpoint additions alone do not change the code.
+The approved source commit935816fb2e22711ce61085ae80e31b79a0c52568 is on both
+main/m1-camera. Actual Windows functional CI38885078757 succeeded: build plus all
+five CPU profiles,323 passing tests each with no failures/skips; six artifacts
+were retained. That CI built one CPU test wheel; it is distinct from the final
+provider-containing candidate identified above. The final publishing workflow
+independently checks and tests that exact final wheel before upload.
 
-The new `windows-functional` workflow builds one CPU adapter wheel and tests it
-on all five minors. It is prepared and statically reviewed, not a hosted passing
-run. Daily checks require its reviewed integration into default branch `main`.
-The stable publisher independently tests the attached exact final wheel on all
-five CPU minors before OIDC upload. It also requires private vulnerability
-reporting to be enabled; that setting is prepared but has not been changed.
+Fresh final seven-profile validation completed at 2026-10-16T10:47:06.880944+00:00:
+all five CPU-only profiles and CPU-with-CUDA-enabled-Torch pass323checks each;
+actual GPU passes285; every profile has0failures/0skips and verifies84package
+payloadmembers against the same final wheel. The source seal binds882files;
+all187runtime/buildinputs remain unchanged. Fresh final evidence must remain
+within24hours at publication. The revised release gate has44passing controls;
+the combined focused cohort passes100tests with one separate below-Torch-floor
+compatibility skip. The first cohort's obsolete14-day documentation assertion
+failure is preserved and was corrected to the explicitly amended policy.
+Strict Twine/nativeimports/provider/PTX/RECORD audit passes again. Existing
+12native and4installation/30command checks remain valid for these unchanged bytes.
 
-Published a1/a2 tags and artifacts are preserved. The original filtered campaign
-and heartbeat remain paused indefinitely. No photograph fitting, physical
-reference campaign, shared framework change or automatic publication is started.
+Technical readiness is complete under the revised policy. `--check` reports technical readiness without granting
+publication approval. The publisher requires the real owner normal-release event
+for the reviewed source and exact asset. No sign-off is fabricated in advance.
+
+Private reporting/newtagpolicy/normalrelease/PyPIupload require final approval.
+Published a1/a2 and all failures remain preserved. The reference campaign and
+heartbeat stay paused indefinitely; no model/photograph or physical-reference
+work is required for this release.

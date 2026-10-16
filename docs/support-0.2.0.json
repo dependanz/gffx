@@ -40,10 +40,11 @@
   "upstream_security": "unknown",
   "mandatory_python_dependencies": [],
   "campaign": "paused_indefinitely",
-  "soak_days": 14,
-  "clean_days": 7,
   "kind": "versioned_release_contract",
   "admission": "requires actual release-manifest gates and verified publication",
   "target_cpu_tier": "fully_supported",
-  "upstream_security_note": "No upstream security maintenance claim follows from compatibility."
+  "upstream_security_note": "No upstream security maintenance claim follows from compatibility.",
+  "release_admission": "explicit_owner_release_signoff",
+  "fixed_calendar_wait": false,
+  "final_validation_max_age_hours": 24
 }

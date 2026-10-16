@@ -55,8 +55,8 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
-    - name: Require actual source/artifact validation and elapsed RC gates
-      run: python tools/stable_release.py --dist dist
+    - name: Require concrete checks and actual owner release sign-off
+      run: python tools/stable_release.py --dist dist --release-event "$GITHUB_EVENT_PATH"
     - name: Require private vulnerability reporting
       env:
         GH_TOKEN: ${{ github.token }}
@@ -150,7 +150,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
     - name: Recheck publication gates and approved bytes
-      run: python tools/stable_release.py --dist dist
+      run: python tools/stable_release.py --dist dist --release-event "$GITHUB_EVENT_PATH"
     - name: Publish exact stable wheel through existing OIDC publisher
       uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
       with:

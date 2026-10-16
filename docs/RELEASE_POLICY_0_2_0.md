@@ -1,7 +1,7 @@
 # gffx 0.2.0 Windows release policy
 
 Adopted 16 October 2026 for the first stable Windows x64 release. Admission is
-pending the exact candidate's validation, release-candidate soak and publication.
+pending the exact candidate's validation, explicit owner release sign-off and publication.
 The version number alone never grants a support claim.
 
 ## Scope
@@ -88,22 +88,44 @@ before upload. GPU validation is local or trusted manual hardware only; untruste
 PRs never execute on a persistent GPU host. Unexecuted hosted definitions are
 reported as prepared, never as passing runs.
 
-## Release-candidate soak
+## Explicit release sign-off for 0.2.0
 
-Retain 14 calendar days of release-candidate evaluation and at least seven clean
-days after the last release-blocking code, dependency, workflow or artifact change.
-Start only when the candidate and release-critical content are frozen and all
-initial required local validation passes. Run the same exact candidate again at
-the midpoint (at least day seven) and before final publication (at least day14).
-Every required profile must pass each checkpoint. Record date, artifact/source
-hashes, test selection, actual outcomes and any blocking issue. Elapsed time by
-itself is not a passing soak. A blocking change resets the appropriate clock;
-record-only additions of new evidence do not alter the evaluated implementation.
+On 16 October 2026 the maintainer explicitly replaced the initial 0.2.0
+fourteen-day/seven-clean-day calendar hold with release sign-off after concrete
+checks. This is a release-specific exception to the older general policy. The
+old policy, clock and receipts remain historical evidence; no elapsed or passed
+soak is claimed. No fixed calendar wait or midpoint checkpoint is required for
+0.2.0. Numerical assertions, runtime scope and security obligations are unchanged.
 
-The unpublished candidate may already carry final `0.2.0` metadata so the exact
-bytes can be evaluated throughout the soak. No public upload or automatic
-scheduler follows preparation. A verifier must refuse early or incomplete
-publication; no date or test result is fabricated to bypass this rule.
+Technical readiness requires the same reviewed final wheel, complete initial
+evidence and a fresh seven-profile exact-wheel validation within 24 hours of
+publication, unchanged source/test selections and no open release blockers.
+Every selected functional profile must pass without failures or skips. Retain
+verified native, install/upgrade/uninstall, strict metadata/import/provider/PTX/
+RECORD and hosted functional CPU evidence, with explicit artifact/source identity.
+Policy/controller changes alone do not require rebuilding unchanged runtime bytes.
+A runtime/artifact change requires affected checks and a new reviewed candidate.
+
+`tools/stable_release.py --check` verifies concrete readiness and explicitly
+reports that owner publication sign-off is still required. It neither records
+approval nor publishes. Byte/source-only `--candidate` is a diagnostic mode.
+Neither mode is allowed in the publisher.
+
+The user must separately approve the exact final source, identities, message,
+destinations, settings, tag, normal release, wheel and PyPI transaction. Executing
+that approved transaction publishes the normal v0.2.0 release through the
+maintainer's existing dependanz account. The GitHub Actions publisher requires
+the actual published-release event from dependanz/gffx: sender and author dependanz,
+v0.2.0, not draft/prerelease, exact reviewed commit and exact reviewed wheel asset.
+It checks real timestamps, source/evidence identities and freshness, then tests
+the attached final wheel on all five CPU minors before the existing OIDC upload.
+This event is the recorded owner release sign-off; it is not a substitute for
+obtaining the user's approval before operating the account. Preparation and unit
+test fixtures never count as actual publication approval.
+
+No automatic publication, model fit, reference campaign or heartbeat restart
+follows technical readiness. Retain all failures and report partial publication
+honestly. Published files and tags are never replaced to repair a failed release.
 
 ## Security and publication
 

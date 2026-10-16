@@ -141,7 +141,8 @@ def test_install_build_dependency_and_support_documents_are_truthful():
     assert "zero mandatory third-party Python runtime dependencies" in dependencies
     assert "No third-party source is vendored" in dependencies and "MIT" in dependencies
     assert "candidate" in support and "experimental" in support
-    assert "14 calendar days" in policy and "seven clean" in policy
+    assert "Explicit release sign-off for 0.2.0" in policy and "No fixed calendar wait" in policy
+    assert "--check" in policy and "actual published-release event" in policy
 
 
 def test_documented_dependency_categories_match_declared_groups():
