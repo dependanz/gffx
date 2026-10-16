@@ -8,20 +8,20 @@ integration into streaming and edge applications.
 
 The project is pre-release. M1 is complete for the adopted development-readiness
 scope: finite generic graphics supply, recorded CPU/CUDA profiles, and the B1
-public CPU fitting integration. This is not a public release or universal support
-claim. See [M1 closeout](docs/M1_DEVELOPMENT_READINESS_CLOSEOUT.md) and
-[development wheels](docs/DEVELOPMENT_WHEELS.md) for the artifact boundaries.
+public CPU fitting integration. The experimental `0.2.0a1` Windows CPU package has a separately defined
+artifact/runtime scope; M1 does not confer universal release support. See [M1 closeout](https://github.com/dependanz/gffx/blob/m1-camera/docs/M1_DEVELOPMENT_READINESS_CLOSEOUT.md) and
+[development wheels](https://github.com/dependanz/gffx/blob/m1-camera/docs/DEVELOPMENT_WHEELS.md) for the artifact boundaries.
 
 The core geometry inventory below is one part of the current camera, scene,
 animation, shading and image supply. Experimental filtered-renderer qualification
 remains a separate, unqualified workstream; its reference campaign is paused.
 
 ![The same ground plane sampled without mipmaps, with mip NEAREST, and
-trilinear](docs/showcase/figures/04-minification.png)
+trilinear](https://raw.githubusercontent.com/dependanz/gffx/m1-camera/docs/showcase/figures/04-minification.png)
 
 ## What works today
 
-The development checkout also includes the [minimal scene API](docs/SCENE.md):
+The development checkout also includes the [minimal scene API](https://github.com/dependanz/gffx/blob/m1-camera/docs/SCENE.md):
 typed objects, transform hierarchies, frame-major mesh packing, attribute/material
 bindings and differentiable transforms. This is an eager PyTorch composition over
 the existing operations, not a scene editor, file importer or new native renderer.
@@ -53,22 +53,22 @@ exactly; a faster atomic path exists but is reached only when the caller sets
 
 **A framework-neutral C11 ABI**, usable without Python or any autodiff framework. The figures in
 this README were produced by calling it from Python with `ctypes` and nothing else — see
-[`docs/showcase/`](docs/showcase/).
+[`docs/showcase/`](https://github.com/dependanz/gffx/blob/m1-camera/docs/showcase/).
 
-The working camera implementation is documented in [Eager pinhole cameras](docs/CAMERAS.md):
+The working camera implementation is documented in [Eager pinhole cameras](https://github.com/dependanz/gffx/blob/m1-camera/docs/CAMERAS.md):
 `gffx.camera.Camera` projects points, reconstructs positions from depth, and batches cameras
 using the existing transforms. Its optional `in_front_only=True` filter keeps behind-camera
 rejection separate from mathematical projection validity and visibility. It adds no native
 primitive and makes no compilation/export or real-time performance claim.
 
-PyTorch also exposes compositional [classic](docs/CLASSIC_MATERIAL.md) and
-[principled/custom materials](docs/PRINCIPLED_MATERIAL.md), tagged light integration,
+PyTorch also exposes compositional [classic](https://github.com/dependanz/gffx/blob/m1-camera/docs/CLASSIC_MATERIAL.md) and
+[principled/custom materials](https://github.com/dependanz/gffx/blob/m1-camera/docs/PRINCIPLED_MATERIAL.md), tagged light integration,
 and explicit tensor colour sources. These are not additional native primitives.
 Principled shading has separately named, finite-profile float64 budget bundles for
-[CPU](docs/PRINCIPLED_BUDGET_V1.md) and [CUDA](docs/PRINCIPLED_CUDA_QUALIFICATION.md);
+[CPU](https://github.com/dependanz/gffx/blob/m1-camera/docs/PRINCIPLED_BUDGET_V1.md) and [CUDA](https://github.com/dependanz/gffx/blob/m1-camera/docs/PRINCIPLED_CUDA_QUALIFICATION.md);
 the table is shipped package data, not a download. Input/layout, energy and gradient
 tests do not imply Cycles fidelity, compiled/exported shading, or real-time performance.
-See the [shading implementation and evidence map](docs/SHADING_M1_STATUS.md) for
+See the [shading implementation and evidence map](https://github.com/dependanz/gffx/blob/m1-camera/docs/SHADING_M1_STATUS.md) for
 what is locally tested and what remains outside this slice.
 
 ## What does not work yet
@@ -81,7 +81,7 @@ what is locally tested and what remains outside this slice.
 - **No published CUDA artifact.** The provider is built from source and needs the CUDA toolkit.
 - **CUDA agreement is measured on one machine, not in continuous integration.** No hosted runner
   has a GPU, so every device claim above comes from manual runs on a single RTX 5090. The
-  [hardware lane](docs/CUDA_HARDWARE_LANE.md) exists to close this and needs a registered
+  [hardware lane](https://github.com/dependanz/gffx/blob/m1-camera/docs/CUDA_HARDWARE_LANE.md) exists to close this and needs a registered
   self-hosted runner before it does.
 - **No JAX adapter**, and no public `torch.compile`, export, serialization, or streaming operation
   surface.
@@ -94,13 +94,13 @@ what is locally tested and what remains outside this slice.
     Material calls separately support 1024 point/light pairs (8 forward or 4 backward
     points), under a 64 MiB planning ceiling. Fixed image/reference fixtures do not
     qualify arbitrary scenes, sustained performance or compilation/export. See
-    [material usage and limits](docs/PRINCIPLED_MATERIAL.md). Tangent frames, bump mapping
+    [material usage and limits](https://github.com/dependanz/gffx/blob/m1-camera/docs/PRINCIPLED_MATERIAL.md). Tangent frames, bump mapping
     and colour management remain later work.
 - **No ray tracing or BVH traversal, remeshing, mesh booleans, volumetric rendering, non-triangle
   faces, or image decoding.** `render.texture` samples a tensor the caller already holds; it opens
   no file.
 - **Support claims are per combination and measured, not inherited.** See
-  [measured evidence versus support targets](docs/SUPPORT_STATUS.md) before depending on a
+  [measured evidence versus support targets](https://github.com/dependanz/gffx/blob/m1-camera/docs/SUPPORT_STATUS.md) before depending on a
   platform, Python version, or accelerator.
 
 ## What it looks like
@@ -109,26 +109,32 @@ The render chain stage by stage, on a procedurally generated sphere. Every pixel
 operation:
 
 ![Coverage, interpolated UVs, sampled albedo, and a Lambert term on the interpolated
-normal](docs/showcase/figures/06-full-chain.png)
+normal](https://raw.githubusercontent.com/dependanz/gffx/m1-camera/docs/showcase/figures/06-full-chain.png)
 
 And the property that makes it a differentiable renderer rather than a renderer — gradient descent
 on vertex positions, driven entirely by the library's own backward passes, until a triangle matches
 its target:
 
 ![Intersection over union rising from 0.53 to 0.95 over forty
-steps](docs/showcase/figures/07-gradient-descent.png)
+steps](https://raw.githubusercontent.com/dependanz/gffx/m1-camera/docs/showcase/figures/07-gradient-descent.png)
 
-More figures, with what each one demonstrates, in [`docs/showcase/`](docs/showcase/).
+More figures, with what each one demonstrates, in [`docs/showcase/`](https://github.com/dependanz/gffx/blob/m1-camera/docs/showcase/).
 
 ## Install and inspect
 
-Use the detailed [installation guide](docs/INSTALLATION.md) before installing. A default source
-build is CPU-only:
+The `0.2.0a1` alpha is a Windows x64 CPU wheel with an included optional
+PyTorch adapter. Follow the [installation guide](https://github.com/dependanz/gffx/blob/m1-camera/docs/INSTALLATION.md) and
+[exact alpha profile](https://github.com/dependanz/gffx/blob/m1-camera/docs/ALPHA_0_2_0A1.md). Select PyTorch separately when using
+autodiff; the base package has no mandatory third-party Python dependencies.
 
 ```powershell
-python -m pip wheel . --no-deps --wheel-dir dist/local
-python -m pip install --force-reinstall C:/path/to/generated-wheel.whl
+python -m pip install --only-binary=gffx "gffx==0.2.0a1"
 ```
+
+This command applies once that version is available on PyPI. The alpha ships no
+gffx CUDA provider. CUDA-enabled PyTorch can still be used for CPU operations in
+the explicitly tested combinations; GPU execution has its own development profile.
+Broader source capabilities described below retain their own evidence.
 
 The stable entry point is always:
 
@@ -146,14 +152,14 @@ Do not call the full CUDA capability probe from a real-time frame or audio callb
 
 ## Documentation
 
-- [Installation and optional components](docs/INSTALLATION.md)
-- [Source and native builds](docs/BUILDING.md)
-- [Dependency and vendoring policy](docs/DEPENDENCIES.md)
-- [Measured evidence versus support targets](docs/SUPPORT_STATUS.md)
-- [Isolated CUDA provider recipes](docs/CUDA_PLUGIN_BUILD.md)
-- [The CUDA hardware test lane](docs/CUDA_HARDWARE_LANE.md)
-- [Capability figures and how they are generated](docs/showcase/)
-- [Testing-dashboard learning pages and dependency-free mathematics](docs/LEARNING_PAGES.md)
+- [Installation and optional components](https://github.com/dependanz/gffx/blob/m1-camera/docs/INSTALLATION.md)
+- [Source and native builds](https://github.com/dependanz/gffx/blob/m1-camera/docs/BUILDING.md)
+- [Dependency and vendoring policy](https://github.com/dependanz/gffx/blob/m1-camera/docs/DEPENDENCIES.md)
+- [Measured evidence versus support targets](https://github.com/dependanz/gffx/blob/m1-camera/docs/SUPPORT_STATUS.md)
+- [Isolated CUDA provider recipes](https://github.com/dependanz/gffx/blob/m1-camera/docs/CUDA_PLUGIN_BUILD.md)
+- [The CUDA hardware test lane](https://github.com/dependanz/gffx/blob/m1-camera/docs/CUDA_HARDWARE_LANE.md)
+- [Capability figures and how they are generated](https://github.com/dependanz/gffx/blob/m1-camera/docs/showcase/)
+- [Testing-dashboard learning pages and dependency-free mathematics](https://github.com/dependanz/gffx/blob/m1-camera/docs/LEARNING_PAGES.md)
 
 ## Source boundaries
 
@@ -170,6 +176,6 @@ The pre-foundation source remains recoverable in Git history and on
 `codex/archive-pre-phase1-20260821`. Prototype behavior is unsupported and receives no
 compatibility credit toward the new operation contracts.
 
-GFFX is licensed under the [MIT License](LICENSE). No third-party source is vendored, and every
+GFFX is licensed under the [MIT License](https://github.com/dependanz/gffx/blob/m1-camera/LICENSE). No third-party source is vendored, and every
 figure here is generated from GFFX's own primitives with procedurally constructed inputs, so no
 external asset or dataset is redistributed.

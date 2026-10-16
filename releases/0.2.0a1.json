@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0a1",
+  "tag": "v0.2.0a1",
+  "artifact": {
+    "filename": "gffx-0.2.0a1-cp310-abi3-win_amd64.whl",
+    "bytes": 2036559,
+    "sha256": "d132d7d2c852feb61eeddfd0eb99082ab7f9ae52f5913220e064d227e0267042"
+  },
+  "build": {
+    "python": "3.10.11",
+    "torch": "2.10.0+cpu",
+    "gffx_cuda_provider": false,
+    "mandatory_python_dependencies": []
+  },
+  "validation_document": "docs/ALPHA_0_2_0A1.md"
+}

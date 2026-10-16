@@ -67,6 +67,28 @@ PyTorch-ready builds require an explicitly selected PyTorch environment and
 also require `GFFX_CUDA_RUN_DEVICE_TESTS=ON` on trusted hardware. See
 [INSTALLATION.md](INSTALLATION.md) and [CUDA_PLUGIN_BUILD.md](CUDA_PLUGIN_BUILD.md).
 
+## Reproducible Windows CPU alpha wheel
+
+Use a fresh Windows x64 environment with CPU-only PyTorch 2.10.0. The alpha
+profile includes the optional adapter while keeping the gffx CUDA provider off.
+A GPU-enabled build environment can create an unintended torch_cuda.dll import
+even with the gffx CUDA provider disabled; the guard below refuses that input.
+
+```powershell
+python -m venv C:/path/to/cpu-builder
+C:/path/to/cpu-builder/Scripts/python.exe -m pip install --upgrade pip
+C:/path/to/cpu-builder/Scripts/python.exe -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+C:/path/to/cpu-builder/Scripts/python.exe -m pip install scikit-build-core==1.0.3 cmake==4.4.2 ninja==1.13.0 delvewheel==1.13.2
+python tools/cpu_wheel.py build --python C:/path/to/cpu-builder/Scripts/python.exe --work-dir C:/path/to/new-output --generator "Visual Studio 17 2022"
+```
+
+The tool uses one build worker and no dependency downloads during the build,
+repairs the wheel without bundling PyTorch, and audits native imports, tags,
+metadata and RECORD hashes. It never uploads. Output directories must be new.
+The build report and repaired wheel live under the selected output directory.
+The actual selected Python/framework/tool versions are recorded in the report.
+The existing broad foundation/RC workflows retain their own matrix and claims.
+
 ## Package-foundation verification
 
 After installing the `development` dependency group, run the eleven-gate verifier with a new work

@@ -1,14 +1,22 @@
 # Development wheels
 
-M1 is complete for the adopted development-readiness scope. A development wheel
-is a source/build snapshot with an explicit profile; it does not establish the
-whole platform or backend support matrix.
+The current first-public-alpha preparation is `0.2.0a1`, a guarded Windows CPU
+build with an optional PyTorch adapter. See [the alpha profile](ALPHA_0_2_0A1.md),
+[installation](INSTALLATION.md) and [building](BUILDING.md). Build against CPU-only
+PyTorch, then validate the exact repaired wheel with the intended runtime variants.
+The base package remains free of mandatory framework dependencies. Wheel tags
+express compatibility conventions; support claims require exact artifact evidence.
 
-The source version is `0.2.0.dev0`. The existing PyPI project still lists the
+M1 is complete for the adopted development-readiness scope. PyPI publication
+does not qualify the independent filtered renderer or change its paused campaign.
+
+## Historical internal dev0 candidate
+
+The historical source version was `0.2.0.dev0`. The existing PyPI project still lists the
 older `0.1.4` release as of 2026-10-15. This preparation does not upload a release
 or replace that package. A local wheel is pip-installable without PyPI.
 
-The first fresh preparation target is Windows x64 CPU, CPython 3.10 stable ABI,
+That historical preparation target was Windows x64 CPU, CPython 3.10 stable ABI,
 with the PyTorch adapter enabled and the gffx CUDA provider disabled. The exact
 validated framework is PyTorch `2.10.0+cu126`, selected separately; the wheel
 does not bundle it. The adapter built against that runtime links `torch_cuda.dll`
@@ -38,7 +46,7 @@ See [building](BUILDING.md), [support status](SUPPORT_STATUS.md),
 Licensed assets, private photographs, generated outputs and build products belong
 outside the source repository.
 
-The fresh 2026-10-15 local candidate installs in a new environment and passes
+The historical 2026-10-15 local dev0 candidate installs in a new environment and passes
 233 selected CPU fitting/camera/image/SH tests plus nine subtests. Ten CUDA or
 independent opaque checks are outside that selection. The broader run is retained:
 CUDA tests fail without the optional gffx provider, and one 4x4 opaque-mask exact

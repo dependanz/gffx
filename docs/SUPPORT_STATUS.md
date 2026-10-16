@@ -1,10 +1,13 @@
 # Support status
 
-GFFX `0.2.0.dev0` is pre-release. "Built," "loaded," and "measured internally" describe evidence;
-they do not mean a combination is publicly supported. A support claim requires the full
-release-candidate matrix, published artifacts, operation conformance, a maintenance policy, and
-release evidence defined by the project plan. This document is the user-facing summary and stays
-conservative wherever evidence and targets differ.
+GFFX `0.2.0a1` is an experimental Windows x64 CPU prerelease candidate with
+an optional separately selected PyTorch adapter. Its exact candidate/runtime
+results are in [ALPHA_0_2_0A1.md](ALPHA_0_2_0A1.md). Package availability and
+validation are separate; no full cross-platform support tier is claimed.
+
+The following inventory preserves earlier, artifact-specific development and
+foundation evidence. Those historical results do not certify the alpha wheel.
+M1 remains complete for the adopted development-readiness scope.
 
 | Surface | Current state | Classification |
 |---|---|---|
@@ -26,7 +29,7 @@ conservative wherever evidence and targets differ.
 | PyTorch 2.9 | Not supported; the adapter refuses to load below 2.10 | Unsupported |
 | JAX CPU/CUDA adapters | Not implemented | Target, not support |
 | Spatial acceleration and real-time profiles | Conservative CPU raster block rejection and CUDA outside-distance rejection qualified on the PC; original candidate equations and ordering retained | Sustained real-time and edge profiles remain unqualified |
-| Published PyPI distribution | None for `0.2.0.dev0` | Unsupported |
+| New native PyPI distribution | `0.2.0a1` preparation; see exact alpha profile and package index for availability | Experimental; publication separate |
 
 ## Historical PC raster and grouped-autograd checkpoint, 2026-09-14
 
@@ -77,7 +80,7 @@ matrix is claimed. Higher-order derivatives and compiled paths remain unqualifie
 their exact operation/profile has dedicated evidence.
 
 Public PyPI `0.1.x` artifacts are an inherited prototype and are unsupported by the new contract.
-The repository source covered by this document is the `0.2.0.dev0` development tree; it does not change
+The repository now prepares the `0.2.0a1` alpha; historical rows retain their original artifacts. This does not change
 the identity or support status of the public `0.1.x` artifacts.
 
 See the devbrain support matrices for the normative planned gates.

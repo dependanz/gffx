@@ -1,86 +1,57 @@
-# Installation
+# Installing gffx 0.2.0a1
 
-## Current distribution status
+The first `0.2.0a1` prerelease is an experimental Windows x64 CPU wheel. Its
+versioned instructions apply when the release is available on PyPI; preparation
+and publication are separate. See [the exact alpha profile](ALPHA_0_2_0A1.md).
+The earlier public `0.1.x` package is the inherited prototype with a different API.
 
-GFFX `0.2.0.dev0` is pre-alpha foundation software and has not been published to a package index.
-PyPI currently serves the unsupported inherited prototype through version `0.1.4`; `pip install
-gffx` therefore does not select the source described by this document.
+## Base package
 
-Install the current foundation only from this checkout or an explicitly supplied internal wheel.
-Internal artifacts prove a bounded build or loading path; they do not create a public support tier.
-
-## Install an internal CPU wheel
-
-An ordinary wheel needs Python 3.10 or newer and no compiler or mandatory third-party Python
-package:
+Use ordinary-GIL CPython 3.10 or newer on Windows x64. The wheel uses the CPython
+3.10 stable ABI; that tag alone does not establish every Python/framework profile.
+No compiler, CUDA toolkit, GPU or PyTorch installation is needed for base use.
 
 ```powershell
-python -m pip install C:/path/to/gffx-0.2.0.dev0-cp310-abi3-win_amd64.whl
-```
-
-Use the wheel whose platform tag matches the target. Do not rename or retag an artifact.
-
-Verify the dependency-free entry point:
-
-```powershell
+python -m pip install --only-binary=gffx "gffx==0.2.0a1"
 python -c "import gffx; print(gffx.__version__); print(gffx.capabilities())"
 ```
 
-`import gffx` loads neither the native core, an autodiff framework, nor a GPU library. The static
-capability call loads the private native core but still never probes a GPU.
+`import gffx` is lazy and framework-free. `gffx.capabilities()` loads the native
+core and reports static capabilities without probing a GPU. `--only-binary=gffx`
+prevents an unsupported platform from unexpectedly attempting a source build.
 
-## Build and install the default CPU package from source
+## PyTorch operations and gradients
 
-A source build requires a platform C11 compiler and network or local-cache access for the pinned
-build-only tools. The resulting installation has zero mandatory third-party Python runtime
-dependencies.
+The alpha wheel includes the optional PyTorch adapter. Install the chosen PyTorch
+runtime separately; gffx neither chooses its CPU/CUDA variant nor bundles it.
+The adapter targets the PyTorch 2.10 stable ABI. Exact tested combinations are
+listed in [the alpha profile](ALPHA_0_2_0A1.md); newer versions are not automatically
+promoted to a supported combination.
 
-```powershell
-python -m pip wheel . --no-deps --wheel-dir dist/local
-python -m pip install --force-reinstall C:/path/to/generated-wheel.whl
-```
-
-The PEP 517 configuration explicitly sets `GFFX_BUILD_PYTHON=ON`, `GFFX_BUILD_PYTORCH=OFF`,
-`GFFX_ENABLE_CUDA=OFF`, and `BUILD_TESTING=OFF`.
-
-## Optional PyTorch loading scaffold
-
-The current adapter is infrastructure only: it registers a private foundation probe and no public
-operation. Build it only in a controlled environment containing a selected PyTorch 2.10-2.13
-installation and the pinned build tools:
+For the selected CPU-only runtime:
 
 ```powershell
-python -m pip install scikit-build-core==1.0.3 cmake==4.4.2 ninja==1.13.0 "torch==2.10.*"
-python -m pip wheel . --no-deps --no-build-isolation `
-  --config-settings cmake.define.GFFX_BUILD_PYTORCH=ON `
-  --wheel-dir dist/pytorch-local
+python -m pip install --upgrade pip
+python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install --only-binary=gffx "gffx==0.2.0a1"
+python -c "import torch, gffx.torch; print(torch.__version__)"
 ```
 
-PyTorch is intentionally selected outside GFFX metadata so CPU/CUDA variants and indexes remain
-under user control. `GFFX_BUILD_PYTORCH=ON` does not create a supported operation or validate a new
-Python/platform combination.
+A CUDA-enabled PyTorch installation may be retained for the CPU operations in
+the verified profile. It does not enable the separately built gffx CUDA provider.
+This alpha has no gffx GPU-execution claim. Python free-threaded builds, PyPy,
+other architectures and other operating systems are outside this first wheel.
 
-## Optional CUDA diagnostic provider
+## Building from source
 
-`GFFX_ENABLE_CUDA=ON` builds the separate driver-facing provider. It requires a system CUDA toolkit
-and is never enabled by the default package build:
-
-```powershell
-python -m pip wheel . --no-deps `
-  --config-settings cmake.define.GFFX_ENABLE_CUDA=ON `
-  --wheel-dir dist/cuda-local
-```
-
-Release-candidate builds target CUDA Toolkit 12.8. Local builds using another CUDA 12.x toolkit are
-development evidence only. See [CUDA_PLUGIN_BUILD.md](CUDA_PLUGIN_BUILD.md) for exact Windows and
-Linux recipes and trusted-device test controls.
+Default source builds contain the CPU core and CPython bridge with the optional
+adapter disabled. Building a wheel equivalent to this alpha requires the explicit
+CPU-only PyTorch build recipe in [BUILDING.md](BUILDING.md); a default source build
+is not an adapter-enabled release artifact. Build tools and compilers are build
+inputs, never dependencies of an installed wheel.
 
 ## Uninstall
 
 ```powershell
 python -m pip uninstall gffx
 ```
-
-Uninstall completeness was verified by the local Phase 1 package-foundation gates. That evidence
-remains internal until the hosted release-candidate matrix succeeds and the resulting artifacts
-are published under the support policy.
