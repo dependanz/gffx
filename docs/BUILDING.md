@@ -1,5 +1,14 @@
 # Building GFFX
 
+The0.2.0 Windows release candidate uses the same guarded optional CUDA12.6
+provider/CPU-built Torch2.10 adapter profile. [Release policy](RELEASE_POLICY_0_2_0.md)
+and [release evidence](RELEASE_0_2_0.md) own current scope and actual status. The
+existing GPU build helper remains profile-specific and never uploads. Native
+arithmetic is unchanged from the publisheda2 source; only candidate version and
+packaging/release controls change. CPU-only source/CI builds retain their explicit
+profile and do not qualify the final CPU-plus-provider artifact automatically.
+
+
 The GPU-capable `0.2.0a2` experimental Windows candidate adds the existing lazy
 CUDA provider to the CPU core/optional adapter. See [its exact profile](ALPHA_0_2_0A2.md)
 and [GPU build recipe](CUDA_PLUGIN_BUILD.md). Published CPU-only `0.2.0a1` and all

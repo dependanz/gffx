@@ -1,4 +1,13 @@
-# Publishing the tested 0.2.0a2 alpha
+# Published alpha history and publishing configuration
+
+The originala2 instructions below describe the frozen alpha transaction. The
+prepared normal0.2.0 release has a separate exact-artifact gate in
+`tools/stable_release.py`: real14-day/seven-clean-day hold, complete unchanged
+profile checkpoints, no open blockers, source hashes and metadata. The existing
+publisher workflow adds a stable-only normal-release path and tests its exact
+wheel on five CPU profiles before upload. The tag policy/private-reporting/main
+integration operations remain unexecuted pending final publication approval.
+
 
 The publisher uploads the already tested wheel. It does not rebuild a candidate,
 run numerical work, or publish an sdist. The verifier runs with Python 3.11+ as a packaging tool; it is not imported by

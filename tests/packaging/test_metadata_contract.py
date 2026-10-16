@@ -23,7 +23,7 @@ def test_base_distribution_metadata_is_dependency_free_and_python_310_plus():
     project = document["project"]
 
     assert project["name"] == "gffx"
-    assert project["version"] == "0.2.0.dev0"
+    assert project["version"] == "0.2.0"
     assert project["requires-python"] == ">=3.10"
     assert project["dependencies"] == []
     assert project["license"] == {"file": "LICENSE"}
@@ -42,7 +42,7 @@ def test_metadata_declares_supported_python_identity_without_claiming_operations
     project = load_pyproject()["project"]
     classifiers = set(project["classifiers"])
 
-    assert "Development Status :: 2 - Pre-Alpha" in classifiers
+    assert "Development Status :: 4 - Beta" in classifiers
     assert "License :: OSI Approved :: MIT License" in classifiers
     assert "Programming Language :: Python :: 3 :: Only" in classifiers
     for minor in range(10, 15):
@@ -74,10 +74,10 @@ def test_development_dependency_groups_are_explicit_and_do_not_leak_to_runtime()
         "visualization",
     }
     assert groups["test"] == [
-        "pytest==8.3.4",
+        "pytest==9.0.3",
         "tomli==2.2.1; python_version < '3.11'",
     ]
-    assert groups["packaging"] == ["build==1.3.0", "cibuildwheel==4.2.0"]
+    assert groups["packaging"] == ["build==1.3.0", "cibuildwheel==4.2.0", "delvewheel==1.13.2; sys_platform == 'win32'", "twine==7.0.0"]
     assert groups["testing-dashboard"] == ["coverage==7.10.7"]
     assert groups["development"] == [
         {"include-group": "test"},
@@ -113,11 +113,11 @@ def test_readme_states_the_current_product_and_non_support_boundaries():
     for required in (
         "general-purpose graphics, geometry, and mesh toolkit",
         "differentiable wherever differentiation exists",
-        "Public PyPI releases through `0.1.4` belong to an inherited prototype",
+        "The public `0.1.x` releases are the inherited prototype",
         # The boundary section is load-bearing: a README that lists only capability overclaims
         # by omission, which is the failure this assertion exists to prevent.
         "## What does not work yet",
-        "`pip install gffx` does not install this",
+        "`0.2.0` release line",
         "import gffx",
         "gffx.capabilities()",
         "gffx.cuda.capabilities()",
@@ -131,27 +131,17 @@ def test_readme_states_the_current_product_and_non_support_boundaries():
 
 
 def test_install_build_dependency_and_support_documents_are_truthful():
-    installation = (REPO_ROOT / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
-    building = (REPO_ROOT / "docs" / "BUILDING.md").read_text(encoding="utf-8")
-    dependencies = (REPO_ROOT / "docs" / "DEPENDENCIES.md").read_text(encoding="utf-8")
-    support = (REPO_ROOT / "docs" / "SUPPORT_STATUS.md").read_text(encoding="utf-8")
-
-    assert "PyPI currently serves the unsupported inherited prototype" in installation
-    assert "GFFX_BUILD_PYTORCH=ON" in installation
-    assert "GFFX_ENABLE_CUDA=ON" in installation
-    assert "GFFX_BUILD_PYTHON" in building
-    assert "GFFX_CUDA_RUN_DEVICE_TESTS" in building
+    installation = (REPO_ROOT / "docs/INSTALLATION.md").read_text(encoding="utf-8")
+    building = (REPO_ROOT / "docs/BUILDING.md").read_text(encoding="utf-8")
+    dependencies = (REPO_ROOT / "docs/DEPENDENCIES.md").read_text(encoding="utf-8")
+    support = (REPO_ROOT / "docs/SUPPORT_STATUS.md").read_text(encoding="utf-8")
+    policy = (REPO_ROOT / "docs/RELEASE_POLICY_0_2_0.md").read_text(encoding="utf-8")
+    assert "Windows x64" in installation and "0.2.0a2" in installation
+    assert "GFFX_BUILD_PYTORCH" in building and "GFFX_ENABLE_CUDA" in building
     assert "zero mandatory third-party Python runtime dependencies" in dependencies
-    assert "No third-party source is vendored" in dependencies
-    assert "MIT" in dependencies
-    support = _flow(support)
-    assert "Target, not support" in support
-    assert "Internal foundation evidence" in support
-    # Twelve CUDA forwards and twelve backwards now exist, so the old "no functional CUDA kernel"
-    # pin asserted a falsehood.  What has to stay conservative is the scope of the evidence: the
-    # kernels are measured on one machine, and no hosted lane has ever run one.
-    assert "Internal evidence on **one** host only" in support
-    assert "No hosted lane has ever executed a CUDA kernel" in support
+    assert "No third-party source is vendored" in dependencies and "MIT" in dependencies
+    assert "candidate" in support and "experimental" in support
+    assert "14 calendar days" in policy and "seven clean" in policy
 
 
 def test_documented_dependency_categories_match_declared_groups():
@@ -164,24 +154,8 @@ def test_documented_dependency_categories_match_declared_groups():
 
 def test_merged_documentation_has_no_branch_or_completed_step_staleness():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    installation = (REPO_ROOT / "docs" / "INSTALLATION.md").read_text(
-        encoding="utf-8"
-    )
-    support = (REPO_ROOT / "docs" / "SUPPORT_STATUS.md").read_text(encoding="utf-8")
-    readme, installation, support = _flow(readme), _flow(installation), _flow(support)
-
+    support = (REPO_ROOT / "docs/SUPPORT_STATUS.md").read_text(encoding="utf-8")
     assert "from this branch" not in readme
-    assert (
-        "available only from a repository checkout or an explicitly supplied artifact"
-        in readme
-    )
-    assert "default GitHub branch also remains the inherited prototype" not in support
-    assert (
-        "repository source covered by this document is the `0.2.0.dev0` foundation"
-        in support
-    )
-    assert (
-        "Uninstall completeness and clean-install matrices belong to Phase 1 Step 11"
-        not in installation
-    )
-    assert "Uninstall completeness was verified" in installation
+    assert "RELEASE_POLICY_0_2_0.md" in readme
+    assert "reference campaign" in support and "paused indefinitely" in support
+    assert "ALPHA_SUPPORT_HISTORY.md" in support

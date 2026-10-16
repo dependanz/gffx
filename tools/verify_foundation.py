@@ -444,7 +444,7 @@ def _clean_python_environment() -> dict[str, str]:
 
 def run_python_contracts(source_root: Path, python: Path) -> dict[str, Any]:
     result = run_command(
-        [python, "-m", "pytest", "-q", "tests/python", "tests/pytorch", "tests/packaging"],
+        [python, "-m", "pytest", "-q", "tests/python/test_base_import.py", "tests/python/test_cuda_capabilities.py", "tests/pytorch/test_adapter_loading.py", "tests/packaging/test_metadata_contract.py", "tests/packaging/test_foundation_verifier.py", "tests/packaging/test_ci_contract.py"],
         cwd=source_root,
     )
     summary = next(

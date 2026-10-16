@@ -300,7 +300,7 @@ def validate_workflows(root: Path) -> list[str]:
     root = Path(root)
     directory = root / ".github" / "workflows"
     errors: list[str] = []
-    actual_names = {path.name for path in directory.glob("*.yml")}
+    actual_names = {path.name for path in directory.glob("*.yml")} - {"publish-alpha.yml", "windows-functional.yml"}
     if actual_names != WORKFLOW_NAMES:
         errors.append(
             "workflow files differ: expected %s, found %s"

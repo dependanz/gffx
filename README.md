@@ -6,11 +6,15 @@ design centers on stable tensor-level semantics across autodiff frameworks, a de
 CPU core, isolated accelerator providers, compilation and export, and allocation-controlled
 integration into streaming and edge applications.
 
-The project is pre-release. M1 is complete for the adopted development-readiness
-scope: finite generic graphics supply, recorded CPU/CUDA profiles, and the B1
-public CPU fitting integration. The experimental `0.2.0a2` Windows package with an optional CUDA provider has a separately defined
-artifact/runtime scope; M1 does not confer universal release support. See [M1 closeout](https://github.com/dependanz/gffx/blob/m1-camera/docs/M1_DEVELOPMENT_READINESS_CLOSEOUT.md) and
-[development wheels](https://github.com/dependanz/gffx/blob/m1-camera/docs/DEVELOPMENT_WHEELS.md) for the artifact boundaries.
+The `0.2.0` release line defines a bounded Windows x64 support contract.
+Its stable admission covers the declared eager CPU geometry, camera, animation
+and image API on CPython 3.10-3.14 with separately selected Torch 2.10.0. The wheel
+also contains the existing optional CUDA provider under a finite experimental
+profile. See [release scope and gates](docs/RELEASE_POLICY_0_2_0.md),
+[installation](docs/INSTALLATION.md) and [current release evidence](docs/RELEASE_0_2_0.md).
+M1 development readiness is complete; broader platform, renderer and performance
+targets keep their own evidence boundaries. The reference campaign is paused
+indefinitely.
 
 The core geometry inventory below is one part of the current camera, scene,
 animation, shading and image supply. Experimental filtered-renderer qualification
@@ -75,11 +79,11 @@ what is locally tested and what remains outside this slice.
 
 - **The PyTorch adapter requires PyTorch 2.10 or newer.** On an older PyTorch it refuses to load
   and the Python operation surface is inert. The C ABI remains available.
-- **Use an explicit alpha version.** The public `0.1.x` releases are the inherited
-  prototype with unrelated APIs. The `0.2.x` prereleases package the M1 development
-  snapshot; see the exact alpha profile for what the selected artifact verifies.
+- **Select the current release deliberately.** The public `0.1.x` releases are the inherited
+  prototype with unrelated APIs. The `0.2.x` line packages the native implementation; the release policy and
+  exact-artifact evidence define stable and experimental features.
 - **GPU evidence is local and artifact-specific.** Historical laptop/RTX 5090
-  and PC/RTX 3080 cohorts retain separate identities. This alpha does not claim a
+  and PC/RTX 3080 cohorts retain separate identities. This release scope does not claim a
   complete GPU/driver/framework matrix or continuous hosted hardware qualification.
   The [hardware lane](https://github.com/dependanz/gffx/blob/m1-camera/docs/CUDA_HARDWARE_LANE.md)
   retains its independent requirements.
@@ -122,14 +126,14 @@ More figures, with what each one demonstrates, in [`docs/showcase/`](https://git
 
 ## Install and inspect
 
-The `0.2.0a2` candidate is one Windows x64 CPU wheel with an optional CUDA
+The `0.2.0` candidate is one Windows x64 CPU wheel with an optional CUDA
 provider and PyTorch adapter. See the [installation guide](https://github.com/dependanz/gffx/blob/m1-camera/docs/INSTALLATION.md)
-and [exact GPU alpha profile](https://github.com/dependanz/gffx/blob/m1-camera/docs/ALPHA_0_2_0A2.md).
+and [release policy](https://github.com/dependanz/gffx/blob/m1-camera/docs/RELEASE_POLICY_0_2_0.md).
 PyTorch is selected separately; base use has no mandatory Python dependencies.
 Once the version is available on PyPI, install it explicitly:
 
 ```powershell
-python -m pip install --only-binary=gffx "gffx==0.2.0a2"
+python -m pip install --only-binary=gffx "gffx==0.2.0"
 ```
 
 GPU operations additionally need an NVIDIA driver supporting the embedded PTX,

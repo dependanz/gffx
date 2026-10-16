@@ -1,0 +1,49 @@
+{
+  "version": "0.2.0",
+  "platform": "win_amd64",
+  "python_minors": [
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14"
+  ],
+  "torch_cpu": "2.10.0+cpu",
+  "torch_cuda_profile": "2.10.0+cu126",
+  "cuda_profile": {
+    "tier": "experimental",
+    "python": "3.14.6",
+    "gpu": "RTX 3080",
+    "compute": "8.6",
+    "driver_tested": "610.88",
+    "driver_baseline_declared": "560.76",
+    "nvcc": "12.6.20",
+    "ptx_isa": "8.5",
+    "ptx_target": "sm_75"
+  },
+  "stable_surface": [
+    "eager CPU geometry13",
+    "animation5",
+    "pinhole/orthographic camera",
+    "image10"
+  ],
+  "experimental": [
+    "scene/material/deferred/filtered rendering",
+    "unlisted APIs",
+    "other runtime/platform/device combinations"
+  ],
+  "not_admitted": [
+    "compile/export",
+    "higher derivatives",
+    "streaming/performance/real-time"
+  ],
+  "upstream_security": "unknown",
+  "mandatory_python_dependencies": [],
+  "campaign": "paused_indefinitely",
+  "soak_days": 14,
+  "clean_days": 7,
+  "kind": "versioned_release_contract",
+  "admission": "requires actual release-manifest gates and verified publication",
+  "target_cpu_tier": "fully_supported",
+  "upstream_security_note": "No upstream security maintenance claim follows from compatibility."
+}

@@ -1,5 +1,13 @@
 # Dependency and provenance policy
 
+The0.2.0 scoped release retains zero mandatoryPythondependencies, the CPU-built
+optional Torch2.10 adapter and lazy Driver-API provider. Test-only dependencies
+are pytest9.0.3 (including its built-in subtest support); no NumPy or private fixture is required
+by the portable release cohort. Exact newly installed dependency inventories are
+recorded with validation; build tools do not become runtime dependencies. See
+[the current contract](RELEASE_POLICY_0_2_0.md).
+
+
 The GPU-capable `0.2.0a2` experimental Windows candidate adds the existing lazy
 CUDA provider to the CPU core/optional adapter. See [its exact profile](ALPHA_0_2_0A2.md)
 and [GPU build recipe](CUDA_PLUGIN_BUILD.md). Published CPU-only `0.2.0a1` and all
@@ -18,7 +26,7 @@ PEP 735 dependency groups do not enter wheel `Requires-Dist` metadata.
 
 | Group | Current declaration | Ownership |
 |---|---|---|
-| `test` | pytest 8.3.4; tomli 2.2.1 only on Python 3.10 | source tests |
+| `test` | pytest 9.0.3; tomli 2.2.1 only on Python 3.10 | source tests |
 | `packaging` | build 1.3.0; cibuildwheel 4.2.0; Windows delvewheel 1.13.2; twine 7.0.0 | local/CI artifact production |
 | `development` | includes `test` and `packaging` | contributor convenience |
 | `framework` | empty | frameworks are selected explicitly outside GFFX metadata |

@@ -1,22 +1,12 @@
 name: publish-alpha
-
-on:
-  release:
-    types: [published]
-
 permissions:
   contents: read
-
 concurrency:
   group: publish-alpha-${{ github.event.release.tag_name }}
   cancel-in-progress: false
-
 jobs:
   publish:
-    if: >-
-      github.repository == 'dependanz/gffx' &&
-      github.event.release.tag_name == 'v0.2.0a2' &&
-      github.event.release.prerelease == true
+    if: github.repository == 'dependanz/gffx' && github.event.release.tag_name == 'v0.2.0a2' && github.event.release.prerelease == true
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:
@@ -26,26 +16,147 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Check out the release commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Select the packaging verifier runtime
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-      - name: Download the already validated release wheel
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.whl' --dir dist
-      - name: Verify exact approved bytes and metadata
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: python tools/verify_release.py --dist dist --tag "$RELEASE_TAG"
-      - name: Publish the verified wheel to PyPI with OIDC
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
-        with:
-          packages-dir: dist/
-          attestations: true
+    - name: Check out the release commit
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: ${{ github.sha }}
+        persist-credentials: false
+    - name: Select the packaging verifier runtime
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      with:
+        python-version: '3.12'
+    - name: Download the already validated release wheel
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+      run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.whl' --dir dist
+    - name: Verify exact approved bytes and metadata
+      env:
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+      run: python tools/verify_release.py --dist dist --tag "$RELEASE_TAG"
+    - name: Publish the verified wheel to PyPI with OIDC
+      uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
+      with:
+        packages-dir: dist/
+        attestations: true
+  stable-gates:
+    if: github.repository == 'dependanz/gffx' && github.event.release.tag_name == 'v0.2.0' && github.event.release.prerelease == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - name: Check out the exact revision
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      with:
+        python-version: '3.12'
+    - name: Download the exact approved release wheel
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
+    - name: Require actual source/artifact validation and elapsed RC gates
+      run: python tools/stable_release.py --dist dist
+    - name: Require private vulnerability reporting
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: test "$(gh api repos/dependanz/gffx/private-vulnerability-reporting --jq .enabled)" = true
+  stable-cpu:
+    needs: stable-gates
+    runs-on: windows-2022
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+        - '3.10'
+        - '3.11'
+        - '3.12'
+        - '3.13'
+        - '3.14'
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONUTF8: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+    steps:
+    - name: Check out the exact revision
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      with:
+        python-version: ${{ matrix.python }}
+    - name: Select the explicit CPU framework
+      shell: pwsh
+      run: |
+        python -m pip install --upgrade pip==26.2.1
+        python -m pip download --only-binary=:all: --no-deps torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu --dest framework
+        $framework = (Get-ChildItem framework/torch-*.whl).FullName
+        python -m pip install --only-binary=:all: pytest==9.0.3 "$framework"
+        if ($LASTEXITCODE -ne 0) { throw 'CPU framework setup failed' }
+    - name: Download exact release artifact
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release download v0.2.0 --repo dependanz/gffx --pattern "*.whl" --dir dist
+    - name: Test installed artifact operations and derivatives
+      shell: pwsh
+      run: |
+        $wheel = (Get-ChildItem dist/gffx-*.whl).FullName
+        python -m pip install --no-index --no-deps "$wheel"
+        if ($LASTEXITCODE -ne 0) { throw 'wheel install failed' }
+        python tools/stable_validation.py --wheel "$wheel" --profile cpu --output results
+        if ($LASTEXITCODE -ne 0) { throw 'functional cohort failed' }
+        python -m pip check
+    - name: Prove base import and uninstall without a framework
+      if: matrix.python == '3.10'
+      shell: pwsh
+      run: |
+        $wheel = (Get-ChildItem dist/gffx-*.whl).FullName
+        python tools/stable_installation.py --wheel "$wheel" --output installation-results
+        if ($LASTEXITCODE -ne 0) { throw "installation checks failed" }
+    - name: Retain release-cpu-py${{ matrix.python }}
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: release-cpu-py${{ matrix.python }}
+        path: |-
+          results
+          installation-results
+        if-no-files-found: error
+  publish-stable:
+    needs:
+    - stable-gates
+    - stable-cpu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/gffx/0.2.0/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - name: Check out the exact revision
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      with:
+        python-version: '3.12'
+    - name: Download the exact approved release wheel
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
+    - name: Recheck publication gates and approved bytes
+      run: python tools/stable_release.py --dist dist
+    - name: Publish exact stable wheel through existing OIDC publisher
+      uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
+      with:
+        packages-dir: dist/
+        attestations: true
+'on':
+  release:
+    types:
+    - published

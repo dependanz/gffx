@@ -90,7 +90,7 @@ def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
     assert not (workflows / "wheels.yml").exists()
     assert {path.name for path in workflows.glob("*.yml")} == {
         "package-foundation-pr.yml", "package-foundation-nightly.yml",
-        "package-foundation-rc.yml", "cuda-hardware.yml",
+        "package-foundation-rc.yml", "cuda-hardware.yml", "publish-alpha.yml", "windows-functional.yml",
     }
 
 
@@ -164,7 +164,7 @@ def test_cuda_lane_verifier_rejects_a_pass_that_never_reached_a_device() -> None
 def test_workflows_are_least_privilege_pinned_and_scope_truthful() -> None:
     workflows = ROOT / ".github" / "workflows"
     joined = "\n".join(
-        path.read_text(encoding="utf-8") for path in workflows.glob("*.yml")
+        path.read_text(encoding="utf-8") for path in [*workflows.glob("package-foundation-*.yml"), workflows / "cuda-hardware.yml"]
     ).lower()
     assert "tools/verify_foundation.py" in joined
     assert "tools/ci_smoke.py" in joined

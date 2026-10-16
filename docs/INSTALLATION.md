@@ -1,80 +1,55 @@
-# Installing the gffx alphas
+# Installing gffx0.2
 
-The 0.2.x alphas package the M1 development snapshot for ordinary-GIL CPython
-3.10+ on Windows x64. The `cp310-abi3` tag is an ABI floor, not a complete tested
-Python/framework/GPU matrix. Public 0.1.x releases are the inherited prototype
-with different APIs. Use an explicit alpha version.
+The first stable release targets Windows x64 and ordinary-GIL CPython3.10-3.14.
+During candidate evaluation, use the published0.2.0a2 alpha explicitly until
+0.2.0 publication is verified on PyPI. [Release status](RELEASE_0_2_0.md) and
+[the exact support contract](RELEASE_POLICY_0_2_0.md) distinguish actual admission
+from packaging compatibility. Linux/macOS/other architectures need separately
+qualified wheels; no automatic source-build or universal support is promised.
 
-| Version | Artifact scope |
-|---|---|
-| `0.2.0a1` | Published CPU core and optional PyTorch adapter; no CUDA provider |
-| `0.2.0a2` | CPU core, optional adapter and optional CUDA provider; availability is verified separately by publication |
+## Base package
 
-## Base and CPU use
-
-After the selected version is published:
+After stable publication, a fresh compatible Windows environment can use:
 
 ```powershell
-python -m pip install --only-binary=gffx "gffx==0.2.0a2"
-python -c "import gffx; print(gffx.__version__); print(gffx.capabilities())"
+python -m pip install --only-binary=gffx gffx
 ```
 
-Base use needs no PyTorch, GPU, driver probe, toolkit or compiler. The a2 wheel's
-provider remains unloaded during base/CPU capability checks. `--only-binary=gffx`
-prevents an unsupported platform from attempting an unintended source build.
-For CPU operations with PyTorch, install the separately chosen framework:
+For an existing installation use `python -m pip install --upgrade --only-binary=gffx gffx`.
+Pin `gffx==0.2.0` for reproducibility. The inherited public0.1.x API is unrelated;
+see [migration](MIGRATING_0_2_0.md). Prereleases need a version pin or `--pre`.
+Base import/static CPU capabilities need no framework, GPU probe, toolkit or compiler.
+
+## CPU operations
+
+Install separately selected CPU-only PyTorch in the tested2.10 line:
 
 ```powershell
-python -m pip install --upgrade pip
 python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install --only-binary=gffx gffx
+python -c "import gffx, gffx.torch; print(gffx.__version__); print(gffx.capabilities())"
 ```
 
-The CPU-only a1 remains available by pinning `gffx==0.2.0a1` instead.
+The exact stable eager operation list excludes higher-order, compiled/exported,
+streaming, renderer/performance and broad framework/platform claims. Optional
+PyTorch activation reports missing/incompatible frameworks explicitly.
 
-## GPU operations with a2
+## Optional CUDA
 
-The exact validation profile uses Python 3.14.6, Torch 2.10.0+cu126, RTX 3080
-(compute 8.6) and NVIDIA driver 610.88. The candidate's PTX 8.5 targets compute
-7.5; its declared Windows driver baseline is 560.76, subject to GPU support.
-Older drivers, other GPUs and other framework combinations are not qualified by
-the one local profile. CUDA-enabled PyTorch and an NVIDIA driver are selected
-separately; no Torch, CUDA Runtime or driver DLL is bundled in gffx.
+The same Windows wheel includes the lazy CUDA Driver-API provider. It is an
+experimental exact profile, not a GPU fleet guarantee. The initial actual-device
+profile is Python3.14.6/Torch2.10.0+cu126/RTX3080/driver610.88; the declared Windows
+driver baseline is560.76+, also subject to GPU support. PTX8.5 targetssm_75 and is
+compiled with nvcc12.6.20. No toolkit/compiler is required to use the wheel.
 
 ```powershell
-python -m pip install --upgrade pip
 python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu126
-python -m pip install --only-binary=gffx "gffx==0.2.0a2"
+python -m pip install --only-binary=gffx gffx
+python -c "import torch, gffx.torch, gffx.cuda; print(torch.cuda.is_available()); print(gffx.cuda.capabilities())"
 ```
 
-Check the actual operation, using explicit CUDA tensors:
-
-```python
-import torch
-import gffx
-import gffx.torch as gt
-
-assert torch.cuda.is_available()
-vertices = torch.tensor([[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]], device="cuda", requires_grad=True)
-faces = torch.tensor([[0, 1, 2]], dtype=torch.int32, device="cuda")
-normals, areas, valid = gt.mesh.face_geometry(vertices, faces)
-areas.sum().backward()
-print(areas, vertices.grad)
-print(gffx.cuda.capabilities())  # explicit provider/driver probe
-```
-
-Every tensor operand, including surface-sampling RNG key/counter tensors, must
-be on the caller's device. gffx does not silently copy data or fall back to CPU.
-See [the exact a2 validation profile](ALPHA_0_2_0A2.md) for tested operations,
-first derivatives, exclusions and retained limitations. No full support tier or
-photograph-fit quality claim follows from installing an alpha.
-
-## Source build and removal
-
-Default source builds contain the CPU core and CPython bridge, with optional
-adapter/provider disabled. See [BUILDING.md](BUILDING.md) for CPU builds and
-[CUDA_PLUGIN_BUILD.md](CUDA_PLUGIN_BUILD.md) for the guarded a2 build.
-Build tools are never installed-wheel runtime dependencies.
-
-```powershell
-python -m pip uninstall gffx
-```
+Use CUDA input tensors to select GPU execution. All tensor operands, including
+sampling RNG tensors, must share the device. No implicit CPU fallback or hidden
+device copy is added. A CPU-only Torch installation cannot create CUDA tensors.
+`gffx[gpu]` is not declared; the provider is already in the normal wheel and
+framework/driver selection remains explicit. No framework or NVIDIA DLL is bundled.
