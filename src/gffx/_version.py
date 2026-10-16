@@ -10,7 +10,7 @@ from __future__ import annotations
 
 __all__ = ["SOURCE_TREE_FALLBACK_VERSION", "version"]
 
-SOURCE_TREE_FALLBACK_VERSION = "0.2.0"
+SOURCE_TREE_FALLBACK_VERSION = "0.2.1"
 
 
 def version() -> str:

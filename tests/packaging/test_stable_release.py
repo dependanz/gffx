@@ -14,24 +14,25 @@ spec.loader.exec_module(release)
 
 
 @pytest.fixture
-def packet(tmp_path):
+def packet(tmp_path,monkeypatch):
+    monkeypatch.setattr(release,'hosted_ci_check',lambda commit:dict(run_id=123,source_commit=commit,jobs_passed=11))
     root, dist = tmp_path/'root', tmp_path/'dist'
     root.mkdir(); dist.mkdir()
     source = []
     for name in sorted(release.REQUIRED_SOURCE):
         path = root/name; path.parent.mkdir(parents=True, exist_ok=True)
-        text = '[project]\nversion = "0.2.0"\n' if name == 'pyproject.toml' else 'fixed release content\n'
+        text = '[project]\nversion = "0.2.1"\ndependencies = ["torch>=2.10.0,<=2.14.1"]\n' if name == 'pyproject.toml' else 'fixed release content\n'
         path.write_text(text, encoding='utf-8')
         source.append(dict(path=name, sha256=hashlib.sha256(text.encode()).hexdigest()))
-    wheel = dist/'gffx-0.2.0-cp310-abi3-win_amd64.whl'
+    wheel = dist/'gffx-0.2.1-cp310-abi3-win_amd64.whl'
     with zipfile.ZipFile(wheel, 'w') as archive:
         archive.writestr('gffx/gffx_cuda12.dll', b'synthetic provider')
-        archive.writestr('gffx-0.2.0.dist-info/METADATA', 'Name: gffx\nVersion: 0.2.0\nRequires-Python: >=3.10\n\n')
-        archive.writestr('gffx-0.2.0.dist-info/WHEEL', 'Tag: cp310-abi3-win_amd64\n\n')
+        archive.writestr('gffx-0.2.1.dist-info/METADATA', 'Name: gffx\nVersion: 0.2.1\nRequires-Python: >=3.10\nRequires-Dist: torch<=2.14.1,>=2.10.0\n\n')
+        archive.writestr('gffx-0.2.1.dist-info/WHEEL', 'Tag: cp310-abi3-win_amd64\n\n')
     sha = hashlib.sha256(wheel.read_bytes()).hexdigest()
     now = datetime(2030, 1, 20, 12, tzinfo=timezone.utc)
     profiles = [dict(profile=name, python='3.'+str(int(name[-2:]))+'.0',
-        torch='2.10.0+cpu' if name.startswith('cpu') else '2.10.0+cu126',
+        torch=('2.14.1' if name.startswith('current-') else '2.10.0')+('+cpu' if name.removeprefix('current-').startswith('cpu') else '+cu126'),
         wheel_sha256=sha, passed=20, failed=0, skipped=0, exit_code=0,
         selected_nodeids_sha256='a'*64, completed_at=(now-timedelta(hours=1)).isoformat())
         for name in sorted(release.PROFILES)]
@@ -39,15 +40,17 @@ def packet(tmp_path):
         native=dict(status='passed', wheel_sha256=sha, passed=12, failed=0),
         installation=dict(status='passed', wheel_sha256=sha, cases=4, commands=30),
         release_controls=dict(status='passed', passed=30, failed=0, skipped=0, source_inventory_sha256=release.inventory_digest(source)),
-        hosted_cpu_ci=dict(status='passed', jobs_passed=6, runtime_inputs_unchanged=True))
-    manifest = dict(version='0.2.0', tag='v0.2.0', artifact=dict(filename=wheel.name, bytes=wheel.stat().st_size, sha256=sha),
+        hosted_cpu_ci=dict(mode='actual_exact_source_commit_before_release'),
+        simple_scene=dict(status='passed',wheel_sha256=sha,profiles=copy.deepcopy(profiles)),
+        fresh_installation=dict(status='passed',wheel_sha256=sha,example_device='cpu',dependency_resolved=True,existing_cuda_preserved=True))
+    manifest = dict(version='0.2.1', tag='v0.2.1', artifact=dict(filename=wheel.name, bytes=wheel.stat().st_size, sha256=sha),
         source_files=source, initial_validation=copy.deepcopy(profiles),
         admission=dict(mode=release.MODE, owner='dependanz', fixed_calendar_wait=False, open_blockers=[],
             concrete_checks=controls, final_validation=dict(completed_at=(now-timedelta(minutes=30)).isoformat(),
                 profiles=profiles, source_inventory_sha256=release.inventory_digest(source))))
     commit = 'c'*40
     event = dict(action='published', repository=dict(full_name='dependanz/gffx'), sender=dict(login='dependanz'),
-        release=dict(id=123, author=dict(login='dependanz'), tag_name='v0.2.0', draft=False, prerelease=False,
+        release=dict(id=123, author=dict(login='dependanz'), tag_name='v0.2.1', draft=False, prerelease=False,
             target_commitish=commit, published_at=(now-timedelta(minutes=10)).isoformat(),
             assets=[dict(name=wheel.name,size=wheel.stat().st_size,digest='sha256:'+sha)]))
     (root/'releases').mkdir()
@@ -56,7 +59,7 @@ def packet(tmp_path):
 
 def check(packet, *, technical=False, event=True):
     root, dist, manifest, now, payload, commit = packet
-    (root/'releases/0.2.0.json').write_text(json.dumps(manifest), encoding='utf-8')
+    (root/'releases/0.2.1.json').write_text(json.dumps(manifest), encoding='utf-8')
     return release.verify(root, dist, check=technical, release_event=payload if event else None, now=now, head_commit=commit)
 
 
@@ -109,14 +112,14 @@ def test_refuse_changed_incomplete_or_unsigned_release(packet, damage):
     elif damage=='installation-incomplete':controls['installation']['cases']=3
     elif damage=='missing-audit':controls['artifact_audit']['record_hashes_verified']=False
     elif damage=='stale-controls':controls['release_controls']['source_inventory_sha256']='b'*64
-    elif damage=='hosted-failed':controls['hosted_cpu_ci']['status']='failed'
+    elif damage=='hosted-failed':controls['hosted_cpu_ci']['mode']='not-checked'
     elif damage=='wrong-owner':event['sender']['login']='another-account'
     elif damage=='wrong-author':signed['author']['login']='another-account'
     elif damage=='wrong-repository':event['repository']['full_name']='another/gffx'
     elif damage=='wrong-action':event['action']='created'
     elif damage=='draft':signed['draft']=True
     elif damage=='prerelease':signed['prerelease']=True
-    elif damage=='wrong-tag':signed['tag_name']='v0.2.1'
+    elif damage=='wrong-tag':signed['tag_name']='v0.2.2'
     elif damage=='wrong-commit':signed['target_commitish']='d'*40
     elif damage=='future-signoff':signed['published_at']=(now+timedelta(hours=1)).isoformat()
     elif damage=='signoff-before-checks':signed['published_at']=(now-timedelta(days=1)).isoformat()
@@ -134,3 +137,35 @@ def test_publisher_requires_actual_release_event_without_check_only_bypass():
         if following:commands=commands.split('  '+following+':\n',1)[0]
         assert 'tools/stable_release.py --dist dist --release-event "$GITHUB_EVENT_PATH"' in commands
         assert '--candidate' not in commands and '--check' not in commands
+
+
+@pytest.mark.parametrize('damage',['missing-scene-profile','scene-skipped','fresh-not-rendered','cuda-replaced'])
+def test_reject_unusable_fresh_install_or_scene(packet,damage):
+    controls=packet[2]['admission']['concrete_checks']
+    if damage=='missing-scene-profile':controls['simple_scene']['profiles'].pop()
+    elif damage=='scene-skipped':controls['simple_scene']['profiles'][0]['skipped']=1
+    elif damage=='fresh-not-rendered':controls['fresh_installation']['dependency_resolved']=False
+    else:controls['fresh_installation']['existing_cuda_preserved']=False
+    with pytest.raises(ValueError):check(packet)
+
+
+@pytest.mark.parametrize('damage',[None,'wrong-head','failed-run','missing-minor','failed-minor'])
+def test_actual_source_ci_is_checked_instead_of_manifest_claim(monkeypatch,damage):
+    head='c'*40
+    runs=dict(workflow_runs=[dict(id=7,head_sha=head,head_branch='main',event='push',status='completed',conclusion='success')])
+    jobs=dict(jobs=[dict(name=name,status='completed',conclusion='success') for name in ['build',*[f'cpu ({minor}, {framework})' for minor in ['3.10','3.11','3.12','3.13','3.14'] for framework in ['2.10.0','2.14.1']]]])
+    if damage=='wrong-head':runs['workflow_runs'][0]['head_sha']='d'*40
+    elif damage=='failed-run':runs['workflow_runs'][0]['conclusion']='failure'
+    elif damage=='missing-minor':jobs['jobs'].pop()
+    elif damage=='failed-minor':jobs['jobs'][-1]['conclusion']='failure'
+    def response(command,**kwargs):return json.dumps(jobs if '/jobs?' in command[-1] else runs)
+    monkeypatch.setattr(release.subprocess,'check_output',response)
+    if damage is None:assert release.hosted_ci_check(head)['jobs_passed']==11
+    else:
+        with pytest.raises(ValueError):release.hosted_ci_check(head)
+
+
+def test_source_and_wheel_dependency_policy_must_agree(packet):
+    (packet[0]/'pyproject.toml').write_text('[project]\nversion="0.2.1"\ndependencies=["torch==2.10.0"]\n',encoding='utf-8')
+    with pytest.raises(ValueError,match='Source dependency policy'):
+        check(packet)

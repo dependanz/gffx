@@ -43,21 +43,56 @@ class Mesh(_Prim):
     def __post_init__(self):
         object.__setattr__(self,'attributes',_mapping(self.attributes))
 
+    @classmethod
+    def quad(cls,name,*,center=(0,0,0),u=(1,0,0),v=(0,1,0),material=None,dtype=None,device=None):
+        """Author a quad from its center and two full-width oriented spans."""
+        from ._scene_builders import quad
+        return quad(cls,name,center=center,u=u,v=v,material=material,dtype=dtype,device=device)
+
+    @classmethod
+    def sphere(cls,name,*,radius=1.,center=(0,0,0),segments=48,rings=24,material=None,dtype=None,device=None):
+        """Author a smooth closed UV sphere with connected radius/center tensors."""
+        from ._scene_builders import sphere
+        return sphere(cls,name,radius=radius,center=center,segments=segments,rings=rings,
+                      material=material,dtype=dtype,device=device)
+
 
 @dataclass(frozen=True)
 class Material(_Prim):
     name: str
     evaluator: object
     parameters: Mapping = field(default_factory=dict)
+    emission: object = None
 
     def __post_init__(self):
         if not callable(self.evaluator):raise TypeError('material evaluator must be callable')
         object.__setattr__(self,'parameters',_mapping(self.parameters))
 
+    @classmethod
+    def diffuse(cls,name,albedo,*,dtype=None,device=None):
+        from ._scene_builders import diffuse
+        return diffuse(cls,name,albedo,dtype=dtype,device=device)
+
+    @classmethod
+    def emissive(cls,name,radiance,*,dtype=None,device=None):
+        from ._scene_builders import emissive
+        return emissive(cls,name,radiance,dtype=dtype,device=device)
+
 
 @dataclass(frozen=True)
 class Light(Material):
-    """Light evaluator and parameters; no implicit invocation or coordinate conversion."""
+    """Light evaluator and parameters, optionally with a visible emitter surface."""
+    visible: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        if type(self.visible) is not bool:raise TypeError('visible must be boolean')
+
+    @classmethod
+    def rectangle(cls,name,*,center,u,v,radiance,samples=4,visible=True,dtype=None,device=None):
+        from ._scene_builders import rectangle
+        return rectangle(cls,name,center=center,u=u,v=v,radiance=radiance,samples=samples,
+                         visible=visible,dtype=dtype,device=device)
 
 
 @dataclass(frozen=True)
@@ -123,6 +158,11 @@ class Scene:
         names=[p.name for p in self.prims]
         if any(not isinstance(n,str) or not n for n in names):raise ValueError('prim names must be nonempty strings')
         if len(set(names))!=len(names):raise ValueError('duplicate prim name')
+
+    def to(self,device=None,*,dtype=None):
+        """Explicitly transfer a fresh scene, preserving differentiable tensor links."""
+        from ._scene_builders import move_scene
+        return move_scene(self,device=device,dtype=dtype)
 
     def flatten(self,*,dtype=None,device=None,batch_size=None):
         if batch_size is not None and (type(batch_size)!=int or batch_size<=0):

@@ -6,7 +6,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "gffx"
-version = "0.2.0"
+version = "0.2.1"
 description = "Portable, dependency-light differentiable graphics and mesh operations"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,8 +38,9 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
-# The base distribution deliberately has no mandatory third-party Python runtime dependency.
-dependencies = []
+# The Python scene API uses the bounded validated Torch range. Existing CPU/CUDA local variants satisfy
+# this public-version requirement; the native C11 core and base import remain independent.
+dependencies = ["torch>=2.10.0,<=2.14.1"]
 
 [project.urls]
 Documentation = "https://github.com/dependanz/gffx#readme"
@@ -48,8 +49,8 @@ Repository = "https://github.com/dependanz/gffx"
 
 # PEP 735 groups are source-development inputs, not install requirements or public feature extras.
 # Empty groups reserve explicit ownership boundaries without pretending an unimplemented integration
-# has a dependency set. Framework and accelerator prerequisites are selected outside pip because
-# their CPU/CUDA/platform variants must remain user-controlled.
+# has a dependency set. CUDA framework variants use the official upstream index; drivers and
+# toolkits remain external system prerequisites.
 [dependency-groups]
 test = [
     "pytest==9.0.3",

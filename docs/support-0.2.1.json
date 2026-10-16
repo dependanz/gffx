@@ -1,0 +1,64 @@
+{
+  "version": "0.2.1",
+  "platform": "win_amd64",
+  "python_minors": [
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14"
+  ],
+  "torch_cpu": "2.14.1+cpu",
+  "torch_cuda_profile": "2.14.1+cu126",
+  "cuda_profile": {
+    "tier": "experimental",
+    "python": "3.14.6",
+    "gpu": "RTX 3080",
+    "compute": "8.6",
+    "driver_tested": "610.88",
+    "driver_baseline_declared": "560.76",
+    "nvcc": "12.6.20",
+    "ptx_isa": "8.5",
+    "ptx_target": "sm_75"
+  },
+  "stable_surface": [
+    "eager CPU geometry13",
+    "animation5",
+    "pinhole/orthographic camera",
+    "image10"
+  ],
+  "experimental": [
+    "scene/material/deferred/filtered rendering",
+    "unlisted APIs",
+    "other runtime/platform/device combinations"
+  ],
+  "not_admitted": [
+    "compile/export",
+    "higher derivatives",
+    "streaming/performance/real-time"
+  ],
+  "upstream_security": "active",
+  "mandatory_python_dependencies": [
+    "torch>=2.10.0,<=2.14.1"
+  ],
+  "campaign": "paused_indefinitely",
+  "kind": "versioned_release_contract",
+  "admission": "requires actual release-manifest gates and verified publication",
+  "target_cpu_tier": "fully_supported",
+  "upstream_security_note": "CurrentTorch2.14.1 is upstreamcurrent atinspection; retained2.10 isnot upstream-maintained andhasTorchScriptGHSA-rrmf-rvhw-rf47. AllTorch<=2.12.1affected;firstpatched2.13. GFFXdoesnotinvokeTorchScript;noall-dependency-securityguarantee.",
+  "release_admission": "explicit_owner_release_signoff",
+  "fixed_calendar_wait": false,
+  "final_validation_max_age_hours": 24,
+  "example": "python -m gffx.examples.cornell_box",
+  "default_windows_torch": "CPU from PyPI; CUDA via official cu126 index or existing compatible install",
+  "torch_cpu_compatibility": "2.10.0+cpu",
+  "torch_cuda_compatibility": "2.10.0+cu126",
+  "known_upstream_advisories": [
+    "GHSA-rrmf-rvhw-rf47 (Torch<=2.12.1; includes retained2.10 compatibility; freshdefault2.14.1unaffected bythisadvisory)"
+  ],
+  "upstream_security_by_runtime": {
+    "torch2.14.1": "active",
+    "torch2.10.0": "end_of_life",
+    "python": "unknown"
+  }
+}

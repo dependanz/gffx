@@ -95,5 +95,11 @@ class _Backend:
 class Camera(_Camera):
     _backend=_Backend
 
+    @classmethod
+    def look_at(cls,eye,target,*,size=(256,256),fov=45.,up=(0,1,0),near=.025,far=100.,dtype=None,device=None):
+        """Construct a single perspective camera; size is (height,width)."""
+        from ._scene_builders import look_at
+        return look_at(cls,eye,target,size=size,fov=fov,up=up,near=near,far=far,dtype=dtype,device=device)
+
 
 __all__=['Camera','ProjectedPoints']

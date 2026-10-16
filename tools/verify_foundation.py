@@ -339,7 +339,8 @@ def inspect_wheel(path: Path) -> dict[str, Any]:
     if metadata.get("Requires-Python") != ">=3.10":
         raise VerificationError("wheel Requires-Python must be exactly >=3.10")
     requires = metadata.get_all("Requires-Dist", [])
-    if requires:
+    expected_requires = ['torch<=2.14.1,>=2.10.0'] if metadata.get("Version")=="0.2.1" else []
+    if requires != expected_requires:
         raise VerificationError("wheel contains forbidden Requires-Dist runtime dependencies")
 
     missing = sorted(REQUIRED_WHEEL_FILES - set(names))
@@ -376,7 +377,7 @@ def inspect_wheel(path: Path) -> dict[str, Any]:
         "bytes": path.stat().st_size,
         "sha256": sha256(path),
         "members": len(names),
-        "runtime_dependencies": 0,
+        "runtime_dependencies": len(requires),
         "abi_tag": "abi3",
         "tags": tags,
     }

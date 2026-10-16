@@ -8,18 +8,30 @@ through `gffx.capabilities()`, which loads the native core on demand and never p
 Framework support lives behind explicit adapter imports such as `gffx.torch`. A missing framework
 fails only that adapter import, with an actionable message; it never breaks `import gffx`.
 
-No public graphics or geometry operation is advertised in Phase 1.
+Scene construction and rendering select the current adapter explicitly through
+the lazy scene types or namespaces.
 """
 
 from __future__ import annotations
 
 __all__ = [
-    "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch", "camera", "shade", "material", "scene", "image", "render", "mesh", "transforms", "skeleton"
+    "Scene", "Mesh", "Material", "Light", "Camera", "io", "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch", "camera", "shade", "material", "scene", "image", "render", "mesh", "transforms", "skeleton"
 ]
 
 
 def __getattr__(name: str):
     # PEP 562 module-level lazy attributes: nothing below is imported until first use.
+    if name in ("Scene", "Mesh", "Material", "Light", "Camera"):
+        from importlib import import_module
+        module = import_module(".camera" if name == "Camera" else ".scene", __name__)
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
+    if name == "io":
+        from importlib import import_module
+        module = import_module(".io", __name__)
+        globals()[name] = module
+        return module
     if name == "__version__":
         from ._version import version
 

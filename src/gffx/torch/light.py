@@ -12,7 +12,7 @@ from .shade import _inputs
 from ._reference_channels import sum3, divide, sqrt_unit, multiply, expand, _sum_last
 from ._registry import Registry, parameters as _parameters
 
-__all__ = ['spherical_harmonics', 'directional', 'point', 'integrate', 'custom', 'Registry']
+__all__ = ['spherical_harmonics', 'directional', 'point', 'rectangle', 'integrate', 'custom', 'Registry']
 
 
 def _packet(normals, samples):
@@ -79,6 +79,16 @@ def integrate(normals, brdf, samples):
     if omega is not None: values = multiply(values, torch.where(active, omega, 0.)[..., None])
     return _finite(_sum_last(values.transpose(-1, -2)))
 
+
+
+def rectangle(points,*,center,u,v,radiance,samples=4):
+    """Sample a one-sided rectangle using full-width oriented spans.
+
+    Radiance is scene-linear RGB. This low-level packet has no visibility;
+    the scene renderer owns shadow maps and visible emitter geometry.
+    """
+    from ._area import rectangle_packet
+    return rectangle_packet(points,center=center,u=u,v=v,radiance=radiance,samples=samples)
 
 
 def custom(function, points, *, parameters, measure):

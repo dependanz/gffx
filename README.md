@@ -1,5 +1,16 @@
 # GFFX
 
+## Simple scene API — 0.2.1
+
+A user scene should declare objects, lights and a camera, then render and save.
+The new [22-line Cornell box example](examples/cornell_box.py) imports only gffx;
+mesh generation, sampled area lighting, shadow maps and PNG encoding live in the
+library. See [simple scenes](docs/SIMPLE_SCENES.md) for the API and its gradient
+and direct-lighting boundaries. These additions are new in 0.2.1. Its Python
+distribution installs a compatible PyTorch runtime automatically; the native
+core and bare import remain independent of the framework.
+
+
 GFFX is a portable, general-purpose graphics, geometry, and mesh toolkit for Python 3.10+,
 differentiable wherever differentiation exists and capable regardless of whether it does. Its
 design centers on stable tensor-level semantics across autodiff frameworks, a dependency-light C11
@@ -126,20 +137,28 @@ More figures, with what each one demonstrates, in [`docs/showcase/`](https://git
 
 ## Install and inspect
 
-The `0.2.0` candidate is one Windows x64 CPU wheel with an optional CUDA
-provider and PyTorch adapter. See the [installation guide](https://github.com/dependanz/gffx/blob/m1-camera/docs/INSTALLATION.md)
-and [release policy](https://github.com/dependanz/gffx/blob/m1-camera/docs/RELEASE_POLICY_0_2_0.md).
-PyTorch is selected separately; base use has no mandatory Python dependencies.
-Once the version is available on PyPI, install it explicitly:
+The 0.2.1 distribution is one Windows x64 wheel with the native CPU core and
+lazy CUDA provider. It adds the short scene API and automatically installs the
+bounded Torch runtime (fresh default 2.14.1; existing compatible CUDA is retained):
 
 ```powershell
-python -m pip install --only-binary=gffx "gffx==0.2.0"
+python -m pip install gffx
+python -m gffx.examples.cornell_box
 ```
 
-GPU operations additionally need an NVIDIA driver supporting the embedded PTX,
-a compatible NVIDIA GPU and CUDA-enabled PyTorch. A toolkit or native compiler
-is needed only to build from source. The published CPU-only `0.2.0a1` remains
-available; GPU and broader source capabilities retain their exact evidence limits.
+The example is shipped in the wheel. Its `auto` device selects usable CUDA,
+otherwise CPU. On Windows fresh default PyPI Torch is CPU-only; a GPU environment
+can install in one command using the official CUDA index:
+
+```powershell
+python -m pip install gffx --extra-index-url https://download.pytorch.org/whl/cu126
+```
+
+An existing compatible CUDA Torch is retained. Pip cannot detect GPU hardware
+to choose a dependency index. GPU use needs a supported NVIDIA driver/device;
+no compiler/toolkit is required. See [installation](docs/INSTALLATION.md) and
+[the exact release boundary](docs/RELEASE_POLICY_0_2_1.md). CUDA/scene rendering
+retain their experimental scope. Older published versions keep their own policy.
 
 The stable entry point is always:
 

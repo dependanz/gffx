@@ -180,3 +180,8 @@ if(BUILD_TESTING)
     add_subdirectory(tests/io)
     add_subdirectory(tests/sweep)
 endif()
+
+# The public short example is installed verbatim and remains readable in the source tree.
+if(SKBUILD)
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/examples/cornell_box.py" DESTINATION gffx/examples)
+endif()

@@ -1,7 +1,7 @@
 """Build and audit the Windows CPU wheel without selecting a user's framework runtime.
 
 Build inputs belong in an explicitly selected CPU-only PyTorch environment. The
-installed distribution remains framework-optional. This tool never publishes.
+0.2.1 Python distribution installs Torch; the native core remains framework-independent. This tool never publishes.
 """
 from __future__ import annotations
 
@@ -33,8 +33,9 @@ def audit(wheel: Path, *, cuda_provider: bool = False) -> dict:
         tags = archive.read(next(n for n in names if n.endswith('.dist-info/WHEEL'))).decode()
         if 'Tag: cp310-abi3-win_amd64' not in tags:
             raise ValueError('Expected the Windows x64 CPython 3.10 stable-ABI wheel')
-        if metadata['Name'] != 'gffx' or metadata.get_all('Requires-Dist', []):
-            raise ValueError('The base package must remain gffx with no mandatory Python dependencies')
+        expected_dependencies = ['torch<=2.14.1,>=2.10.0'] if metadata['Version']=='0.2.1' else []
+        if metadata['Name'] != 'gffx' or metadata.get_all('Requires-Dist', []) != expected_dependencies:
+            raise ValueError('Unexpected versioned gffx runtime dependency policy')
         required = {'gffx/_core.pyd', 'gffx/_torch.pyd', 'gffx/gffx_core.dll'}
         if cuda_provider:
             required.add(provider_name)

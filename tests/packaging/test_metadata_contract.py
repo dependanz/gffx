@@ -18,14 +18,14 @@ def load_pyproject() -> dict:
         return tomllib.load(source)
 
 
-def test_base_distribution_metadata_is_dependency_free_and_python_310_plus():
+def test_distribution_declares_tested_torch_and_python_310_plus():
     document = load_pyproject()
     project = document["project"]
 
     assert project["name"] == "gffx"
-    assert project["version"] == "0.2.0"
+    assert project["version"] == "0.2.1"
     assert project["requires-python"] == ">=3.10"
-    assert project["dependencies"] == []
+    assert project["dependencies"] == ["torch>=2.10.0,<=2.14.1"]
     assert project["license"] == {"file": "LICENSE"}
     assert project["description"] == (
         "Portable, dependency-light differentiable graphics and mesh operations"
@@ -93,7 +93,7 @@ def test_development_dependency_groups_are_explicit_and_do_not_leak_to_runtime()
     ):
         assert groups[empty_group] == []
 
-    assert document["project"]["dependencies"] == []
+    assert document["project"]["dependencies"] == ["torch>=2.10.0,<=2.14.1"]
     assert document["build-system"]["requires"] == ["scikit-build-core==1.0.3"]
 
 
@@ -135,13 +135,13 @@ def test_install_build_dependency_and_support_documents_are_truthful():
     building = (REPO_ROOT / "docs/BUILDING.md").read_text(encoding="utf-8")
     dependencies = (REPO_ROOT / "docs/DEPENDENCIES.md").read_text(encoding="utf-8")
     support = (REPO_ROOT / "docs/SUPPORT_STATUS.md").read_text(encoding="utf-8")
-    policy = (REPO_ROOT / "docs/RELEASE_POLICY_0_2_0.md").read_text(encoding="utf-8")
-    assert "Windows x64" in installation and "0.2.0a2" in installation
+    policy = (REPO_ROOT / "docs/RELEASE_POLICY_0_2_1.md").read_text(encoding="utf-8")
+    assert "Windows x64" in installation and "0.2.1" in installation
     assert "GFFX_BUILD_PYTORCH" in building and "GFFX_ENABLE_CUDA" in building
-    assert "zero mandatory third-party Python runtime dependencies" in dependencies
+    assert "torch>=2.10.0,<=2.14.1" in dependencies and "one direct" in dependencies
     assert "No third-party source is vendored" in dependencies and "MIT" in dependencies
     assert "candidate" in support and "experimental" in support
-    assert "Explicit release sign-off for 0.2.0" in policy and "No fixed calendar wait" in policy
+    assert "Explicit release sign-off for 0.2.1" in policy and "No fixed calendar wait" in policy
     assert "--check" in policy and "actual published-release event" in policy
 
 
@@ -157,6 +157,6 @@ def test_merged_documentation_has_no_branch_or_completed_step_staleness():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     support = (REPO_ROOT / "docs/SUPPORT_STATUS.md").read_text(encoding="utf-8")
     assert "from this branch" not in readme
-    assert "RELEASE_POLICY_0_2_0.md" in readme
+    assert "RELEASE_POLICY_0_2_1.md" in readme
     assert "reference campaign" in support and "paused indefinitely" in support
     assert "ALPHA_SUPPORT_HISTORY.md" in support

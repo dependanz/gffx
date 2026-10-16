@@ -97,7 +97,7 @@ def _prepare(scene,camera):
     return packed,_camera(camera,batch,pose=pose)
 
 
-def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu_workspace_allowance_bytes=67108864):
+def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu_workspace_allowance_bytes=67108864,ambient=None):
     """Conservative built-in estimate using shapes only, before scene packing.
 
     A trusted callback's unknown allocations are not certified by this estimate.
@@ -136,7 +136,7 @@ def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu
                 pending.extend((field,True) for field in reversed(tuple(value._data.values())))
             elif isinstance(value,Mapping):
                 pending.extend((field,False) for field in reversed(tuple(value.values())))
-    for field in (camera.fx,camera.fy,camera.cx,camera.cy,camera.pose,background):inspect(field)
+    for field in (camera.fx,camera.fy,camera.cx,camera.cy,camera.pose,background,ambient):inspect(field)
     for prim in scene.prims:
         inspect(prim.transform)
         if isinstance(prim.transform,torch.Tensor) and prim.transform.ndim==3:sizes.append(prim.transform.shape[0])
@@ -158,7 +158,8 @@ def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu
                 rank={'constant':1,'uniform':2,'vertex':2,'face_varying':3}.get(attribute.domain)
                 if rank is not None and attribute.values.ndim==rank+1:sizes.append(attribute.values.shape[0])
         elif isinstance(prim,scene_types.Material):
-            inspect(prim.parameters)
+            inspect(prim.parameters);inspect(prim.emission)
+            sources+=isinstance(prim.emission,(AttributeSource,TextureSource))
             sources+=sum(isinstance(v,(AttributeSource,TextureSource)) for v in prim.parameters.values())
     batch=max(sizes);element=meshes[0].vertices.element_size() if meshes else camera.fx.element_size()
     pixels=batch*camera.image_height*camera.image_width*factor*factor
@@ -192,6 +193,10 @@ def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu
                 if not isinstance(value,torch.Tensor):raise TypeError('light '+name+' must be a tensor')
                 if value.ndim not in (2,3) or value.shape[-1]!=3:raise ValueError('light sample shape is invalid')
                 sample_counts.append(value.shape[-2])
+            elif lamp.evaluator is lighting.rectangle:
+                count=lamp.parameters.get('samples')
+                if type(count)!=int or not 1<=count<=16:raise ValueError('rectangle samples must be in [1,16]')
+                sample_counts.append(count*count if backward else 1)
             elif lamp.evaluator is not lighting.spherical_harmonics:qualified=False
         # A pixel's single retained fragment selects exactly one material. The
         # disjoint selected arrays sum to at most P, even during backward. Full
@@ -276,7 +281,9 @@ def _validate_bindings(packed):
         elif isinstance(value,Mapping):return tuple(value.values())
         return ()
     for binding in (*packed.materials,*packed.lights):
-        pending=[binding.parameters]
+        if binding.emission is not None and not isinstance(binding.emission,(torch.Tensor,AttributeSource,TextureSource)):
+            raise TypeError('emission must be a tensor or attribute/texture source')
+        pending=[binding.parameters,binding.emission]
         while pending:pending.extend(reversed(check(pending.pop())))
     # Built-in C/R fields retain their channel axis; a squeezed [P] field with
     # P=3 would otherwise be mistaken for one constant RGB value. Custom
@@ -471,11 +478,12 @@ def _principled_blocks(normals,view,directions,parameters,*,point_block_limit=4,
     return torch.cat(pieces,dim=0) if pieces else normals.new_empty((0,samples,3))
 
 
-def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_shared_curves=None):
+def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_shared_curves=None,ambient=None,shadows=False,shadow_map_size=256):
     result=buffer['world_position'].new_zeros(buffer['world_position'].shape)
     covered=buffer['_covered'];ids=buffer['material_index']
     if bool((covered & (ids<0)).any()):raise ValueError('colour requires a material on every selected face')
     for frame in range(camera.batch_size):
+        shadow_cache={}
         for number,mat in enumerate(packed.materials):
             selected=torch.zeros_like(covered);selected[frame]=covered[frame]&(ids[frame]==number)
             if not bool(selected.any()):continue
@@ -486,6 +494,17 @@ def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_sha
             params={k:_source(v,packed,buffer,selected) for k,v in mat.parameters.items()}
             # Shared empty reductions retain paths without overflowing finite sums.
             value=points*0
+            if mat.emission is not None:
+                emission=_source(mat.emission,packed,buffer,selected)
+                if emission.shape not in ((3,),points.shape):raise ValueError('emission must be RGB or selected-point RGB')
+                _finite(emission,'emission')
+                if bool((emission<0).any()):raise ValueError('emission must be nonnegative')
+                facing=(sum3(n*view)>0)
+                if params.get('two_sided',False):facing=torch.ones_like(facing)
+                value=value+torch.where(facing[:,None],emission,torch.zeros_like(points))
+            if ambient is not None and (ambient.requires_grad or bool((ambient!=0).any())):
+                if 'albedo' not in params:raise ValueError('ambient diffuse fill requires an albedo binding')
+                value=value+params['albedo']*ambient
             for field in params.values():
                 if isinstance(field,torch.Tensor):value=value+field.reshape(-1)[:0].sum()
             for lamp in packed.lights:
@@ -515,24 +534,26 @@ def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_sha
                     radiance=diffuse*lighting.spherical_harmonics(oriented,coefficients)
                     value=value+torch.where(active[:,None],radiance,torch.zeros_like(radiance))
                     continue
-                packet=_light_packet(lamp,packed,frame,points)
-                # Validate the original packet before shielding only its declared
-                # invalid directions from BRDF normalization. Integration still
-                # consumes the original zeros/mask; malformed packets are errors.
-                direction,_,valid,_=lighting._packet(n,packet)
-                safe_direction=torch.where(valid[...,None],direction,direction.new_tensor([0.,0.,1.]))
-                prepared=None
-                if _shared_curves is not None and isinstance(params.get('roughness'),torch.Tensor) and params['roughness'].ndim==0:
-                    if torch.is_grad_enabled():raise ValueError('shared material setup requires forward-only execution')
-                    prepared=_shared_curves.setdefault(number,{})
-                brdf=(_principled_blocks(n,view,safe_direction,params,point_block_limit=point_block_limit,group_point_limit=group_point_limit,_prepared=prepared)
-                      if mat.evaluator is materials.principled else
-                      mat.evaluator(n,view,safe_direction,**params))
-                oriented=n
-                if params.get('two_sided',False):
-                    sign=torch.where(sum3(n*view)<0,-torch.ones_like(n[:,0]),torch.ones_like(n[:,0]))
-                    oriented=n*sign[:,None]
-                value=value+lighting.integrate(oriented,brdf,packet)
+                from ._area import packets
+                for packet in packets(lamp,packed,frame,points,n,shadows=shadows,size=shadow_map_size,
+                                      cache=shadow_cache,ordinary=_light_packet):
+                    # Validate the original packet before shielding only its declared
+                    # invalid directions from BRDF normalization. Integration still
+                    # consumes the original zeros/mask; malformed packets are errors.
+                    direction,_,valid,_=lighting._packet(n,packet)
+                    safe_direction=torch.where(valid[...,None],direction,direction.new_tensor([0.,0.,1.]))
+                    prepared=None
+                    if _shared_curves is not None and isinstance(params.get('roughness'),torch.Tensor) and params['roughness'].ndim==0:
+                        if torch.is_grad_enabled():raise ValueError('shared material setup requires forward-only execution')
+                        prepared=_shared_curves.setdefault(number,{})
+                    brdf=(_principled_blocks(n,view,safe_direction,params,point_block_limit=point_block_limit,group_point_limit=group_point_limit,_prepared=prepared)
+                          if mat.evaluator is materials.principled else
+                          mat.evaluator(n,view,safe_direction,**params))
+                    oriented=n
+                    if params.get('two_sided',False):
+                        sign=torch.where(sum3(n*view)<0,-torch.ones_like(n[:,0]),torch.ones_like(n[:,0]))
+                        oriented=n*sign[:,None]
+                    value=value+lighting.integrate(oriented,brdf,packet)
             result[selected]=_finite(value,'shaded colour')
     return result*buffer['mask'][...,None]
 
@@ -553,14 +574,35 @@ def _visibility(packed,camera,buffer,epsilon):
 
 def render(scene,camera,integrator='deferred',*,soft=0.0,supersample=1,coverage=None,
            outputs=('colour','mask'),cull_mode=primitives.CULL_BACK,background=None,
-           depth_epsilon=1e-4,workspace_limit_bytes=67108864,opaque_tile_pixels=None,
-           cpu_workspace_allowance_bytes=67108864):
+           depth_epsilon=1e-4,workspace_limit_bytes=None,opaque_tile_pixels=None,
+           cpu_workspace_allowance_bytes=None,ambient=0.,shadows=False,shadow_map_size=256):
     """Render named tensors; transparent output is premultiplied linear RGB.
 
     Explicit background composites RGB but does not change foreground coverage.
     Whole-triangle clipping and front-fragment soft silhouettes are approximate.
     """
     if integrator!='deferred':raise ValueError('unknown integrator')
+    if type(shadows) is not bool:raise TypeError('shadows must be boolean')
+    if type(shadow_map_size) is not int or not 16<=shadow_map_size<=2048:
+        raise ValueError('shadow_map_size must be an integer in [16,2048]')
+    from ._area import expand_emitters,shadow_reserve
+    if not isinstance(scene,scene_types.Scene):raise TypeError('scene must be Scene')
+    scene=expand_emitters(scene)
+    resolved,_=_resolve_camera(scene,camera)
+    if cpu_workspace_allowance_bytes is None:
+        cpu_workspace_allowance_bytes = 536870912 if shadows else 67108864
+    if workspace_limit_bytes is None:
+        workspace_limit_bytes=(min(1073741824,torch.cuda.get_device_properties(resolved.fx.device).total_memory//4)
+                               if resolved.fx.device.type=='cuda' else cpu_workspace_allowance_bytes)
+    if isinstance(ambient,torch.Tensor):
+        if ambient.dtype!=resolved.fx.dtype or ambient.device!=resolved.fx.device:
+            raise ValueError('ambient tensor must match camera dtype and device')
+    else:ambient=resolved.fx.new_tensor(ambient)
+    if ambient.ndim==0:ambient=ambient.expand(3)
+    if ambient.shape!=(3,) or not bool(torch.isfinite(ambient).all()) or bool((ambient<0).any()):
+        raise ValueError('ambient must be finite nonnegative scalar or RGB radiance')
+    if coverage is not None and (shadows or bool((ambient!=0).any())):
+        raise NotImplementedError('ambient/shadow composition currently requires deferred coverage')
     if isinstance(outputs,str) or not isinstance(outputs,(list,tuple)):raise TypeError('outputs must be a sequence of names')
     if not outputs or any(type(k)!=str for k in outputs) or len(set(outputs))!=len(outputs) or not set(outputs)<=_OUTPUTS:
         raise ValueError('unknown, empty or duplicate outputs')
@@ -589,7 +631,9 @@ def render(scene,camera,integrator='deferred',*,soft=0.0,supersample=1,coverage=
         from ._opaque_scene import mask as opaque_mask
         return {'mask':opaque_mask(scene,camera,cull_mode=cull_mode,workspace_limit_bytes=workspace_limit_bytes)}
     if opaque_tile_pixels is not None:raise ValueError('opaque_tile_pixels requires opaque colour rendering')
-    workload=_plan_workload(scene,camera,supersample,workspace_limit_bytes,outputs,background,soft,cpu_workspace_allowance_bytes)
+    workload=_plan_workload(scene,camera,supersample,workspace_limit_bytes,outputs,background,soft,cpu_workspace_allowance_bytes,ambient)
+    if shadows and workload['estimated_bytes']+shadow_reserve(scene,shadow_map_size)>workspace_limit_bytes:
+        raise ValueError('deferred workspace budget exceeded by shadow-map storage')
     packed,camera=_prepare(scene,camera)
     _validate_bindings(packed)
     if soft:
@@ -602,7 +646,7 @@ def render(scene,camera,integrator='deferred',*,soft=0.0,supersample=1,coverage=
         _finite(background,'background')
     high_camera=_camera(camera,camera.batch_size,factor=supersample)
     high=_buffers(packed,high_camera,soft*supersample,cull_mode)
-    colour=(_shade(packed,high_camera,high,point_block_limit=workload['principled_point_block_limit'],group_point_limit=workload['principled_group_point_limit'])
+    colour=(_shade(packed,high_camera,high,point_block_limit=workload['principled_point_block_limit'],group_point_limit=workload['principled_group_point_limit'],ambient=ambient,shadows=shadows,shadow_map_size=shadow_map_size)
             if 'colour' in outputs else None)
     mask=high['mask']
     if supersample>1:

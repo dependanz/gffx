@@ -1,6 +1,7 @@
 name: publish-alpha
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: publish-alpha-${{ github.event.release.tag_name }}
   cancel-in-progress: false
@@ -40,7 +41,7 @@ jobs:
         packages-dir: dist/
         attestations: true
   stable-gates:
-    if: github.repository == 'dependanz/gffx' && github.event.release.tag_name == 'v0.2.0' && github.event.release.prerelease == false
+    if: github.repository == 'dependanz/gffx' && github.event.release.tag_name == 'v0.2.1' && github.event.release.prerelease == false
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -54,14 +55,17 @@ jobs:
     - name: Download the exact approved release wheel
       env:
         GH_TOKEN: ${{ github.token }}
-      run: gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
+      run: gh release download v0.2.1 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
     - name: Require concrete checks and actual owner release sign-off
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: python tools/stable_release.py --dist dist --release-event "$GITHUB_EVENT_PATH"
     - name: Require private vulnerability reporting
       env:
         GH_TOKEN: ${{ github.token }}
       run: test "$(gh api repos/dependanz/gffx/private-vulnerability-reporting --jq .enabled)" = true
   stable-cpu:
+    name: stable-cpu (${{ matrix.python }}, ${{ matrix.torch }})
     needs: stable-gates
     runs-on: windows-2022
     timeout-minutes: 20
@@ -74,6 +78,9 @@ jobs:
         - '3.12'
         - '3.13'
         - '3.14'
+        torch:
+        - '2.10.0'
+        - '2.14.1'
     env:
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
@@ -91,7 +98,7 @@ jobs:
       shell: pwsh
       run: |
         python -m pip install --upgrade pip==26.2.1
-        python -m pip download --only-binary=:all: --no-deps torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu --dest framework
+        python -m pip download --only-binary=:all: --no-deps "torch==${{ matrix.torch }}" --index-url https://download.pytorch.org/whl/cpu --dest framework
         $framework = (Get-ChildItem framework/torch-*.whl).FullName
         python -m pip install --only-binary=:all: pytest==9.0.3 "$framework"
         if ($LASTEXITCODE -ne 0) { throw 'CPU framework setup failed' }
@@ -99,7 +106,7 @@ jobs:
       shell: pwsh
       env:
         GH_TOKEN: ${{ github.token }}
-      run: gh release download v0.2.0 --repo dependanz/gffx --pattern "*.whl" --dir dist
+      run: gh release download v0.2.1 --repo dependanz/gffx --pattern "*.whl" --dir dist
     - name: Test installed artifact operations and derivatives
       shell: pwsh
       run: |
@@ -108,9 +115,11 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw 'wheel install failed' }
         python tools/stable_validation.py --wheel "$wheel" --profile cpu --output results
         if ($LASTEXITCODE -ne 0) { throw 'functional cohort failed' }
+        python tools/simple_scene_validation.py --wheel "$wheel" --device cpu --output scene-results
+        if ($LASTEXITCODE -ne 0) { throw 'simple scene validation failed' }
         python -m pip check
     - name: Prove base import and uninstall without a framework
-      if: matrix.python == '3.10'
+      if: matrix.python == '3.10' && matrix.torch == '2.14.1'
       shell: pwsh
       run: |
         $wheel = (Get-ChildItem dist/gffx-*.whl).FullName
@@ -120,9 +129,10 @@ jobs:
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
-        name: release-cpu-py${{ matrix.python }}
+        name: release-cpu-py${{ matrix.python }}-torch${{ matrix.torch }}
         path: |-
           results
+          scene-results
           installation-results
         if-no-files-found: error
   publish-stable:
@@ -133,9 +143,10 @@ jobs:
     timeout-minutes: 15
     environment:
       name: pypi
-      url: https://pypi.org/project/gffx/0.2.0/
+      url: https://pypi.org/project/gffx/0.2.1/
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
     - name: Check out the exact revision
@@ -148,8 +159,10 @@ jobs:
     - name: Download the exact approved release wheel
       env:
         GH_TOKEN: ${{ github.token }}
-      run: gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
+      run: gh release download v0.2.1 --repo "$GITHUB_REPOSITORY" --pattern "*.whl" --dir dist
     - name: Recheck publication gates and approved bytes
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: python tools/stable_release.py --dist dist --release-event "$GITHUB_EVENT_PATH"
     - name: Publish exact stable wheel through existing OIDC publisher
       uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33

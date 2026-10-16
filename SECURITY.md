@@ -1,8 +1,14 @@
 # Security policy
 
-The initial Windows0.2 release scope and maintained combinations are listed in
-[the release policy](docs/RELEASE_POLICY_0_2_0.md). Candidate support is pending
-stable admission; experimental combinations carry their stated limitations.
+The Windows 0.2.1 release scope and maintained combinations are listed in
+[the current policy](docs/RELEASE_POLICY_0_2_1.md). Exact release gates determine
+admission; experimental combinations retain their stated limitations.
+
+Fresh installations select Torch 2.14.1. The retained eager 2.10 compatibility
+profile is upstream-unmaintained and has the TorchScript advisory
+[GHSA-rrmf-rvhw-rf47](https://github.com/advisories/GHSA-rrmf-rvhw-rf47). GFFX does
+not invoke TorchScript; compilation/export is excluded from this admission.
+Retained compatibility is not an upstream security-maintenance promise.
 
 Report suspected vulnerabilities privately through
 [GitHub private vulnerability reporting](https://github.com/dependanz/gffx/security/advisories/new).

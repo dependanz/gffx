@@ -46,6 +46,7 @@ jobs:
         path: ci-wheel/repaired/*.whl
         if-no-files-found: error
   cpu:
+    name: cpu (${{ matrix.python }}, ${{ matrix.torch }})
     needs: build
     runs-on: windows-2022
     timeout-minutes: 20
@@ -58,6 +59,9 @@ jobs:
         - '3.12'
         - '3.13'
         - '3.14'
+        torch:
+        - '2.10.0'
+        - '2.14.1'
     env:
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
@@ -75,7 +79,7 @@ jobs:
       shell: pwsh
       run: |
         python -m pip install --upgrade pip==26.2.1
-        python -m pip download --only-binary=:all: --no-deps torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu --dest framework
+        python -m pip download --only-binary=:all: --no-deps "torch==${{ matrix.torch }}" --index-url https://download.pytorch.org/whl/cpu --dest framework
         $framework = (Get-ChildItem framework/torch-*.whl).FullName
         python -m pip install --only-binary=:all: pytest==9.0.3 "$framework"
         if ($LASTEXITCODE -ne 0) { throw 'CPU framework setup failed' }
@@ -91,9 +95,11 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw 'wheel install failed' }
         python tools/stable_validation.py --wheel "$wheel" --profile cpu --output results
         if ($LASTEXITCODE -ne 0) { throw 'functional cohort failed' }
+        python tools/simple_scene_validation.py --wheel "$wheel" --device cpu --output scene-results
+        if ($LASTEXITCODE -ne 0) { throw 'simple scene validation failed' }
         python -m pip check
     - name: Prove base import and uninstall without a framework
-      if: matrix.python == '3.10'
+      if: matrix.python == '3.10' && matrix.torch == '2.14.1'
       shell: pwsh
       run: |
         $wheel = (Get-ChildItem dist/gffx-*.whl).FullName
@@ -103,8 +109,9 @@ jobs:
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
-        name: windows-cpu-py${{ matrix.python }}
+        name: windows-cpu-py${{ matrix.python }}-torch${{ matrix.torch }}
         path: |-
           results
+          scene-results
           installation-results
         if-no-files-found: error

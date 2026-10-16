@@ -94,3 +94,14 @@ Tests are `tests/python/test_scene.py` and `test_scene_integration.py`; the fini
 dashboard demonstration uses the public API. Synthetic5023-vertex/9976-face budget
 fixtures use no licensed FLAME data. Exact build/results belong to devbrain NUMBERS;
 local tests do not establish a published support matrix or real-time capability.
+
+## Simple authoring API (unreleased 0.2.1.dev0)
+
+Top-level `gffx.Scene`, `Mesh`, `Material`, `Light` and `Camera` are lazy aliases.
+Generic `Mesh.quad`/`Mesh.sphere`, `Material.diffuse`/`Material.emissive`,
+`Light.rectangle`, `Camera.look_at` and explicit `Scene.to` reduce user setup.
+Material records additionally accept an optional `emission` tensor/source; light
+records have `visible=False` by default, while the rectangle factory defaults
+to a visible emitter. Existing positional low-level constructors remain valid.
+See [simple scenes](SIMPLE_SCENES.md); PNG export is explicit `gffx.io.write_png`,
+separate from scene flattening and the image arithmetic namespace.

@@ -169,7 +169,7 @@ def test_dir_reports_the_public_surface():
     import gffx
 
     assert dir(gffx) == sorted(
-        ["__version__", "abi_version", "capabilities", "native_core_is_loaded", "camera", "cuda", "material", "scene", "shade", "torch", "image", "render", "mesh", "transforms", "skeleton"]
+        ["Scene", "Mesh", "Material", "Light", "Camera", "io", "__version__", "abi_version", "capabilities", "native_core_is_loaded", "camera", "cuda", "material", "scene", "shade", "torch", "image", "render", "mesh", "transforms", "skeleton"]
     )
 
 
