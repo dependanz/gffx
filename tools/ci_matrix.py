@@ -75,6 +75,7 @@ WORKFLOW_NAMES = {
     "package-foundation-pr.yml",
     "package-foundation-nightly.yml",
     "package-foundation-rc.yml",
+    "package-artifacts-pr.yml",
     "cuda-hardware.yml",
 }
 
@@ -364,6 +365,20 @@ def validate_workflows(root: Path) -> list[str]:
         # driven by a schedule it will sleep through.
         if token in cuda:
             errors.append(f"cuda hardware workflow must not use {token}")
+
+    preview = texts.get("package-artifacts-pr.yml", "")
+    for required in (
+        "pull_request:", "branches: [dev]", "package-artifacts-pr-required",
+        "pypa/cibuildwheel@", "CIBW_BUILD_FRONTEND", "GFFX_BUILD_PYTORCH=ON",
+        "actions/download-artifact@", "tools/ci_smoke.py installed",
+        "tools/ci_smoke.py uninstalled", "tools/simple_scene_validation.py",
+        "python -m pip uninstall --yes gffx",
+        "preview-wheel-", "macos-arm64", "linux-arm64", "linux-x64", "windows-x64",
+    ):
+        if required not in preview:
+            errors.append(f"artifact preview workflow missing {required}")
+    if "python -m pip wheel ." in preview.split("test-artifacts:", maxsplit=1)[-1]:
+        errors.append("artifact preview installs must never rebuild source")
 
     rc = texts.get("package-foundation-rc.yml", "")
     if _extract_generated(rc, "RC BUILD MATRIX") != render_release_build_block():
