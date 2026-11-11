@@ -370,8 +370,8 @@ def validate_workflows(root: Path) -> list[str]:
     for required in (
         "pull_request:", "branches: [dev]", "package-artifacts-pr-required",
         "pypa/cibuildwheel@", "CIBW_BUILD_FRONTEND", "GFFX_BUILD_PYTORCH=ON",
-        "actions/download-artifact@", "tools/ci_smoke.py installed",
-        "tools/ci_smoke.py uninstalled", "tools/simple_scene_validation.py",
+        "actions/download-artifact@", 'tools/ci_smoke.py" installed',
+        'tools/ci_smoke.py" uninstalled', "tools/simple_scene_validation.py",
         "python -m pip uninstall --yes gffx",
         "preview-wheel-", "macos-arm64", "linux-arm64", "linux-x64", "windows-x64",
     ):
