@@ -18,8 +18,10 @@ except ModuleNotFoundError:
 
 if __package__:
     from .ci_matrix import PLATFORMS
+    from .release_bundle_gate import wheel_name_matches
 else:
     from ci_matrix import PLATFORMS
+    from release_bundle_gate import wheel_name_matches
 
 
 class AssemblyError(ValueError):
@@ -50,7 +52,11 @@ def assemble(artifacts: Path, out: Path, pyproject: Path) -> dict:
     records = []
     for folder_name, (platform, row) in expected_dirs.items():
         folder = artifacts / folder_name
-        wheel_name = f"gffx-{version}-{row['wheel_tag']}.whl"
+        wheels = [p for p in folder.iterdir() if p.is_file() and
+                  wheel_name_matches(p.name, version, row["wheel_tag"])]
+        if len(wheels) != 1:
+            raise AssemblyError(f"{platform}: expected exactly one compatible repaired wheel, found {len(wheels)}")
+        wheel_name = wheels[0].name
         sdist_name = f"gffx-{version}.tar.gz"
         expected_names = {wheel_name, "provenance.json"}
         if platform == "linux-x64":
