@@ -197,6 +197,31 @@ def test_rc_installs_downloaded_wheels_without_rebuilding_source() -> None:
     assert "python -m pip wheel ." not in rc.split("artifact-tests:", maxsplit=1)[1]
 
 
+def test_release_candidate_blocks_without_real_cuda_and_exact_commit() -> None:
+    rc = (ROOT / ".github" / "workflows" / "package-foundation-rc.yml").read_text(
+        encoding="utf-8"
+    )
+    preview = (ROOT / ".github" / "workflows" / "package-artifacts-pr.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "workflow_dispatch:" in rc
+    assert "pull_request:" not in rc and "schedule:" not in rc
+    assert "rc-exact-commit-required" in rc
+    assert "^[0-9a-f]{40}$" in rc
+    assert "fromJSON(" in rc and "cuda-hardware" in rc
+    assert "CIBW_CONFIG_SETTINGS:" in rc
+    assert "cmake.define.GFFX_ENABLE_CUDA=ON" in rc
+    assert "gffx_cuda12.dll" in rc and "libgffx_cuda12.so" in rc
+    assert "release-candidate-linux-nvidia-required" in rc
+    assert "runs-on: [self-hosted, linux, x64, cuda]" in rc
+    assert "verify_cuda_lane.py" in rc and "compute-sanitizer" in rc
+    assert "needs: [build-artifacts, linux-cuda-hardware]" in rc
+    assert "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]" in rc
+    pinned = "sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c"
+    assert pinned in rc and pinned in preview
+    assert "manylinux_2_28_x86_64_cuda12_9:latest" not in preview
+
+
 def test_ci_smoke_exposes_installed_and_uninstalled_modes() -> None:
     script = (TOOLS / "ci_smoke.py").read_text(encoding="utf-8")
     assert 'add_parser("installed"' in script
