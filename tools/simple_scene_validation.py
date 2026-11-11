@@ -14,7 +14,7 @@ def main():
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
     root=Path(__file__).resolve().parents[1]
     import gffx,torch,pytest
-    assert gffx.__version__=='0.2.1'
+    assert gffx.__version__=='0.2.2'
     assert Path(gffx.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
     package_root=Path(gffx.__file__).resolve().parent.parent
     with zipfile.ZipFile(args.wheel) as archive:
