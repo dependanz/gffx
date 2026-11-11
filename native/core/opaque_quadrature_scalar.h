@@ -590,7 +590,7 @@ GFFX_OPAQUE_LOCAL int opaque_quadrature_execute(const gffx_tensor_view *v,const 
         if(ctx.failed)return 2;
         if(curves && sample_count+curves*(288-120)<=QUAD_SLOTS)radial_order=12;
         /* Retain curved priority. The remaining slots choose one flat inner
-           order for every fan; no contribution is removed or extra storage used.
+           order for every fan; no contribution is discarded or extra storage used.
            Freeze this unseeded discrete choice for every first-VJP seed. */
         {int flat_count=(sample_count-120*curves)/25;
           if(flat_count){flat_order=(QUAD_SLOTS-24*radial_order*curves)/(5*flat_count);
