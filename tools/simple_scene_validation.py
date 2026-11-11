@@ -31,7 +31,7 @@ def main():
             if report.when=='call' or report.skipped or (report.when=='setup' and report.failed):
                 calls.append(dict(nodeid=report.nodeid,outcome=report.outcome))
     command=['-q','--import-mode=importlib','--basetemp='+str(out/'temp'),
-             '--junitxml='+str(out/'tests.xml'),str(root/'tests/python/test_simple_scene_api.py')]
+             '--junitxml='+str(out/'tests.xml'),str(root/'tests/python/test_simple_scene_api.py'),str(root/'tests/python/test_display_pipeline.py')]
     if args.device=='cpu':command+=['-k','not cuda']
     code=int(pytest.main(command,plugins=[Record()]))
     counts={name:sum(row['outcome']==name for row in calls) for name in ['passed','failed','skipped']}
