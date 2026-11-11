@@ -180,9 +180,70 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  linux-cuda-hardware:
+    name: release-candidate-linux-nvidia-required
+    needs: [verify-revision, build-artifacts]
+    # The candidate remains blocked until a real Linux NVIDIA runner is registered.
+    # This is never triggered by a pull request or schedule.
+    runs-on: [self-hosted, linux, x64, cuda]
+    environment: cuda-hardware
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exactly the candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+          clean: true
+      - name: Set up stable Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Download the exact Linux CUDA release wheel
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: wheel-manylinux_2_28_x86_64
+          path: ${{ runner.temp }}/linux-cuda-release-wheel
+      - name: Prove installed wheel discovers its bundled plugin on a real NVIDIA device
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v nvcc
+          command -v nvidia-smi
+          command -v compute-sanitizer
+          nvidia-smi -L
+          nvcc --version
+          WHEEL="$(python -c 'import os; from pathlib import Path; p=list((Path(os.environ["RUNNER_TEMP"])/"linux-cuda-release-wheel").glob("gffx-*.whl")); assert len(p)==1, p; print(p[0])')"
+          python -m venv --clear "$RUNNER_TEMP/gffx-rc-linux-cuda-venv"
+          "$RUNNER_TEMP/gffx-rc-linux-cuda-venv/bin/python" -m pip install --no-index --no-deps "$WHEEL"
+          cd "$RUNNER_TEMP"
+          unset GFFX_CUDA_PLUGIN_PATH
+          "$RUNNER_TEMP/gffx-rc-linux-cuda-venv/bin/python" -c "import gffx; from pathlib import Path; assert (Path(gffx.__file__).parent/'libgffx_cuda12.so').is_file(); report=gffx.cuda.capabilities(); assert report['status']=='loaded', report; print('real Linux CUDA plugin loaded')"
+      - name: Run native hardware parity and operation tests on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B "$RUNNER_TEMP/gffx-rc-linux-device" -DBUILD_TESTING=ON -DGFFX_ENABLE_CUDA=ON -DGFFX_CUDA_RUN_DEVICE_TESTS=ON -DGFFX_BUILD_PYTHON=OFF -DGFFX_BUILD_PYTORCH=OFF
+          cmake --build "$RUNNER_TEMP/gffx-rc-linux-device" --config Release --parallel
+          ctest --test-dir "$RUNNER_TEMP/gffx-rc-linux-device" -C Release --output-on-failure --output-junit "$RUNNER_TEMP/gffx-rc-linux-device/ctest.xml"
+          python tools/verify_cuda_lane.py "$RUNNER_TEMP/gffx-rc-linux-device/ctest.xml" --report "$RUNNER_TEMP/gffx-rc-linux-device/lane-report.json"
+          for target in texture_device_parity backward_device_parity; do
+            compute-sanitizer --tool memcheck --error-exitcode 1 --leak-check no "$RUNNER_TEMP/gffx-rc-linux-device/tests/cuda/gffx_test_$target"
+          done
+      - name: Retain Linux NVIDIA device qualification
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-hardware-report-linux-rc
+          path: |
+            ${{ runner.temp }}/gffx-rc-linux-device/ctest.xml
+            ${{ runner.temp }}/gffx-rc-linux-device/lane-report.json
+          retention-days: 14
+          if-no-files-found: warn
+
   verify-artifacts:
     name: release-candidate-bundle-required
-    needs: build-artifacts
+    needs: [build-artifacts, linux-cuda-hardware]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -317,12 +378,13 @@ jobs:
   required:
     name: package-foundation-rc-required
     if: ${{ always() }}
-    needs: [verify-artifacts, artifact-tests]
+    needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require all 80 clean artifact environments
         shell: bash
         run: |
+          test "${{ needs.linux-cuda-hardware.result }}" = "success"
           test "${{ needs.verify-artifacts.result }}" = "success"
           test "${{ needs.artifact-tests.result }}" = "success"
