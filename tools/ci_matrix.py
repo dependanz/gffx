@@ -386,7 +386,9 @@ def validate_workflows(root: Path) -> list[str]:
     if _extract_generated(rc, "RC TEST MATRIX") != render_release_test_block():
         errors.append("release-candidate test matrix differs from canonical 80 environments")
     for token in (
-        "needs: build-artifacts", "actions/download-artifact@", "tools/ci_smoke.py installed",
+        "needs: build-artifacts", "verify-artifacts:", "release-candidate-bundle-required",
+        "tools/assemble_candidate_bundle.py", "tools/release_bundle_gate.py",
+        "approved-rc-bundle", "actions/download-artifact@", "tools/ci_smoke.py installed",
         "tools/ci_smoke.py uninstalled", "python -m pip uninstall --yes gffx",
         "CIBW_BUILD_FRONTEND", "--no-build-isolation", "GFFX_BUILD_PYTORCH=ON",
     ):
