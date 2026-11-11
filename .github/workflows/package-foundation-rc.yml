@@ -110,9 +110,47 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  verify-artifacts:
+    name: release-candidate-bundle-required
+    needs: build-artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact candidate version and bundle policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - name: Select verifier runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Download all four separate exact-artifact receipts
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          pattern: wheel-*
+          path: ${{ runner.temp }}/rc-receipts
+          merge-multiple: false
+      - name: Verify recorded byte hashes and assemble new, isolated distribution
+        shell: bash
+        run: >-
+          python tools/assemble_candidate_bundle.py
+          --artifacts "$RUNNER_TEMP/rc-receipts"
+          --out "$RUNNER_TEMP/approved-dist"
+      - name: Require complete CPU and CUDA provider release payloads
+        shell: bash
+        run: python tools/release_bundle_gate.py --dist "$RUNNER_TEMP/approved-dist"
+      - name: Retain the complete candidate distribution only after all gates
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: approved-rc-bundle
+          path: ${{ runner.temp }}/approved-dist/
+          if-no-files-found: error
+          retention-days: 14
+
   artifact-tests:
     name: artifact / ${{ matrix.platform }} / py${{ matrix.python }} / torch${{ matrix.pytorch }}
-    needs: build-artifacts
+    needs: [build-artifacts, verify-artifacts]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -209,10 +247,12 @@ jobs:
   required:
     name: package-foundation-rc-required
     if: ${{ always() }}
-    needs: artifact-tests
+    needs: [verify-artifacts, artifact-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require all 80 clean artifact environments
         shell: bash
-        run: test "${{ needs.artifact-tests.result }}" = "success"
+        run: |
+          test "${{ needs.verify-artifacts.result }}" = "success"
+          test "${{ needs.artifact-tests.result }}" = "success"
