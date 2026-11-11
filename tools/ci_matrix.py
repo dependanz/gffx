@@ -412,6 +412,9 @@ def validate_workflows(root: Path) -> list[str]:
         "quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9@sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c",
         "libgffx_cuda12.so",
         "gffx_cuda12.dll",
+        "tools/rc_candidate_receipt.py create",
+        "tools/rc_candidate_receipt.py verify",
+        "name: rc-candidate-receipt",
     )
     for required in rc_cuda_requirements:
         if required not in rc:
