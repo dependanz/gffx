@@ -90,3 +90,21 @@ Existing files are refused unless `overwrite=True`; `tone_map='clip'` omits
 the display curve. No NumPy, Pillow or external renderer is needed. PyTorch (`torch>=2.10.0,<=2.14.1`) is the one
 direct Python runtime dependency in 0.2.1; its CPU/CUDA variant follows the
 [installation guide](INSTALLATION.md). The core and bare import remain lazy.
+
+
+## Local development: glossy materials and quality corrections
+
+The unpublished local development version adds `Material.glossy(name, albedo,
+roughness=.25, specular=.3)`, corrected geometric sidedness/shadow receiver planes,
+continuous bilinear PCF and two compact examples: `cornell_glossy` and
+`fit_glossy_material`. These additions are not in public PyPI 0.2.1.
+See [quality diagnosis, usage and gradient evidence](RENDER_QUALITY.md).
+
+
+## Local quality2: antialiasing and independent shadows
+
+The unpublished local quality2 examples add `supersample=4` (16 shaded subpixels)
+and `Light.rectangle(..., samples=8)` (64 light positions), retaining512px output
+and512px maps. Forward AA streams inside gffx and needs no example-side renderer
+or workspace override. See [AA, shadow/contact evidence and limits](ANTIALIAS_SHADOWS.md).
+These settings cost substantially more rendering work; they are not a speedup.
