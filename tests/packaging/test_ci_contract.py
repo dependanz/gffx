@@ -216,6 +216,9 @@ def test_release_candidate_blocks_without_real_cuda_and_exact_commit() -> None:
     assert "release-candidate-linux-nvidia-required" in rc
     assert "runs-on: [self-hosted, linux, x64, cuda]" in rc
     assert "verify_cuda_lane.py" in rc and "compute-sanitizer" in rc
+    assert "tools/rc_candidate_receipt.py create" in rc
+    assert "tools/rc_candidate_receipt.py verify" in rc
+    assert "name: rc-candidate-receipt" in rc
     assert "needs: [build-artifacts, linux-cuda-hardware]" in rc
     assert "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]" in rc
     pinned = "sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c"
