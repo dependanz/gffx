@@ -80,6 +80,43 @@ image, lighting and shadow-map estimates still fail before allocation when the
 requested workload exceeds the budget. Use `workspace_limit_bytes` for an
 explicit budget, and `shadow_map_size` for advanced shadow-map resolution.
 
+## Display previews (next-release development API)
+
+The next-release source checkout adds `gffx.image.to_display` to make
+notebook previews match `gffx.io.write_png`. This API is **not** in the
+published Windows-only 0.2.1 artifact. Render output remains scene-linear RGB
+(and may exceed 1.0), while display images are explicitly converted to sRGB:
+
+```python
+import gffx as g
+import matplotlib.pyplot as plt
+
+rendered = g.render(scene, camera, shadows=True, ambient=.08)
+linear_rgb = rendered['colour']         # scene-linear, retain for physical math / gradients
+display_rgb = g.image.to_display(linear_rgb, tone_map='aces', exposure=0)
+plt.imshow(display_rgb[0].detach().cpu().numpy())
+plt.axis('off')
+plt.show()
+g.io.write_png('render.png', linear_rgb, tone_map='aces', exposure=0)
+```
+
+Both functions use the same exposure-in-stops, ACES-style rational tone mapper
+(or `tone_map='clip'`) and linear-to-sRGB transfer. The preview is a
+float32/float64 tensor in [0,1], on the input device with a first-order gradient
+where the mapping is smooth; the PNG differs only by rounding each channel to
+8 bits. The PNG writer detaches deliberately, never mutating the input.
+
+Do **not** pass `display_rgb` to `write_png`: that would tone-map and encode
+already display-ready data a second time. For unmodified linear/HDR interchange,
+retain the original tensor or use a suitable scene-linear/HDR format in a future
+exporter, rather than the 8-bit sRGB PNG path.
+
+`to_display` accepts an HWC or BHWC floating RGB tensor (three channels,
+nonnegative finite values) and `tone_map='aces'|'clip'`, `exposure=<finite
+number>`. Like the native image-transfer operation used by PNG export,
+CUDA tensors require a usable GFFX CUDA provider; it does not silently move
+GPU data to CPU. Merely importing `gffx.image` remains inert.
+
 ## Image export and dependencies
 
 `gffx.io.write_png(path, image, tone_map='aces', exposure=0)` exports linear RGB
