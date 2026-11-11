@@ -48,7 +48,7 @@ def main() -> None:
     import torch
     import pytest
     assert platform.system() == 'Windows' and platform.machine().lower() in ['amd64', 'x86_64']
-    assert gffx.__version__ == '0.2.1'
+    assert gffx.__version__ == '0.2.2'
     assert Path(gffx.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()), gffx.__file__
     assert torch.__version__.split('+')[0] in ['2.10.0','2.14.1'], torch.__version__
     expected_cuda = None if args.profile == 'cpu' else '12.6'
