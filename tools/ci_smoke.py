@@ -133,8 +133,15 @@ def _installed(args: argparse.Namespace) -> int:
 
     distribution = metadata.distribution("gffx")
     requirements = list(distribution.requires or ())
-    if requirements:
-        raise RuntimeError(f"GFFX wheel acquired runtime dependencies: {requirements!r}")
+    # The scene API requires Torch, but base import and the native C11 core remain lazy.
+    # Reject additional/unreviewed dependencies instead of enforcing the obsolete
+    # pre-0.2.1 zero-dependency distribution metadata.
+    expected_requirements = ["torch<=2.14.1,>=2.10.0"]
+    if requirements != expected_requirements:
+        raise RuntimeError(
+            f"GFFX wheel runtime dependency mismatch: expected={expected_requirements!r}, "
+            f"actual={requirements!r}"
+        )
 
     adapter = gffx.torch
     import torch
