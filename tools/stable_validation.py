@@ -1,4 +1,4 @@
-"""Run only the finite Windows 0.2.1 installed-wheel release cohort. Never publishes."""
+"""Run the finite Windows 0.2.2 candidate installed-wheel cohort. Never publishes."""
 from __future__ import annotations
 
 import argparse
