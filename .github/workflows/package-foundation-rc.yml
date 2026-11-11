@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       revision:
-        description: Exact commit, tag, or branch to package
+        description: Exact 40-character commit SHA to qualify; moving branches and tags are rejected
         required: true
         type: string
 
@@ -16,9 +16,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-revision:
+    name: rc-exact-commit-required
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Refuse moving refs and invalid commit identifiers
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.revision }}
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'RC requires an exact lowercase 40-character commit SHA' >&2; exit 1; }
+
   build-artifacts:
     name: build / ${{ matrix.name }}
-    runs-on: ${{ matrix.runner }}
+    needs: verify-revision
+    # The Windows CUDA release wheel is built on a protected, real-NVIDIA host.
+    # Never schedule fork PR code on that host; only this owner-dispatched workflow can reach it.
+    runs-on: ${{ matrix.platform == 'windows-x64' && fromJSON('["self-hosted","windows","x64","cuda"]') || matrix.runner }}
+    environment:
+      name: ${{ matrix.platform == 'windows-x64' && 'cuda-hardware' || 'release-candidate-build' }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -75,6 +92,19 @@ jobs:
         run: |
           python -m pip install build==1.3.0
           python -m build --sdist --outdir wheelhouse
+      - name: Require the Windows CUDA 12 toolchain before building the release wheel
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
+          if (-not $nvcc) { throw 'Release host requires CUDA Toolkit 12 nvcc on PATH' }
+          & nvcc --version
+          if ($LASTEXITCODE -ne 0) { throw 'nvcc version probe failed' }
+          if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) {
+            throw 'Windows CUDA release host must have a real NVIDIA device'
+          }
+          & nvidia-smi -L
+          if ($LASTEXITCODE -ne 0) { throw 'NVIDIA driver/device probe failed' }
       - name: Build the adapter-enabled ABI3 wheel once
         uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
         env:
@@ -86,16 +116,46 @@ jobs:
             python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
           CIBW_BEFORE_TEST: >-
             python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
-          CIBW_CONFIG_SETTINGS: "cmake.define.GFFX_BUILD_PYTORCH=ON"
+          # Release x64 wheels contain CUDA; ARM64 and macOS remain CPU-only.
+          CIBW_CONFIG_SETTINGS: ${{ (matrix.platform == 'windows-x64' || matrix.platform == 'linux-x64') && 'cmake.define.GFFX_BUILD_PYTORCH=ON cmake.define.GFFX_ENABLE_CUDA=ON' || 'cmake.define.GFFX_BUILD_PYTORCH=ON' }}
+          # Exact digest of the CUDA 12.9 manylinux 2.28 image validated in the Linux build pilot.
+          CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.platform == 'linux-x64' && 'quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9@sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c' || '' }}
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
+            auditwheel repair --exclude libc10.so --exclude libtorch.so
+            --exclude libtorch_cpu.so --exclude libcuda.so.1 --exclude libcuda.so
+            -w {dest_dir} {wheel}
           CIBW_TEST_COMMAND: >-
             python -c "import gffx; c=gffx.capabilities();
             assert c['native_core']['available'] and c['native_core']['abi_version']=='1.0' and not c['gpu_probed'];
+            from pathlib import Path;
+            platform_name='${{ matrix.platform }}';
+            provider={'windows-x64':'gffx_cuda12.dll','linux-x64':'libgffx_cuda12.so'}.get(platform_name);
+            assert provider is None or (Path(gffx.__file__).parent/provider).is_file();
             gffx.torch; import torch;
             assert hasattr(torch.ops.gffx_internal, '_foundation_probe');
-            print('adapter wheel ok', c['python_version'], torch.__version__)"
+            print('adapter wheel and provider payload ok', platform_name, torch.__version__)"
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         with:
           output-dir: wheelhouse
+      - name: Require real NVIDIA tests on Windows release builder
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          cmake -S . -B build/release-device -DBUILD_TESTING=ON -DGFFX_ENABLE_CUDA=ON -DGFFX_CUDA_RUN_DEVICE_TESTS=ON -DGFFX_BUILD_PYTHON=OFF -DGFFX_BUILD_PYTORCH=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA device configuration failed' }
+          cmake --build build/release-device --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA device build failed' }
+          ctest --test-dir build/release-device -C Release --output-on-failure --output-junit build/release-device/ctest.xml
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA device CTest failed' }
+          python tools/verify_cuda_lane.py build/release-device/ctest.xml --report build/release-device/lane-report.json
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA device qualification report failed' }
+          $sanitizer = Get-Command compute-sanitizer -ErrorAction SilentlyContinue
+          if (-not $sanitizer) { throw 'compute-sanitizer must be available for release' }
+          foreach ($target in @('texture_device_parity', 'backward_device_parity')) {
+            $exe = "build/release-device/tests/cuda/Release/gffx_test_$target.exe"
+            & compute-sanitizer --tool memcheck --error-exitcode 1 --leak-check no $exe
+            if ($LASTEXITCODE -ne 0) { throw "CUDA memcheck failed: $target" }
+          }
       - name: Hash artifacts and capture the build environment
         shell: bash
         run: >-
@@ -107,6 +167,16 @@ jobs:
         with:
           name: wheel-${{ matrix.artifact }}
           path: wheelhouse/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain Windows CUDA device qualification
+        if: matrix.platform == 'windows-x64'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-hardware-report-windows-rc
+          path: |
+            build/release-device/ctest.xml
+            build/release-device/lane-report.json
           if-no-files-found: error
           retention-days: 14
 
