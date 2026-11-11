@@ -98,8 +98,11 @@ jobs:
         run: |
           $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
           if (-not $nvcc) { throw 'Release host requires CUDA Toolkit 12 nvcc on PATH' }
-          & nvcc --version
-          if ($LASTEXITCODE -ne 0) { throw 'nvcc version probe failed' }
+          $nvccOutput = (& nvcc --version | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $nvccOutput -notmatch 'release 12[.]') {
+            throw 'Release requires a working CUDA 12 toolkit; check NVCC version and PATH'
+          }
+          Write-Output $nvccOutput
           if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) {
             throw 'Windows CUDA release host must have a real NVIDIA device'
           }
@@ -156,6 +159,24 @@ jobs:
             & compute-sanitizer --tool memcheck --error-exitcode 1 --leak-check no $exe
             if ($LASTEXITCODE -ne 0) { throw "CUDA memcheck failed: $target" }
           }
+      - name: Prove the exact Windows wheel loads its GPU provider
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $wheel = @(Get-ChildItem -LiteralPath wheelhouse -Filter 'gffx-*.whl')
+          if ($wheel.Count -ne 1) { throw 'Expected exactly one release wheel' }
+          $venv = Join-Path $env:RUNNER_TEMP 'gffx-rc-win-wheel-test'
+          python -m venv --clear $venv
+          if ($LASTEXITCODE -ne 0) { throw 'Venv creation failed' }
+          $py = Join-Path $venv 'Scripts/python.exe'
+          & $py -m pip install --no-index --no-deps $wheel[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Exact wheel installation failed' }
+          Remove-Item Env:GFFX_CUDA_PLUGIN_PATH -ErrorAction SilentlyContinue
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $py -c "import gffx; from pathlib import Path; assert (Path(gffx.__file__).parent/'gffx_cuda12.dll').is_file(); p=gffx.cuda.capabilities(); assert p['status']=='loaded', p; print('exact Windows CUDA wheel: real device loaded')"
+            if ($LASTEXITCODE -ne 0) { throw 'Installed Windows CUDA wheel failed on real device' }
+          } finally { Pop-Location }
       - name: Hash artifacts and capture the build environment
         shell: bash
         run: >-
