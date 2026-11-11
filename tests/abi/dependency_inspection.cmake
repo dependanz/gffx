@@ -47,6 +47,24 @@ set(allowed_includes
     "\"principled_pairs.inc\""
     "\"image_transfer_scalar.h\""
     "\"image_transfer_boundary.h\""
+    # Vetted internal shading/opaque implementation fragments used by the C11 core.
+    "\"delta_brdf_scalar.h\""
+    "\"unit_newton_scalar.h\""
+    "\"opaque_albedo_scalar.h\""
+    "\"opaque_samples_scalar.h\""
+    "\"opaque_exact_orientation.h\""
+    "\"opaque_pair_scalar.h\""
+    "\"opaque_batch_cursor.h\""
+    "\"opaque_samples_args.h\""
+    "\"opaque_boundary_scalar.h\""
+    "\"opaque_partition_scalar.h\""
+    "\"opaque_pair_dispatch.h\""
+    "\"ordered_rgba.inc\""
+    "\"unit_newton.inc\""
+    "\"unit_vectors.inc\""
+    "\"delta_brdf.inc\""
+    "\"opaque_samples.inc\""
+    "\"opaque_albedo.inc\""
 )
 
 # Facilities the scaffold must not reach for: allocation, process-wide I/O, abort paths,
