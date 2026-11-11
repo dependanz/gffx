@@ -92,7 +92,8 @@ def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
     assert {path.name for path in workflows.glob("*.yml")} == {
         "package-foundation-pr.yml", "package-foundation-nightly.yml",
         "package-foundation-rc.yml", "package-artifacts-pr.yml",
-        "cuda-hardware.yml", "publish-alpha.yml", "windows-functional.yml",
+        "cuda-hardware.yml", "publish-alpha.yml",
+        "publish-multiplatform.yml", "windows-functional.yml",
     }
 
 
@@ -224,6 +225,33 @@ def test_release_candidate_blocks_without_real_cuda_and_exact_commit() -> None:
     pinned = "sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c"
     assert pinned in rc and pinned in preview
     assert "manylinux_2_28_x86_64_cuda12_9:latest" not in preview
+
+
+def test_multiplatform_publisher_is_manual_protected_and_never_rebuilds() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "publish-multiplatform.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request:" not in workflow
+    assert "schedule:" not in workflow
+    assert "push:" not in workflow
+    assert "release:" not in workflow
+    assert "github.actor == 'dependanz'" in workflow
+    assert "rc_run_id:" in workflow
+    assert "approved-rc-bundle" in workflow
+    assert "rc-candidate-receipt" in workflow
+    assert "cuda-hardware-report-windows-rc" in workflow
+    assert "cuda-hardware-report-linux-rc" in workflow
+    assert "tools/verify_multiplatform_publication.py" in workflow
+    assert "needs: preflight" in workflow
+    assert "name: pypi" in workflow
+    assert "id-token: write" in workflow
+    assert "packages-dir: dist/" in workflow
+    # OIDC runs only a pinned PyPI action against downloaded vetted wheel bytes.
+    privileged = workflow.split("\n  publish:\n", maxsplit=1)[1]
+    assert "actions/checkout@" not in privileged
+    assert "run:" not in privileged
+    assert "pypa/gh-action-pypi-publish@" in privileged
 
 
 def test_ci_smoke_exposes_installed_and_uninstalled_modes() -> None:
