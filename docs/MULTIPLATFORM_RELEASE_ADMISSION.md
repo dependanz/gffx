@@ -73,6 +73,9 @@ and must pass native device tests and compute-sanitizer before upload. Linux
 x64 uses a CUDA 12.9 manylinux 2.28 build image pinned to its validated
 SHA-256 digest; ARM64 and macOS CPU builds remain GPU-independent.
 
+Runner setup and owner-controlled registration procedures are in
+[RELEASE_RUNNERS_0_2_2.md](RELEASE_RUNNERS_0_2_2.md).
+
 The candidate now **fails closed** until a protected Linux x64 NVIDIA runner
 installs its exact candidate wheel, loads the bundled CUDA provider and passes
 the native GPU test inventory and sanitizer checks. The RC then requires the
