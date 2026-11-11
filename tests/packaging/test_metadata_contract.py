@@ -23,7 +23,7 @@ def test_distribution_declares_tested_torch_and_python_310_plus():
     project = document["project"]
 
     assert project["name"] == "gffx"
-    assert project["version"] == "0.2.1"
+    assert project["version"] == "0.2.2"
     assert project["requires-python"] == ">=3.10"
     assert project["dependencies"] == ["torch>=2.10.0,<=2.14.1"]
     assert project["license"] == {"file": "LICENSE"}
