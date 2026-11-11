@@ -28,7 +28,7 @@ def write_wheel(path: Path, *, requires_dist: str | None = "torch<=2.14.1,>=2.10
     metadata = (
         "Metadata-Version: 2.2\n"
         "Name: gffx\n"
-        "Version: 0.2.1\n"
+        "Version: 0.2.2\n"
         "Requires-Python: >=3.10\n"
     )
     if requires_dist is not None:
@@ -42,12 +42,12 @@ def write_wheel(path: Path, *, requires_dist: str | None = "torch<=2.14.1,>=2.10
         "gffx/torch/__init__.py": b"",
         "gffx/_core.pyd": b"native",
         "gffx/gffx_core.dll": b"native",
-        "gffx-0.2.1.dist-info/METADATA": metadata.encode(),
-        "gffx-0.2.1.dist-info/WHEEL": (
+        "gffx-0.2.2.dist-info/METADATA": metadata.encode(),
+        "gffx-0.2.2.dist-info/WHEEL": (
             b"Wheel-Version: 1.0\nTag: cp310-abi3-win_amd64\n"
         ),
-        "gffx-0.2.1.dist-info/licenses/LICENSE": b"MIT",
-        "gffx-0.2.1.dist-info/RECORD": b"",
+        "gffx-0.2.2.dist-info/licenses/LICENSE": b"MIT",
+        "gffx-0.2.2.dist-info/RECORD": b"",
     }
     if cuda_plugin:
         names["gffx/gffx_cuda12.dll"] = b"optional provider"
@@ -76,7 +76,7 @@ def write_sdist(path: Path, *, generated_path: str | None = None) -> None:
     with tarfile.open(path, "w:gz") as archive:
         for relative in names:
             payload = b"foundation fixture"
-            info = tarfile.TarInfo(f"gffx-0.2.1/{relative}")
+            info = tarfile.TarInfo(f"gffx-0.2.2/{relative}")
             info.size = len(payload)
             archive.addfile(info, io.BytesIO(payload))
 
@@ -296,7 +296,7 @@ def test_base_dependency_scan_rejects_an_undeclared_import(tmp_path: Path):
 
 def test_wheel_inspection_accepts_declared_torch_and_rejects_runtime_leaks(tmp_path: Path):
     verifier = load_verifier()
-    good = tmp_path / "gffx-0.2.1-cp310-abi3-win_amd64.whl"
+    good = tmp_path / "gffx-0.2.2-cp310-abi3-win_amd64.whl"
     write_wheel(good)
     report = verifier.inspect_wheel(good)
     assert report["runtime_dependencies"] == 1
@@ -315,7 +315,7 @@ def test_wheel_inspection_accepts_declared_torch_and_rejects_runtime_leaks(tmp_p
 
 def test_sdist_inspection_accepts_source_and_rejects_generated_output(tmp_path: Path):
     verifier = load_verifier()
-    good = tmp_path / "gffx-0.2.1.tar.gz"
+    good = tmp_path / "gffx-0.2.2.tar.gz"
     write_sdist(good)
     assert verifier.inspect_sdist(good)["members"] == 10
 
