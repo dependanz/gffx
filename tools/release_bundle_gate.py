@@ -45,6 +45,23 @@ class ReleaseBundleError(ValueError):
     """The exact release bundle does not satisfy the public platform contract."""
 
 
+def wheel_name_matches(filename: str, version: str, wheel_tag: str) -> bool:
+    """Accept PEP 425 compressed platform tags, including auditwheel's multiple tags.
+
+    Require the exact gffx version, cp310-abi3, and the canonical platform tag.
+    A Linux wheel tagged for both 2.27 and 2.28 is compatible with the 2.28 floor;
+    that is not a missing wheel or a reason to rename the audited artifact.
+    """
+    prefix = f"gffx-{version}-cp310-abi3-"
+    if not filename.startswith(prefix) or not filename.endswith(".whl"):
+        return False
+    suffix = filename[len(prefix):-4]
+    platform = wheel_tag.removeprefix("cp310-abi3-")
+    return platform in suffix.split(".")
+
+
+
+
 def _digest(path: Path) -> dict[str, str | int]:
     return {
         "filename": path.name,
@@ -114,22 +131,33 @@ def verify(dist: Path, pyproject: Path) -> dict:
     if not dist.is_dir():
         raise ReleaseBundleError(f"distribution directory does not exist: {dist}")
 
-    expected_wheels = {
-        platform: f"gffx-{version}-{properties['wheel_tag']}.whl"
-        for platform, properties in PLATFORMS.items()
-    }
-    expected_files = {*expected_wheels.values(), f"gffx-{version}.tar.gz"}
+    # auditwheel may add a compatible, higher-priority manylinux tag to the filename.
+    # Match the required platform among compressed tags rather than demanding a
+    # single hard-coded spelling of a perfectly valid repaired wheel.
+    wheels = sorted(path for path in dist.iterdir() if path.is_file() and path.suffix == ".whl")
+    expected_wheels: dict[str, Path] = {}
+    for platform, properties in PLATFORMS.items():
+        matching = [path for path in wheels if
+                    wheel_name_matches(path.name, version, properties["wheel_tag"])]
+        if len(matching) != 1:
+            raise ReleaseBundleError(
+                f"release artifacts incomplete for {platform}: found {len(matching)} matching wheels"
+            )
+        expected_wheels[platform] = matching[0]
+    sdist_name = f"gffx-{version}.tar.gz"
     actual_files = {path.name for path in dist.iterdir() if path.is_file()}
+    expected_files = {path.name for path in expected_wheels.values()} | {sdist_name}
     extra = sorted(actual_files - expected_files)
     missing = sorted(expected_files - actual_files)
-    if extra or missing:
+    if (extra or missing or len(set(expected_wheels.values())) != len(PLATFORMS)
+            or any(not path.is_file() for path in dist.iterdir())):
         raise ReleaseBundleError(f"release artifacts incomplete: missing={missing}, unexpected={extra}")
-    if any(not (dist / name).is_file() for name in expected_files):
-        raise ReleaseBundleError("some release artifacts are not regular files")
+    if not (dist / sdist_name).is_file():
+        raise ReleaseBundleError("missing source distribution")
 
     dependencies = None
-    for platform, filename in expected_wheels.items():
-        current = _check_wheel(dist / filename, version, platform, bool(project.get("dependencies")))
+    for platform, wheel in expected_wheels.items():
+        current = _check_wheel(wheel, version, platform, bool(project.get("dependencies")))
         if dependencies is None:
             dependencies = current
         elif current != dependencies:
