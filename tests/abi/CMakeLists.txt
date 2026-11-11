@@ -7,6 +7,9 @@ target_link_libraries(gffx_test_abi_runtime PRIVATE gffx_core)
 add_test(NAME abi.runtime COMMAND gffx_test_abi_runtime)
 
 add_executable(gffx_test_abi_capabilities test_abi_capabilities.c)
+target_compile_definitions(gffx_test_abi_capabilities PRIVATE
+    GFFX_EXPECTED_PACKAGE_VERSION=\"${GFFX_PACKAGE_VERSION_VALUE}\"
+)
 target_link_libraries(gffx_test_abi_capabilities PRIVATE gffx_core)
 add_test(NAME abi.capabilities COMMAND gffx_test_abi_capabilities)
 
