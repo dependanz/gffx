@@ -191,7 +191,7 @@ def run_command(
     success = completed.returncode == 0
     if success != expect_success:
         expectation = "succeed" if expect_success else "fail"
-        tail = "\n".join(combined.splitlines()[-80:])
+        tail = "\n".join(combined.splitlines()[-250:])
         raise VerificationError(
             f"command was expected to {expectation} but returned {completed.returncode}: "
             f"{_display_command(normalized)}\n{tail}"
