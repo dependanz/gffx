@@ -191,7 +191,7 @@ def test_rc_installs_downloaded_wheels_without_rebuilding_source() -> None:
     assert "verify-artifacts:" in rc
     assert "tools/assemble_candidate_bundle.py" in rc
     assert "tools/release_bundle_gate.py" in rc
-    assert "needs: [verify-artifacts, artifact-tests]" in rc
+    assert "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]" in rc
     assert "actions/download-artifact@" in rc
     assert "tools/ci_smoke.py installed" in rc
     assert "tools/ci_smoke.py uninstalled" in rc
