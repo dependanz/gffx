@@ -90,7 +90,8 @@ def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
     assert not (workflows / "wheels.yml").exists()
     assert {path.name for path in workflows.glob("*.yml")} == {
         "package-foundation-pr.yml", "package-foundation-nightly.yml",
-        "package-foundation-rc.yml", "cuda-hardware.yml", "publish-alpha.yml", "windows-functional.yml",
+        "package-foundation-rc.yml", "package-artifacts-pr.yml",
+        "cuda-hardware.yml", "publish-alpha.yml", "windows-functional.yml",
     }
 
 
