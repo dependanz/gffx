@@ -1,4 +1,4 @@
-# Simple scenes (0.2.1)
+# Simple scenes (0.2.1 baseline and 0.2.2 preview API)
 
 The 0.2.1 API provides scene construction, a camera, rendering and
 PNG export. These additions are **not in the older 0.2.0 wheel**. `pip install gffx` installs a compatible Torch runtime too;
