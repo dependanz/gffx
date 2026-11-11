@@ -129,6 +129,64 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  linux-cuda-pilot:
+    # This host has no NVIDIA device. It qualifies compilation/repair only, never GPU execution.
+    # The image tag is temporary for the exploratory lane; pin its digest before release use.
+    name: experimental-linux-x64-cuda-provider
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select packaging Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Build experimental manylinux x86-64 CUDA 12 provider
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        env:
+          CIBW_ARCHS: x86_64
+          CIBW_BUILD: cp310-manylinux_x86_64
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9:latest
+          CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation"
+          CIBW_BEFORE_BUILD: >-
+            python -m pip install scikit-build-core==1.0.3 cmake==4.4.2 ninja==1.13.0 &&
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_BEFORE_TEST: >-
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_CONFIG_SETTINGS: >-
+            cmake.define.GFFX_BUILD_PYTORCH=ON
+            cmake.define.GFFX_ENABLE_CUDA=ON
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
+            auditwheel repair --exclude libc10.so --exclude libtorch.so
+            --exclude libtorch_cpu.so --exclude libcuda.so.1 --exclude libcuda.so
+            -w {dest_dir} {wheel}
+          CIBW_TEST_COMMAND: >-
+            python -c "import gffx; from pathlib import Path;
+            c=gffx.capabilities();
+            assert c['native_core']['available'] and not c['gpu_probed'];
+            assert (Path(gffx.__file__).parent/'libgffx_cuda12.so').is_file();
+            gffx.torch; import torch;
+            assert hasattr(torch.ops.gffx_internal, '_foundation_probe');
+            print('linux CUDA provider packaged without GPU execution')"
+        with:
+          output-dir: wheelhouse-linux-cuda
+      - name: Inspect the CUDA-enabled wheel and record its artifact digest
+        shell: bash
+        run: |
+          python tools/ci_smoke.py artifacts --directory wheelhouse-linux-cuda --output wheelhouse-linux-cuda/provenance.json
+          python -c 'from pathlib import Path; from zipfile import ZipFile; wheels=list(Path("wheelhouse-linux-cuda").glob("gffx-*.whl")); assert len(wheels)==1, wheels; f=ZipFile(wheels[0]); assert "gffx/libgffx_cuda12.so" in f.namelist(); print("CUDA provider payload present")'
+      - name: Retain non-publishable Linux CUDA experiment
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pilot-linux-x64-cuda
+          path: wheelhouse-linux-cuda/
+          if-no-files-found: error
+          retention-days: 14
+
   required:
     name: package-artifacts-pr-required
     if: ${{ always() }}
