@@ -1,8 +1,6 @@
 """Runner preflight refuses wrong hardware without accessing runner credentials."""
 from __future__ import annotations
 
-import copy
-
 import pytest
 
 from tools.release_runner_preflight import TOOLS, validate
@@ -40,7 +38,8 @@ def test_runner_preflight_refuses_missing_qualification_prerequisites(problem):
     elif problem == "missing_gpu":
         report["tools"]["nvidia_smi"]["output"] = "No devices were found"
     else:
-        report["tools"][problem.removeprefix("missing_")]["available"] = False
+        name = {"missing_sanitizer": "compute_sanitizer"}.get(problem, problem.removeprefix("missing_"))
+        report["tools"][name]["available"] = False
     assert validate(report, "linux")
 
 
