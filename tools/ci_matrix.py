@@ -394,6 +394,33 @@ def validate_workflows(root: Path) -> list[str]:
     ):
         if token not in rc:
             errors.append(f"release-candidate workflow missing {token}")
+    # A production candidate must be immutable and include real-device CUDA
+    # qualification on both x64 targets before the exact bundle is admitted.
+    rc_cuda_requirements = (
+        "rc-exact-commit-required",
+        "^[0-9a-f]{40}$",
+        "fromJSON(",
+        "cuda-hardware",
+        "linux-cuda-hardware:",
+        "release-candidate-linux-nvidia-required",
+        "needs: [build-artifacts, linux-cuda-hardware]",
+        "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]",
+        "runs-on: [self-hosted, linux, x64, cuda]",
+        "verify_cuda_lane.py",
+        "compute-sanitizer",
+        "GFFX_ENABLE_CUDA=ON",
+        "quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9@sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c",
+        "libgffx_cuda12.so",
+        "gffx_cuda12.dll",
+    )
+    for required in rc_cuda_requirements:
+        if required not in rc:
+            errors.append(f"release-candidate CUDA safety contract missing {required}")
+    if "pull_request:" in rc or "schedule:" in rc or "id-token: write" in rc:
+        errors.append("release-candidate device lane must not run on untrusted events")
+    if "manylinux_2_28_x86_64_cuda12_9:latest" in preview:
+        errors.append("experimental CUDA pilot image must be digest-pinned")
+
     artifact_tests = rc.split("artifact-tests:", maxsplit=1)
     if len(artifact_tests) == 2 and "python -m pip wheel ." in artifact_tests[1]:
         errors.append("release-candidate artifact tests rebuild the source tree")
