@@ -1,4 +1,4 @@
-"""Run with gffx 0.2.1; writes cornell_box.png."""
+"""Run with gffx 0.2.2; writes cornell_box.png."""
 import gffx as g
 
 scene = g.Scene([
