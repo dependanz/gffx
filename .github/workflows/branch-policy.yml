@@ -1,0 +1,68 @@
+name: branch-policy
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-policy-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  routing:
+    name: branch-policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Enforce pull-request branch routing
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "No PR routing check for $EVENT_NAME."
+            exit 0
+          fi
+          if [[ "$BASE_BRANCH" == "main" ]]; then
+            case "$HEAD_BRANCH" in
+              dev|release/*|hotfix/*) ;;
+              *) echo "::error::PRs into main must come from dev, release/* or hotfix/*"; exit 1 ;;
+            esac
+          elif [[ "$BASE_BRANCH" == "dev" ]]; then
+            case "$HEAD_BRANCH" in
+              feature/*|fix/*|chore/*|docs/*|hotfix/*|main) ;;
+              *) echo "::error::PRs into dev must be an approved development branch"; exit 1 ;;
+            esac
+          fi
+          echo "Branch routing passed: $HEAD_BRANCH -> $BASE_BRANCH"
+
+  dev-contract:
+    name: dev-contract-smoke
+    if: github.ref == 'refs/heads/dev' || github.base_ref == 'dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select policy Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Verify existing CI contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install pytest==9.0.3
+          python tools/ci_matrix.py check
+          python -m pytest -q tests/packaging/test_ci_contract.py
