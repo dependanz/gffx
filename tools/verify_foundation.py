@@ -639,7 +639,7 @@ def verify_install_optional_and_uninstall(
         assert report['native_core']['limited_api'] == '0x030A0000', report
         assert report['gpu_probed'] is False, report
         distribution = importlib.metadata.distribution('gffx')
-        assert not list(distribution.requires or []), distribution.requires
+        assert list(distribution.requires or []) == ['torch<=2.14.1,>=2.10.0'], distribution.requires
         files = [str(distribution.locate_file(item)) for item in distribution.files or []]
         print(json.dumps({'files': files, 'version': gffx.__version__}))
         """
