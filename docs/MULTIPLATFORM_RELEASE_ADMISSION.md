@@ -79,6 +79,19 @@ the native GPU test inventory and sanitizer checks. The RC then requires the
 complete four-wheel + source archive bundle and the compatibility test matrix.
 There is no PyPI publishing step in this workflow.
 
+## Owner-controlled publication workflow
+
+The proposed publish-multiplatform.yml workflow is owner-only and manually
+triggered with a stable tag and RC run ID. Its unprivileged preflight verifies
+the matching version and source SHA, a fully successful RC run, the SHA-256
+receipt for all candidate artifacts, and Windows/Linux NVIDIA device reports.
+
+A separate pypi-environment-gated OIDC job uploads only those exact approved
+artifacts, without checking out or executing candidate source code. Deployment
+still requires protecting the pypi environment with required owner review,
+registering this new workflow as a PyPI Trusted Publisher, and protecting main
+and release tags. Nothing has been uploaded or approved by this PR.
+
 Remaining work before releasing 0.2.2:
 
 - Register/provision the protected Windows and Linux CUDA runners, including
@@ -88,8 +101,8 @@ Remaining work before releasing 0.2.2:
   drivers solely because GFFX accepts toolkit 12.0 for local builds
 - Run and retain every supported Python/PyTorch artifact test, including
   qualification of the declared PyTorch 2.14.1 upper boundary
-- Replace the 0.2.1-specific publisher with an explicitly owner-approved,
-  version-neutral, exact-artifact OIDC PyPI publisher
+- Configure and qualify the new version-neutral trusted publisher, retiring
+  the hard-coded 0.2.1-only publication workflow after review
 - Set release version 0.2.2 and update version-specific metadata and tests;
   confirm public-index installation on all supported systems and Colab
 - Qualify macOS Intel separately before advertising it as supported; Metal/MPS
