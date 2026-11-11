@@ -87,6 +87,24 @@ def test_unexpected_artifact_fails(tmp_path):
         verify(dist, pyproject)
 
 
+def test_repaired_composite_manylinux_tags_are_accepted(tmp_path):
+    dist, pyproject = _bundle(tmp_path)
+    old = dist / "gffx-0.2.2-cp310-abi3-manylinux_2_28_x86_64.whl"
+    repaired = dist / "gffx-0.2.2-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+    old.rename(repaired)
+    result = verify(dist, pyproject)
+    assert any(row["filename"] == repaired.name for row in result["artifacts"])
+
+
+def test_duplicate_compatible_manylinux_tags_fail_closed(tmp_path):
+    dist, pyproject = _bundle(tmp_path)
+    old = dist / "gffx-0.2.2-cp310-abi3-manylinux_2_28_x86_64.whl"
+    new = dist / "gffx-0.2.2-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+    new.write_bytes(old.read_bytes())
+    with pytest.raises(ReleaseBundleError, match="2 matching wheels"):
+        verify(dist, pyproject)
+
+
 def test_missing_sdist_fails(tmp_path):
     dist, pyproject = _bundle(tmp_path)
     (dist / "gffx-0.2.2.tar.gz").unlink()
