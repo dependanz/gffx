@@ -407,6 +407,7 @@ def validate_workflows(root: Path) -> list[str]:
         "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]",
         "runs-on: [self-hosted, linux, x64, cuda]",
         "verify_cuda_lane.py",
+        "tools/release_runner_preflight.py",
         "compute-sanitizer",
         "GFFX_ENABLE_CUDA=ON",
         "quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9@sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c",
