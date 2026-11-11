@@ -186,7 +186,7 @@ def test_rc_installs_downloaded_wheels_without_rebuilding_source() -> None:
     rc = (ROOT / ".github" / "workflows" / "package-foundation-rc.yml").read_text(
         encoding="utf-8"
     )
-    assert "needs: build-artifacts" in rc
+    assert "needs: [build-artifacts, linux-cuda-hardware]" in rc
     assert "verify-artifacts:" in rc
     assert "tools/assemble_candidate_bundle.py" in rc
     assert "tools/release_bundle_gate.py" in rc
