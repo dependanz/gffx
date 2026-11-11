@@ -1,5 +1,14 @@
 # Dependency and provenance policy
 
+The planned 0.2.2 cross-platform wheels preserve the same declared
+`torch>=2.10.0,<=2.14.1` dependency as 0.2.1. The CPU and native import
+boundaries remain independent of the GPU provider. Windows/Linux x64 wheels
+will contain the lazy CUDA provider; supported ARM64 and macOS wheels do not.
+The new `to_display` API uses the existing PyTorch image-transfer binding
+and introduces no additional runtime dependency. The candidate is not
+published until the explicit platform and hardware gates pass.
+
+
 The 0.2.1 Python distribution has one direct runtime requirement: `torch>=2.10.0,<=2.14.1`.
 It installs automatically so the scene example works in a fresh environment.
 Earlier 0.2.0 artifacts retain their zero-dependency policy. The CPU-built
