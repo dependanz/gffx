@@ -89,6 +89,22 @@ def diffuse(cls, name, albedo, *, dtype=None, device=None):
     return cls(name,material.classic,dict(albedo=a,specular=a.new_zeros(()),exponent=a.new_ones(())))
 
 
+def glossy(cls, name, albedo, *, roughness=.25, specular=.3, dtype=None, device=None):
+    from . import material
+    a,r,s=tensors(albedo,roughness,specular,dtype=dtype,device=device)
+    if a.ndim==0:a=a.expand(3)
+    if a.shape!=(3,) or not bool(((a>=0)&(a<=1)).all()):
+        raise ValueError('albedo must be an RGB value in [0,1]')
+    if r.ndim!=0 or not bool((r>0)&(r<=1)):
+        raise ValueError('roughness must be a scalar in (0,1]')
+    if s.shape not in ((),(3,)) or not bool(((s>=0)&(s<=1)).all()):
+        raise ValueError('specular must be scalar or RGB in [0,1]')
+    exponent=2/r.square()-2
+    if not bool(torch.isfinite(exponent)):
+        raise ValueError('roughness produces an unrepresentable highlight exponent')
+    return cls(name,material.classic,dict(albedo=a,specular=s,exponent=exponent))
+
+
 def emissive(cls, name, radiance, *, dtype=None, device=None):
     r, = tensors(radiance,dtype=dtype,device=device)
     if r.ndim == 0:r=r.expand(3)
@@ -96,6 +112,53 @@ def emissive(cls, name, radiance, *, dtype=None, device=None):
         raise ValueError('emission must be nonnegative RGB radiance')
     result=diffuse(cls,name,r.new_zeros(3))
     return replace(result,emission=r)
+
+
+def pbr(cls,name,base_color,*,roughness,metallic,ior,coat,coat_roughness,normal_map,normal_space,subsurface,subsurface_radius,subsurface_transmission,dtype,device):
+    from ._deferred import TextureSource
+    from ._raster_material import pbr as evaluator,validate_material
+    params={}
+    for key,value in dict(base_color=base_color,roughness=roughness,metallic=metallic,
+                          ior=ior,coat=coat,coat_roughness=coat_roughness).items():
+        if isinstance(value,TextureSource):params[key]=value
+        else:
+            val,=tensors(value,dtype=dtype,device=device)
+            if key=='base_color':
+                if val.ndim==0:val=val.expand(3)
+                if val.shape!=(3,):raise ValueError('base_color must be RGB')
+            elif val.ndim!=0:raise ValueError(key+' must be a scalar or texture')
+            params[key]=val
+    if normal_space not in ('tangent','world'):raise ValueError('normal_space must be tangent or world')
+    if normal_map is not None:
+        params['normal_map']=normal_map
+        if normal_space!='tangent':params['normal_space']=normal_space
+    weight,=tensors(subsurface,dtype=dtype,device=device)
+    if weight.ndim!=0:raise ValueError("subsurface must be a scalar")
+    if bool(weight!=0):
+        radius,transmission=tensors(subsurface_radius,subsurface_transmission,dtype=dtype,device=device)
+        if radius.shape!=(3,) or transmission.ndim:raise ValueError("subsurface radius must be RGB and transmission scalar")
+        params.update(subsurface=weight,subsurface_radius=radius,subsurface_transmission=transmission)
+    validate_material(params)
+    return cls(name,evaluator,params)
+
+
+def punctual(cls,name,kind,*,position=None,direction=None,power=1.,color=(1,1,1),angle=0.,blend=0.,dtype=None,device=None):
+    from . import light
+    from ._raster_material import spot,unit
+    c,p=tensors(color,power,dtype=dtype,device=device)
+    if c.shape!=(3,) or p.ndim or not bool((c>=0).all()) or not bool(p>=0):raise ValueError('power/color must be finite nonnegative scalar/RGB')
+    if kind=='sun':
+        d,=vectors(direction,dtype=c.dtype,device=c.device)
+        if not bool((d!=0).any()):raise ValueError('light direction must be nonzero')
+        if not 0<=angle<90:raise ValueError('sun angle must be in [0,90) degrees')
+        return cls(name,light.directional,dict(directions=-unit(d)[None],irradiance=(c*p)[None],angle=math.radians(angle)))
+    pos,=vectors(position,dtype=c.dtype,device=c.device)
+    params=dict(positions=pos[None],intensity=(c*p/(4*math.pi))[None])
+    if kind=='spot':
+        d,=vectors(direction,dtype=c.dtype,device=c.device)
+        if not bool((d!=0).any()) or not 0<angle<179 or not 0<=blend<=1:raise ValueError('spot requires nonzero direction, angle in (0,179), blend in [0,1]')
+        params.update(direction=unit(d),angle=math.radians(angle),blend=float(blend))
+    return cls(name,spot if kind=='spot' else light.point,params)
 
 
 def rectangle(cls, name, *, center, u, v, radiance, samples=4, visible=True, dtype=None, device=None):

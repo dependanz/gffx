@@ -15,11 +15,16 @@ the lazy scene types or namespaces.
 from __future__ import annotations
 
 __all__ = [
-    "Scene", "Mesh", "Material", "Light", "Camera", "io", "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch", "camera", "shade", "material", "scene", "image", "render", "mesh", "transforms", "skeleton"
+    "Environment", "ReflectionProbe", "IrradianceVolume", "PlanarReflection", "Scene", "Mesh", "Material", "Light", "Camera", "io", "__version__", "abi_version", "capabilities", "native_core_is_loaded", "cuda", "torch", "camera", "shade", "material", "scene", "image", "render", "mesh", "transforms", "skeleton"
 ]
 
 
 def __getattr__(name: str):
+    if name in ('Environment','ReflectionProbe','IrradianceVolume','PlanarReflection'):
+        from importlib import import_module
+        value=getattr(import_module('.torch._raster_lighting',__name__),name)
+        globals()[name]=value
+        return value
     # PEP 562 module-level lazy attributes: nothing below is imported until first use.
     if name in ("Scene", "Mesh", "Material", "Light", "Camera"):
         from importlib import import_module

@@ -127,6 +127,9 @@ if(GFFX_ENABLE_CUDA)
     include(GffxCuda)
 endif()
 
+# Private forward-raster acceleration: C11 CPU plus optional Driver API provider.
+add_subdirectory(native/raster)
+
 # Developer demo. Not a test, not installed, and not part of the library surface; it exists so
 # the implemented kernels can be seen producing an image. Build with --target gffx_demo_cube.
 add_executable(gffx_demo_cube EXCLUDE_FROM_ALL examples/render_cube.c)
@@ -183,5 +186,9 @@ endif()
 
 # The public short example is installed verbatim and remains readable in the source tree.
 if(SKBUILD)
-  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/examples/cornell_box.py" DESTINATION gffx/examples)
+  install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/cornell_box.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/cornell_glossy.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/fit_glossy_material.py"
+    DESTINATION gffx/examples)
 endif()

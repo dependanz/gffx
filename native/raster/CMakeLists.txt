@@ -1,0 +1,37 @@
+cmake_minimum_required(VERSION 3.26)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+ project(gffx_raster_acceleration LANGUAGES C)
+ option(GFFX_RASTER_CUDA "Compile optional Driver API acceleration" OFF)
+else()
+ set(GFFX_RASTER_CUDA ${GFFX_ENABLE_CUDA})
+endif()
+function(gffx_configure_raster target)
+ target_compile_features(${target} PRIVATE c_std_11)
+ if(MSVC)
+  target_compile_options(${target} PRIVATE /fp:strict)
+ else()
+  target_compile_options(${target} PRIVATE -ffp-contract=off -fno-fast-math)
+  target_link_libraries(${target} PRIVATE m)
+ endif()
+ install(TARGETS ${target} RUNTIME DESTINATION gffx LIBRARY DESTINATION gffx)
+endfunction()
+# CPU loading never imports an NVIDIA driver, including in GPU-capable wheels.
+add_library(gffx_raster SHARED shade.c)
+gffx_configure_raster(gffx_raster)
+if(GFFX_RASTER_CUDA)
+ find_package(CUDAToolkit 12 REQUIRED)
+ find_package(Python COMPONENTS Interpreter REQUIRED)
+ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/shade.ptx
+  COMMAND ${CUDAToolkit_NVCC_EXECUTABLE} -arch=compute_75 -fmad=false -ftz=false -ptx ${CMAKE_CURRENT_SOURCE_DIR}/shade.cu -o ${CMAKE_CURRENT_BINARY_DIR}/shade.ptx
+  DEPENDS shade.cu shade_scalar.h shade_area.h shade_indirect.h shade_subsurface.h VERBATIM)
+ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/shade_ptx.h
+  COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/embed.py ${CMAKE_CURRENT_BINARY_DIR}/shade.ptx ${CMAKE_CURRENT_BINARY_DIR}/shade_ptx.h
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/shade.ptx embed.py VERBATIM)
+ add_library(gffx_raster_cuda SHARED shade.c ${CMAKE_CURRENT_BINARY_DIR}/shade_ptx.h)
+ gffx_configure_raster(gffx_raster_cuda)
+ target_include_directories(gffx_raster_cuda PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+ target_compile_definitions(gffx_raster_cuda PRIVATE GFFX_RASTER_CUDA=1)
+ target_link_libraries(gffx_raster_cuda PRIVATE CUDA::cuda_driver)
+endif()
+
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../src/gffx/torch/_ltc.bin ${CMAKE_CURRENT_SOURCE_DIR}/../../src/gffx/torch/_ltc_LICENSE.txt DESTINATION gffx/torch)
