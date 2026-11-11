@@ -186,6 +186,10 @@ def test_rc_installs_downloaded_wheels_without_rebuilding_source() -> None:
         encoding="utf-8"
     )
     assert "needs: build-artifacts" in rc
+    assert "verify-artifacts:" in rc
+    assert "tools/assemble_candidate_bundle.py" in rc
+    assert "tools/release_bundle_gate.py" in rc
+    assert "needs: [verify-artifacts, artifact-tests]" in rc
     assert "actions/download-artifact@" in rc
     assert "tools/ci_smoke.py installed" in rc
     assert "tools/ci_smoke.py uninstalled" in rc
