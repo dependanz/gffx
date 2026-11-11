@@ -14,7 +14,7 @@ lives in `tools/ci_matrix.py`.
   runs in odd ISO weeks and 2.12 in even ISO weeks. A separate Linux x64 Python 3.15/PyTorch-nightly
   preview is deliberately nonblocking.
 - `package-foundation-rc.yml` builds four adapter-enabled `cp310-abi3` wheels once against the
-  PyTorch 2.10 CPU floor, hashes them, then installs those exact downloaded artifacts in 80 clean
+  PyTorch 2.10 CPU floor, hashes them, then installs those exact downloaded artifacts in 100 clean
   platform/Python/PyTorch environments. It also builds one sdist beside the Linux x64 wheel. There
   is no source rebuild in an artifact-test job and no package-index upload step.
 
