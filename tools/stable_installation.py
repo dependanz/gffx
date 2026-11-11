@@ -36,7 +36,7 @@ def main():
         python=str(folder/'Scripts/python.exe')
         if previous:
             run(name+'-old',[python,'-m','pip','install','--no-index','--no-deps',str(previous.resolve())])
-            run(name+'-old-identity',[python,'-I','-c','import importlib.metadata as m; assert m.version("gffx")!="0.2.1";print(m.version("gffx"))'])
+            run(name+'-old-identity',[python,'-I','-c','import importlib.metadata as m; assert m.version("gffx")!="0.2.2";print(m.version("gffx"))'])
         run(name+'-install',[python,'-m','pip','install','--no-index','--no-deps','--upgrade',str(args.wheel.resolve())])
         probe='''import ctypes,importlib.util,json,sys
 from pathlib import Path
@@ -44,7 +44,7 @@ assert importlib.util.find_spec('torch') is None
 assert not ctypes.windll.kernel32.GetModuleHandleW('nvcuda.dll')
 assert not ctypes.windll.kernel32.GetModuleHandleW('gffx_cuda12.dll')
 import gffx
-assert gffx.__version__=='0.2.1'
+assert gffx.__version__=='0.2.2'
 assert Path(gffx.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
 cap=gffx.capabilities()
 assert cap['native_core']['available'] and cap['gpu_probed'] is False
