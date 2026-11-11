@@ -76,6 +76,14 @@ add_custom_command(
 )
 
 if(WIN32)
+    # This resource generator needs a Python interpreter even for a native-only
+    # CUDA build with GFFX_BUILD_PYTHON=OFF and GFFX_BUILD_PYTORCH=OFF. In
+    # those configurations neither Python adapter module executes FindPython,
+    # leaving Python_EXECUTABLE empty. On Visual Studio the resulting custom
+    # command can report success without creating any of its declared outputs.
+    # Discover the interpreter explicitly, without requiring Python headers.
+    find_package(Python 3.10 REQUIRED COMPONENTS Interpreter)
+
     # Avoid expanding megabytes of PTX literals through the C compiler AST.
     # RC stores exact bytes inside the same DLL, with no external runtime file.
     enable_language(RC)
@@ -86,7 +94,16 @@ if(WIN32)
         COMMAND "${Python_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtxResource.py"
                 --input "${gffx_cuda_ptx}" --payload "${gffx_cuda_ptx_payload}"
                 --rc "${gffx_cuda_ptx_resource}" --header "${gffx_cuda_ptx_header}"
-        DEPENDS "${gffx_cuda_ptx}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtxResource.py"
+        # MSBuild may not fail a custom command that exits without creating
+        # its promised outputs. Check them immediately and reject empty files.
+        COMMAND "${CMAKE_COMMAND}"
+                "-DGFFX_PTX_RESOURCE_HEADER=${gffx_cuda_ptx_header}"
+                "-DGFFX_PTX_RESOURCE_PAYLOAD=${gffx_cuda_ptx_payload}"
+                "-DGFFX_PTX_RESOURCE_SCRIPT=${gffx_cuda_ptx_resource}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxVerifyPtxResource.cmake"
+        DEPENDS "${gffx_cuda_ptx}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxEmbedPtxResource.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GffxVerifyPtxResource.cmake"
         COMMENT "Embedding exact PTX as a Windows DLL resource"
         VERBATIM
     )
