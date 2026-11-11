@@ -292,6 +292,27 @@ jobs:
       - name: Require complete CPU and CUDA provider release payloads
         shell: bash
         run: python tools/release_bundle_gate.py --dist "$RUNNER_TEMP/approved-dist"
+      - name: Bind the source revision and run ID to the exact approved wheel bytes
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.revision }}
+          RC_RUN_ID: ${{ github.run_id }}
+        run: |
+          python tools/rc_candidate_receipt.py create \
+            --source-sha "$CANDIDATE_SHA" --run-id "$RC_RUN_ID" \
+            --dist "$RUNNER_TEMP/approved-dist" \
+            --receipt "$RUNNER_TEMP/rc-candidate-receipt.json"
+          python tools/rc_candidate_receipt.py verify \
+            --source-sha "$CANDIDATE_SHA" --run-id "$RC_RUN_ID" \
+            --dist "$RUNNER_TEMP/approved-dist" \
+            --receipt "$RUNNER_TEMP/rc-candidate-receipt.json"
+      - name: Retain candidate source and hash receipt for publication review
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rc-candidate-receipt
+          path: ${{ runner.temp }}/rc-candidate-receipt.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Retain the complete candidate distribution only after all gates
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
