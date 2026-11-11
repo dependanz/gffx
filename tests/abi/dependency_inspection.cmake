@@ -55,6 +55,7 @@ set(allowed_includes
     "\"opaque_exact_orientation.h\""
     "\"opaque_pair_scalar.h\""
     "\"opaque_batch_cursor.h\""
+    "\"opaque_batch_scalar.h\""
     "\"opaque_samples_args.h\""
     "\"opaque_boundary_scalar.h\""
     "\"opaque_partition_scalar.h\""
