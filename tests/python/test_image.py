@@ -26,7 +26,7 @@ def close(actual, expected):
 def test_public_surface_and_facade(image):
     """Every promised operation is available through the same lazy public facade."""
     facade = importlib.import_module('gffx.image')
-    names = ('convert_alpha', 'srgb_to_linear', 'linear_to_srgb', 'apply_mask',
+    names = ('convert_alpha', 'srgb_to_linear', 'linear_to_srgb', 'to_display', 'apply_mask',
              'composite', 'reconstruct', 'affine_matrix', 'warp_affine', 'adjust',
              'gaussian_blur', 'capabilities')
     for name in names:
@@ -34,6 +34,8 @@ def test_public_surface_and_facade(image):
         assert callable(getattr(facade, name))
     x = rgba([.2, .3, .4, .5])
     assert torch.equal(facade.convert_alpha(x), image.convert_alpha(x))
+    rgb = torch.tensor([[[.18, .5, 2.0]]], dtype=x.dtype)
+    assert torch.equal(facade.to_display(rgb), image.to_display(rgb))
 
 
 @pytest.mark.parametrize('shape',[(1,5),(3,5)])
