@@ -91,6 +91,7 @@ def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
     assert {path.name for path in workflows.glob("*.yml")} == {
         "package-foundation-pr.yml", "package-foundation-nightly.yml",
         "package-foundation-rc.yml", "cuda-hardware.yml", "publish-alpha.yml", "windows-functional.yml",
+        "branch-policy.yml",
     }
 
 
@@ -198,3 +199,17 @@ def test_ci_smoke_exposes_installed_and_uninstalled_modes() -> None:
     assert 'add_parser("uninstalled"' in script
     assert "gpu_probed" in script
     assert "_foundation_probe" in script
+
+
+def test_branch_policy_is_read_only_and_does_not_publish() -> None:
+    policy = (ROOT / ".github" / "workflows" / "branch-policy.yml").read_text(encoding="utf-8")
+    assert "pull_request:" in policy
+    assert "branches: [dev, main]" in policy
+    assert "branches: [dev]" in policy
+    assert "name: branch-policy" in policy
+    assert "name: dev-contract-smoke" in policy
+    assert "permissions:\n  contents: read" in policy
+    assert "persist-credentials: false" in policy
+    for forbidden in ("pull_request_target:", "id-token: write", "contents: write",
+                      "pypa/gh-action-pypi-publish", "twine upload", "workflow_call:"):
+        assert forbidden not in policy
