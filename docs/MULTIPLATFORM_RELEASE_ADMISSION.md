@@ -58,18 +58,42 @@ workflow together with the actual test results. In particular, the old
 '.github/workflows/publish-alpha.yml' is hard-coded to version 0.2.1 and a Windows-only
 release artifact; it must not be reused as-is for 0.2.2.
 
-## Current blockers to address before a stable cross-platform release
+## Release-candidate progress and remaining gates (November 11, 2026)
 
-- Repair stale '0.2.0.dev0' expectations in the native capability tests and foundation
-  verifier **without weakening the underlying ABI/API invariants**.
-- Reconcile 'tools/ci_smoke.py' no-dependency expectation with the published 0.2.1
-  PyTorch dependency policy.
-- Restore green real cross-platform foundation and release-candidate workflows.
-- Produce a Linux x86-64 wheel with the *lazy* CUDA provider and qualify it on NVIDIA
-  hardware; preserve successful no-GPU CPU imports.
-- Add the version-neutral, exact-commit release pipeline and enforce the bundle gate.
-- Review macOS Intel as a possible additional required wheel before claiming broad
-  Intel+Apple Silicon Mac coverage.
+The exact installed CPU/PyTorch wheels have already passed on Windows x64,
+Linux x64, Linux ARM64 and macOS ARM64, including Cornell-box rendering,
+display/PNG pixel parity and uninstall. The Linux CUDA wheel pilot has passed
+NVCC compilation, auditwheel repair, ABI inspection and provider-payload checks.
+The pilot does **not** establish real NVIDIA device correctness.
+
+The RC workflow now selects an **exact 40-character source commit SHA**, rather
+than a moving branch. The Windows x64 CUDA wheel is built on the approved
+self-hosted NVIDIA runner, behind the 'cuda-hardware' protection environment,
+and must pass native device tests and compute-sanitizer before upload. Linux
+x64 uses a CUDA 12.9 manylinux 2.28 build image pinned to its validated
+SHA-256 digest; ARM64 and macOS CPU builds remain GPU-independent.
+
+The candidate now **fails closed** until a protected Linux x64 NVIDIA runner
+installs its exact candidate wheel, loads the bundled CUDA provider and passes
+the native GPU test inventory and sanitizer checks. The RC then requires the
+complete four-wheel + source archive bundle and the compatibility test matrix.
+There is no PyPI publishing step in this workflow.
+
+Remaining work before releasing 0.2.2:
+
+- Register/provision the protected Windows and Linux CUDA runners, including
+  drivers, NVCC, CMake and compute-sanitizer; execute the CUDA-inclusive RC
+- Verify the claimed CUDA driver/toolkit compatibility floor. The Linux pilot
+  uses a CUDA 12.9 toolkit and does not establish compatibility with earlier
+  drivers solely because GFFX accepts toolkit 12.0 for local builds
+- Run and retain every supported Python/PyTorch artifact test, including
+  qualification of the declared PyTorch 2.14.1 upper boundary
+- Replace the 0.2.1-specific publisher with an explicitly owner-approved,
+  version-neutral, exact-artifact OIDC PyPI publisher
+- Set release version 0.2.2 and update version-specific metadata and tests;
+  confirm public-index installation on all supported systems and Colab
+- Qualify macOS Intel separately before advertising it as supported; Metal/MPS
+  implementation is independent of NVIDIA CUDA
 
 Until these conditions are satisfied, the existence of a CI matrix or a local wheel is
 not evidence that a cross-platform GFFX release is ready.
