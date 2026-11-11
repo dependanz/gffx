@@ -12,6 +12,7 @@ import argparse
 from email.parser import Parser
 import hashlib
 import json
+import re
 from pathlib import Path
 import tarfile
 try:
@@ -70,7 +71,20 @@ def _digest(path: Path) -> dict[str, str | int]:
     }
 
 
-def _check_wheel(path: Path, version: str, platform: str, dependencies_declared: bool) -> list[str]:
+def _normalize_dependency(value: str) -> tuple[str, tuple[str, ...]]:
+    """Normalize this release line's exact simple (unmarked, no extras) dependencies."""
+    canonical = value.replace(" ", "")
+    match = re.fullmatch(r"([A-Za-z0-9_.-]+)((?:[<>=!~].*)?)", canonical)
+    if match is None:
+        raise ReleaseBundleError(f"unsupported runtime dependency syntax: {value!r}")
+    conditions = [term for term in match.group(2).split(",") if term]
+    if any(re.fullmatch(r"(?:===|~=|==|!=|<=|>=|<|>)[A-Za-z0-9_.+*-]+", term) is None
+           for term in conditions):
+        raise ReleaseBundleError(f"unsupported dependency specifier syntax: {value!r}")
+    return match.group(1).lower().replace("_", "-"), tuple(sorted(conditions))
+
+
+def _check_wheel(path: Path, version: str, platform: str, project: dict) -> list[str]:
     try:
         with zipfile.ZipFile(path) as wheel:
             names = set(wheel.namelist())
@@ -82,16 +96,19 @@ def _check_wheel(path: Path, version: str, platform: str, dependencies_declared:
 
     if metadata.get("Name", "").lower() != "gffx" or metadata.get("Version") != version:
         raise ReleaseBundleError(f"package identity mismatch in {path.name}")
-    if not metadata.get("Requires-Python"):
-        raise ReleaseBundleError(f"missing Requires-Python in {path.name}")
+    if metadata.get("Requires-Python") != project["requires-python"]:
+        raise ReleaseBundleError(f"Requires-Python differs from source in {path.name}")
     requires = metadata.get_all("Requires-Dist", [])
-    if dependencies_declared and not requires:
-        raise ReleaseBundleError(f"missing project runtime dependencies in {path.name}")
-    if not dependencies_declared and requires:
-        raise ReleaseBundleError(f"unexpected project runtime dependencies in {path.name}")
+    if sorted(map(_normalize_dependency, requires)) != sorted(map(_normalize_dependency, project.get("dependencies", []))):
+        raise ReleaseBundleError(f"runtime dependencies differ from source in {path.name}")
     tag = PLATFORMS[platform]["wheel_tag"]
     if tag not in wheel_metadata.get_all("Tag", []):
         raise ReleaseBundleError(f"wheel tag mismatch for {platform}: expected {tag}")
+    suffix = path.name.removeprefix(f"gffx-{version}-cp310-abi3-").removesuffix(".whl")
+    declared = set(wheel_metadata.get_all("Tag", []))
+    filename_tags = {"cp310-abi3-" + platform_tag for platform_tag in suffix.split(".")}
+    if declared != filename_tags:
+        raise ReleaseBundleError(f"wheel filename tags disagree with WHEEL metadata for {path.name}")
 
     expected = {"gffx/__init__.py", "gffx/examples/cornell_box.py"} | PLATFORM_BINARIES[platform]
     if platform in CUDA_PROVIDERS:
@@ -157,7 +174,7 @@ def verify(dist: Path, pyproject: Path) -> dict:
 
     dependencies = None
     for platform, wheel in expected_wheels.items():
-        current = _check_wheel(wheel, version, platform, bool(project.get("dependencies")))
+        current = _check_wheel(wheel, version, platform, project)
         if dependencies is None:
             dependencies = current
         elif current != dependencies:
