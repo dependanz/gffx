@@ -22,6 +22,22 @@ All third-party actions are pinned to full commit SHAs with their release tag in
 workflows use fixed runner labels, read-only repository permissions, and checkout with credential
 persistence disabled. Build and smoke provenance is retained as workflow artifacts for 14 days.
 
+## Protected stable publication
+
+The new publish-multiplatform.yml is manually dispatched by the repository owner
+with an immutable stable tag and successful package-foundation-rc run ID.
+A read-only preflight verifies every wheel/sdist hash, its source/RC receipt,
+and the Windows and Linux NVIDIA device reports. The separate OIDC publishing
+job uploads only approved bytes, without executing candidate source code.
+
+Before using it, configure GitHub's pypi environment with required owner-review
+protection, and register publish-multiplatform.yml with that environment as a
+Trusted Publisher for the gffx project on PyPI. These account settings cannot
+be applied by a PR alone; no automatic tag/release/branch trigger is enabled.
+
+The RC remains blocked until protected real NVIDIA runners pass the hardware
+gates and all 100 supported platform/Python/PyTorch environments are green.
+
 ## Local policy checks
 
 Run the matrix and workflow contracts without adding a YAML dependency:
