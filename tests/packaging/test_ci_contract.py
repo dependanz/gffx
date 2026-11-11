@@ -70,7 +70,7 @@ def test_nightly_matrix_is_36_blocking_lanes_with_iso_week_rotation() -> None:
     assert sum(entry["lane"] == "intermediate" for entry in odd) == 8
 
 
-def test_release_candidate_matrix_builds_four_and_tests_eighty() -> None:
+def test_release_candidate_matrix_builds_four_and_tests_one_hundred() -> None:
     matrix = _load_ci_matrix()
     builds = matrix.release_candidate_build_matrix()
     tests = matrix.release_candidate_test_matrix()
@@ -79,8 +79,9 @@ def test_release_candidate_matrix_builds_four_and_tests_eighty() -> None:
     assert all(entry["python"] == "3.10" for entry in builds)
     assert all(entry["pytorch"] == "2.10.0" for entry in builds)
     assert sum(bool(entry["build_sdist"]) for entry in builds) == 1
-    assert len(tests) == 80
-    assert len({(e["platform"], e["python"], e["pytorch"]) for e in tests}) == 80
+    assert len(tests) == 100
+    assert "2.14.1" in {entry["pytorch"] for entry in tests}
+    assert len({(e["platform"], e["python"], e["pytorch"]) for e in tests}) == 100
 
 
 def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
