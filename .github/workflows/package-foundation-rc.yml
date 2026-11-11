@@ -325,6 +325,7 @@ jobs:
             - "2.11.0"
             - "2.12.1"
             - "2.13.0"
+            - "2.14.1"
           # BEGIN GFFX GENERATED RC TEST PLATFORM METADATA
           include:
             - platform: "windows-x64"
@@ -403,7 +404,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require all 80 clean artifact environments
+      - name: Require all 100 clean artifact environments
         shell: bash
         run: |
           test "${{ needs.linux-cuda-hardware.result }}" = "success"
