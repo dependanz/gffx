@@ -92,6 +92,12 @@ jobs:
         run: |
           python -m pip install build==1.3.0
           python -m build --sdist --outdir wheelhouse
+      - name: Preflight protected Windows CUDA build host
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          python tools/release_runner_preflight.py --target windows --json
+          if ($LASTEXITCODE -ne 0) { throw 'Windows NVIDIA host does not meet release prerequisites' }
       - name: Require the Windows CUDA 12 toolchain before building the release wheel
         if: matrix.platform == 'windows-x64'
         shell: pwsh
@@ -225,6 +231,9 @@ jobs:
         with:
           name: wheel-manylinux_2_28_x86_64
           path: ${{ runner.temp }}/linux-cuda-release-wheel
+      - name: Preflight protected Linux CUDA test host
+        shell: bash
+        run: python tools/release_runner_preflight.py --target linux --json
       - name: Prove installed wheel discovers its bundled plugin on a real NVIDIA device
         shell: bash
         run: |
