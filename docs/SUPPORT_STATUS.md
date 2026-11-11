@@ -1,5 +1,17 @@
 # Current release support status
 
+**Published:** GFFX 0.2.1 currently provides Windows x64 wheels only. The
+0.2.2 source candidate is being qualified for Windows x64, Linux x64/ARM64,
+and macOS ARM64. That broader contract is **not public PyPI support yet**.
+
+Candidate status: the Windows/Linux/macOS CPU wheel previews passed on an
+earlier exact source revision, including the Cornell box. The CUDA-enabled
+final wheels, protected real-device qualification, 100-environment compatibility
+suite, owner sign-off, and final public PyPI installation remain pending.
+See [0.2.2 admission](MULTIPLATFORM_RELEASE_ADMISSION.md) and
+[GPU runner setup](RELEASE_RUNNERS_0_2_2.md).
+
+
 A candidate is admitted only after its exact release gates and publication pass.
 The [0.2.1 policy](RELEASE_POLICY_0_2_1.md) and [evidence](RELEASE_0_2_1.md)
 define the current bounded Windows contract; older release evidence is preserved.
