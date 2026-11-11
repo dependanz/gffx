@@ -41,7 +41,7 @@ ACTION_PINS = {
 }
 
 SUPPORTED_PYTHONS = ("3.10", "3.11", "3.12", "3.13", "3.14")
-SUPPORTED_PYTORCH = ("2.10.0", "2.11.0", "2.12.1", "2.13.0")
+SUPPORTED_PYTORCH = ("2.10.0", "2.11.0", "2.12.1", "2.13.0", "2.14.1")
 
 # Insertion order is normative and is used by release-candidate artifact planning.
 PLATFORMS: Mapping[str, Mapping[str, str]] = {
@@ -203,7 +203,7 @@ def release_candidate_build_matrix() -> list[dict[str, Any]]:
 
 
 def release_candidate_test_matrix() -> list[dict[str, Any]]:
-    """Return the exhaustive 4 platform x 5 Python x 4 PyTorch artifact-test matrix."""
+    """Return the exhaustive 4 platform x 5 Python x 5 PyTorch artifact-test matrix."""
     result = []
     for platform, values in PLATFORMS.items():
         for python in SUPPORTED_PYTHONS:
