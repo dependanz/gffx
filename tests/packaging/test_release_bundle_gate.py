@@ -29,13 +29,14 @@ def _write_wheel(path: Path, platform: str, version: str, *, cuda: bool = True, 
             file.writestr("gffx/" + ("gffx_cuda12.dll" if platform == "windows-x64" else "libgffx_cuda12.so"), "plugin")
         info = f"gffx-{version}.dist-info/"
         file.writestr(info + "METADATA", f"Name: gffx\nVersion: {'0.0.0' if mismatched else version}\nRequires-Python: >=3.10\nRequires-Dist: torch>=2.10.0,<=2.14.1\n")
-        file.writestr(info + "WHEEL", f"Wheel-Version: 1.0\nTag: {tag}\n")
+        filename_platform_tags = path.name.removeprefix(f"gffx-{version}-cp310-abi3-").removesuffix(".whl").split(".")
+        file.writestr(info + "WHEEL", "Wheel-Version: 1.0\n" + "".join(f"Tag: cp310-abi3-{platform_tag}\n" for platform_tag in filename_platform_tags))
 
 
 def _bundle(root: Path, version: str = "0.2.2") -> tuple[Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
     pyproject = root / "pyproject.toml"
-    pyproject.write_text(f'[project]\nname = "gffx"\nversion = "{version}"\ndependencies = ["torch>=2.10.0,<=2.14.1"]\n')
+    pyproject.write_text(f'[project]\nname = "gffx"\nversion = "{version}"\ndependencies = ["torch>=2.10.0,<=2.14.1"]\nrequires-python = ">=3.10"\n')
     dist = root / "dist"
     dist.mkdir()
     for platform, info in PLATFORMS.items():
@@ -91,7 +92,8 @@ def test_repaired_composite_manylinux_tags_are_accepted(tmp_path):
     dist, pyproject = _bundle(tmp_path)
     old = dist / "gffx-0.2.2-cp310-abi3-manylinux_2_28_x86_64.whl"
     repaired = dist / "gffx-0.2.2-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
-    old.rename(repaired)
+    old.unlink()
+    _write_wheel(repaired, "linux-x64", "0.2.2")
     result = verify(dist, pyproject)
     assert any(row["filename"] == repaired.name for row in result["artifacts"])
 
