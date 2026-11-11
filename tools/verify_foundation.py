@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 in the declared test group
+    import tomli as tomllib
 import email.parser
 import hashlib
 import json
@@ -322,6 +326,19 @@ def _safe_archive_names(names: Iterable[str], *, label: str) -> list[str]:
     return normalized
 
 
+def _canonical_requirement(text: str) -> str:
+    # The foundation gate handles the currently supported simple PEP 508 subset.
+    # Unknown marker/extras syntax must fail closed rather than silently disappear.
+    match = re.fullmatch(r"([A-Za-z0-9_.-]+)((?:[<>=!~].*)?)", text.replace(" ", ""))
+    if match is None:
+        raise VerificationError("unsupported Requires-Dist syntax in foundation check")
+    terms = [term for term in match.group(2).split(",") if term]
+    if any(re.fullmatch(r"(?:===|~=|==|!=|<=|>=|<|>)[A-Za-z0-9_.+*-]+", term) is None
+           for term in terms):
+        raise VerificationError("unsupported Requires-Dist specifier in foundation check")
+    return match.group(1).lower() + ",".join(sorted(terms))
+
+
 def inspect_wheel(path: Path) -> dict[str, Any]:
     path = path.resolve()
     with zipfile.ZipFile(path) as archive:
@@ -334,14 +351,16 @@ def inspect_wheel(path: Path) -> dict[str, Any]:
         wheel_text = archive.read(wheel_names[0]).decode("utf-8")
 
     metadata = email.parser.Parser().parsestr(metadata_text)
-    if metadata.get("Name") != "gffx" or metadata.get("Version") != "0.2.0.dev0":
-        raise VerificationError("wheel identity is not gffx 0.2.0.dev0")
-    if metadata.get("Requires-Python") != ">=3.10":
-        raise VerificationError("wheel Requires-Python must be exactly >=3.10")
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as source:
+        project = tomllib.load(source)["project"]
+    if metadata.get("Name", "").lower() != project["name"] or metadata.get("Version") != project["version"]:
+        raise VerificationError("wheel identity differs from the source pyproject.toml")
+    if metadata.get("Requires-Python") != project["requires-python"]:
+        raise VerificationError("wheel Requires-Python differs from the source")
     requires = metadata.get_all("Requires-Dist", [])
-    expected_requires = ['torch<=2.14.1,>=2.10.0'] if metadata.get("Version")=="0.2.1" else []
-    if requires != expected_requires:
-        raise VerificationError("wheel contains forbidden Requires-Dist runtime dependencies")
+    expected_requires = project.get("dependencies", [])
+    if sorted(map(_canonical_requirement, requires)) != sorted(map(_canonical_requirement, expected_requires)):
+        raise VerificationError("wheel Requires-Dist differs from the source dependency contract")
 
     missing = sorted(REQUIRED_WHEEL_FILES - set(names))
     if missing:
@@ -392,6 +411,10 @@ def inspect_sdist(path: Path) -> dict[str, Any]:
     if len(roots) != 1:
         raise VerificationError("sdist must have one top-level source directory")
     root = next(iter(roots))
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as source:
+        expected_root = "gffx-" + tomllib.load(source)["project"]["version"]
+    if root != expected_root:
+        raise VerificationError("sdist root does not match source package version")
     relative_names = {
         PurePosixPath(*PurePosixPath(name).parts[1:]).as_posix() for name in names
     }
