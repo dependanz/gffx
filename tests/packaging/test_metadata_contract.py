@@ -43,6 +43,9 @@ def test_metadata_declares_supported_python_identity_without_claiming_operations
     classifiers = set(project["classifiers"])
 
     assert "Development Status :: 4 - Beta" in classifiers
+    assert "Operating System :: Microsoft :: Windows" in classifiers
+    assert "Operating System :: POSIX :: Linux" in classifiers
+    assert "Operating System :: MacOS :: MacOS X" in classifiers
     assert "License :: OSI Approved :: MIT License" in classifiers
     assert "Programming Language :: Python :: 3 :: Only" in classifiers
     for minor in range(10, 15):
@@ -137,6 +140,9 @@ def test_install_build_dependency_and_support_documents_are_truthful():
     support = (REPO_ROOT / "docs/SUPPORT_STATUS.md").read_text(encoding="utf-8")
     policy = (REPO_ROOT / "docs/RELEASE_POLICY_0_2_1.md").read_text(encoding="utf-8")
     assert "Windows x64" in installation and "0.2.1" in installation
+    assert "0.2.2" in installation and "Linux x86-64" in installation
+    assert "Apple Silicon arm64" in installation
+    assert "not yet published" in installation
     assert "GFFX_BUILD_PYTORCH" in building and "GFFX_ENABLE_CUDA" in building
     assert "torch>=2.10.0,<=2.14.1" in dependencies and "one direct" in dependencies
     assert "No third-party source is vendored" in dependencies and "MIT" in dependencies
