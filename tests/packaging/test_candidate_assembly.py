@@ -76,8 +76,26 @@ def test_extra_unknown_artifact_blocks(tmp_path):
 def test_incorrect_version_blocks(tmp_path):
     artifacts, pyproject = _inputs(tmp_path)
     pyproject.write_text('[project]\nname = "gffx"\nversion = "0.2.3"\n', encoding="utf-8")
-    with pytest.raises(AssemblyError, match="files differ"):
+    with pytest.raises(AssemblyError, match="compatible repaired wheel"):
         assemble(artifacts, tmp_path / "out", pyproject)
+
+
+def test_composite_manylinux_platform_tags_are_accepted(tmp_path):
+    artifacts, pyproject = _inputs(tmp_path)
+    folder = artifacts / "wheel-manylinux_2_28_x86_64"
+    old = next(folder.glob("*.whl"))
+    new = folder / "gffx-0.2.2-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+    old.rename(new)
+    provenance = folder / "provenance.json"
+    record = json.loads(provenance.read_text(encoding="utf-8"))
+    for artifact in record["artifacts"]:
+        if artifact["name"] == old.name:
+            artifact["name"] = new.name
+    provenance.write_text(json.dumps(record), encoding="utf-8")
+    out = tmp_path / "out"
+    result = assemble(artifacts, out, pyproject)
+    assert (out / new.name).is_file()
+    assert len(result["artifacts"]) == len(PLATFORMS) + 1
 
 
 def test_existing_output_cannot_be_reused(tmp_path):
