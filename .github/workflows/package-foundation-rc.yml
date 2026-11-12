@@ -249,6 +249,21 @@ jobs:
           cd "$RUNNER_TEMP"
           unset GFFX_CUDA_PLUGIN_PATH
           "$RUNNER_TEMP/gffx-rc-linux-cuda-venv/bin/python" -c "import gffx; from pathlib import Path; assert (Path(gffx.__file__).parent/'libgffx_cuda12.so').is_file(); report=gffx.cuda.capabilities(); assert report['status']=='loaded', report; print('real Linux CUDA plugin loaded')"
+      - name: Qualify the exact installed Linux CUDA wheel with 285 no-skip PyTorch tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY="$RUNNER_TEMP/gffx-rc-linux-cuda-venv/bin/python"
+          WHEEL="$(python -c 'import os; from pathlib import Path; p=list((Path(os.environ["RUNNER_TEMP"])/"linux-cuda-release-wheel").glob("gffx-*.whl")); assert len(p)==1, p; print(p[0])')"
+          "$PY" -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu126 'torch==2.10.0+cu126'
+          "$PY" -m pip install --no-cache-dir pytest==9.0.3
+          "$PY" -m pip check
+          cd "$RUNNER_TEMP"
+          env -u PYTHONPATH -u PYTHONHOME -u GFFX_CUDA_PLUGIN_PATH -u GFFX_TEST_SOURCE_TREE \
+            "$PY" "$GITHUB_WORKSPACE/tools/qualify_cuda_wheel.py" \
+            --wheel "$WHEEL" \
+            --provenance "$RUNNER_TEMP/linux-cuda-release-wheel/provenance.json" \
+            --output-dir "$RUNNER_TEMP/linux-cuda-wheel-functional"
       - name: Run native hardware parity and operation tests on Linux
         shell: bash
         run: |
@@ -268,6 +283,8 @@ jobs:
           path: |
             ${{ runner.temp }}/gffx-rc-linux-device/ctest.xml
             ${{ runner.temp }}/gffx-rc-linux-device/lane-report.json
+            ${{ runner.temp }}/linux-cuda-wheel-functional/result.json
+            ${{ runner.temp }}/linux-cuda-wheel-functional/tests.xml
           retention-days: 14
           if-no-files-found: warn
 
