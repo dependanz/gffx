@@ -30,6 +30,7 @@ import torch
 
 from . import material
 from ._dielectric import TriangleQuery, beer, dielectric, interface, validate_parameters
+from ._dielectric_shortflight import EdgeShortFlight
 from ._raster_material import pbr, unit, validate_material
 
 
@@ -138,6 +139,9 @@ class _Transport:
         _validate_solids(packed, self.is_glass)
         face_number = torch.arange(len(packed.faces), device=packed.vertices.device)
         self.face_owner = torch.bucketize(face_number, packed.object_face_offsets[0, 1:].long(), right=True)
+        self.short_flights = EdgeShortFlight(
+            packed.vertices, packed.faces, self.face_owner,
+            self.glass_mask(face_number), self.query.normal)
         count = len(packed.mesh_names)
         self.ior = packed.vertices.new_ones(count)
         self.sigma = packed.vertices.new_zeros((count, 3))
@@ -221,6 +225,9 @@ class _Transport:
                 break
             hit = self.query.intersect(origin, direction, t_min=_epsilon(origin),
                                        t_max=remaining, ignore_faces=previous)
+            hit = self.short_flights.recover(
+                hit, origin, direction, _epsilon(origin),
+                remaining, previous, medium)
             self.stats['shadow_query_rays'] += len(active)
             missed = ~hit.hit
             if bool((missed & (medium >= 0)).any()):
@@ -357,6 +364,8 @@ class _Transport:
             self.stats['maximum_active_paths'] = max(self.stats['maximum_active_paths'], len(active))
             self.stats['camera_query_rays'] += len(active)
             hit = self.query.intersect(origin, direction, t_min=lo, t_max=hi, ignore_faces=previous)
+            hit = self.short_flights.recover(
+                hit, origin, direction, lo, hi, previous, medium)
             if depth == 0:
                 primary_face = hit.face_index
                 primary_distance = hit.distance
