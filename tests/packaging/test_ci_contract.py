@@ -273,3 +273,16 @@ def test_absent_cuda_capabilities_fixture_isolated_from_real_linux_plugin() -> N
     assert "GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH" in cmake
     assert "set_tests_properties(abi.capabilities PROPERTIES" in cmake
     assert "GFFX_CUDA_PLUGIN_PATH=${GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH}" in cmake
+
+
+def test_rc_ctest_junit_path_matches_build_directory() -> None:
+    """CTest writes relative JUnit paths beneath --test-dir, not the source root."""
+    rc = (ROOT / ".github" / "workflows" / "package-foundation-rc.yml").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "ctest --test-dir build/release-device -C Release --output-on-failure "
+        "--output-junit ctest.xml"
+    ) in rc
+    assert "python tools/verify_cuda_lane.py build/release-device/ctest.xml" in rc
+    assert "--output-junit build/release-device/ctest.xml" not in rc
