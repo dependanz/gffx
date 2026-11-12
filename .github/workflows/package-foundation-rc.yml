@@ -171,7 +171,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CUDA device configuration failed' }
           cmake --build build/release-device --config Release --parallel
           if ($LASTEXITCODE -ne 0) { throw 'CUDA device build failed' }
-          ctest --test-dir build/release-device -C Release --output-on-failure --output-junit build/release-device/ctest.xml
+          # CTest resolves a relative --output-junit path beneath --test-dir.
+          ctest --test-dir build/release-device -C Release --output-on-failure --output-junit ctest.xml
           if ($LASTEXITCODE -ne 0) { throw 'CUDA device CTest failed' }
           python tools/verify_cuda_lane.py build/release-device/ctest.xml --report build/release-device/lane-report.json
           if ($LASTEXITCODE -ne 0) { throw 'CUDA device qualification report failed' }
