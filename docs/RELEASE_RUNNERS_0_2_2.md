@@ -66,7 +66,8 @@ are account-level actions that cannot be completed by a source-code PR.
 Dispatch `package-foundation-rc` as owner `dependanz` from the reviewed
 feature branch tip, supplying that **same** exact 40-character SHA as `revision`.
 The workflow requires `GITHUB_SHA == inputs.revision` before any build.
-Do not dispatch from a moving tag or a branch at a different SHA. Windows GPU hardware checks must pass native no-skip CTest device inventory,
+Do not dispatch from a moving tag or a branch at a different SHA.
+Windows GPU hardware checks must pass native no-skip CTest device inventory,
 Compute Sanitizer and exact candidate-wheel CUDA provider loading. The Linux
 x64 candidate wheel is built in the pinned manylinux CUDA image and must
 contain the CUDA provider; hosted installation/CPU/adapter smoke tests remain
@@ -87,9 +88,10 @@ reviewed source branch. Environment *names alone* are not protection.
 Keep `pypi` separately protected for later publication; never publish as
 part of RC qualification.
 
-Require online, trusted `self-hosted,windows,x64,cuda` and
-`self-hosted,linux,x64,cuda` runners. The latter must run native Linux,
-not WSL2; do not run untrusted PR jobs on these runners.
+Require an online, trusted **Windows** runner labeled
+`self-hosted,windows,x64,cuda`. Independent Linux NVIDIA hardware
+(`self-hosted,linux,x64,cuda`) is future optional assurance, **not** a
+0.2.2 release dependency. Do not run untrusted PR jobs on the Windows host.
 
 Since the RC workflow exists on `main` but its candidate implementation is
 on the feature branch, dispatch **that feature branch** explicitly:
@@ -103,8 +105,8 @@ gh workflow run package-foundation-rc.yml --repo $repo --ref $branch -f "revisio
 if ($LASTEXITCODE -ne 0) { throw 'RC dispatch failed' }
 ```
 
-This is an owner action to perform **only after** verifying both runner
-registrations, effective environment protection and current CI. Re-read
+This is an owner action to perform **only after** verifying the Windows
+runner registration, effective environment protection and current CI. Re-read
 the branch SHA immediately before dispatch; subsequent fixes change the
 candidate revision. The RC qualifies but never publishes. It must pass
 all GPU, artifact provenance, and 100-environment gates and retain an
