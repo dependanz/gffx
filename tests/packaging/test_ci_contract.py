@@ -219,6 +219,9 @@ def test_release_candidate_blocks_without_real_cuda_and_exact_commit() -> None:
     assert "verify_cuda_lane.py" in rc and "compute-sanitizer" in rc
     assert "tools/release_runner_preflight.py --target windows" in rc
     assert "tools/release_runner_preflight.py --target linux" in rc
+    assert "tools/qualify_cuda_wheel.py" in rc
+    assert "linux-cuda-wheel-functional/result.json" in rc
+    assert "torch==2.10.0+cu126" in rc
     assert "tools/rc_candidate_receipt.py create" in rc
     assert "tools/rc_candidate_receipt.py verify" in rc
     assert "name: rc-candidate-receipt" in rc
