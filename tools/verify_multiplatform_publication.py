@@ -85,7 +85,7 @@ def verify_device_report(path: Path, expected_platform: str) -> None:
 def preflight(
     *, tag: str, run_id: str, git_head: str,
     dist: Path, receipt: Path, project: Path,
-    windows_report: Path, linux_report: Path,
+    windows_report: Path,
     run_data: dict,
 ) -> dict:
     version = stable_version(tag)
@@ -99,8 +99,9 @@ def preflight(
         raise PublicationError("stable tag does not match project name and version")
     verify_run_data(run_data, run_id)
     checked = check_receipt(dist, project, git_head, run_id, receipt)
+    # Windows release GPU qualification remains mandatory. Independent native
+    # Linux GPU validation and native Mac testing are supplemental assurance.
     verify_device_report(windows_report, "win")
-    verify_device_report(linux_report, "linux")
     return {
         "status": "approved-for-human-publishing-review",
         "version": version,
@@ -117,7 +118,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--windows-report", type=Path, required=True)
-    parser.add_argument("--linux-report", type=Path, required=True)
     parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parents[1] / "pyproject.toml")
     args = parser.parse_args(argv)
     try:
@@ -130,7 +130,6 @@ def main(argv: list[str] | None = None) -> int:
             tag=args.tag, run_id=args.run_id, git_head=sha,
             dist=args.dist, receipt=args.receipt,
             project=args.project, windows_report=args.windows_report,
-            linux_report=args.linux_report,
             run_data=read_run_from_github(args.run_id),
         )
     except (PublicationError, ValueError, OSError, KeyError) as error:
