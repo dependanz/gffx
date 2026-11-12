@@ -24,10 +24,13 @@ Unix platforms need their own compatibility matrix and test hardware.
 
 The Windows x86-64 and Linux x86-64 release wheels must contain the lazy optional
 GFFX CUDA provider. A GPU or driver is **not** required for installation or CPU use;
-the provider remains opt-in at runtime. Inclusion is necessary but insufficient: both
-platforms also need actual NVIDIA-device functional and numerical tests on the exact
-candidate binaries, including operation failures, driver compatibility, and GPU
-fallback behavior.
+the provider remains opt-in at runtime. Inclusion is necessary but insufficient: Windows x64 uses real NVIDIA-device
+qualification against the candidate wheel as a release gate. Linux x64 uses
+the hosted manylinux build, CPU/adapter functional tests and optional CUDA
+provider payload checks as release gates; real Linux CUDA operation testing has
+been exercised separately under WSL2. Independent native-Linux NVIDIA testing
+is additional assurance to be developed after 0.2.2, not a publication blocker.
+For every tested path we retain exact source, wheel hashes, device and limitations.
 
 Linux ARM64 and macOS ARM64 are CPU admission targets until specifically qualified.
 Do not claim CUDA on macOS. Apple Silicon GPU acceleration requires a distinct
@@ -42,7 +45,9 @@ a CUDA package would not supply it.
    exercise gradients and the packaged Cornell-box example, and verify uninstall.
 4. Run a representative supported Python/PyTorch compatibility matrix. Do not infer
    support for PyTorch versions that were never tested.
-5. Qualify the CUDA-enabled Windows and Linux release binaries on real NVIDIA hosts.
+5. Qualify the CUDA-enabled Windows release wheel on a real NVIDIA host.
+   Preserve the Linux WSL2 CUDA results as supplemental evidence, not native-Linux certification.
+   Independent Linux hardware and separate native-Mac hardware testing are future assurance.
 6. Assemble the complete exact-artifact set into a clean publication-only directory.
 7. Run 'python tools/release_bundle_gate.py --dist <publication-directory>' to reject
    missing platforms, missing x64 CUDA providers, missing sdist, mismatched tags,
@@ -76,10 +81,12 @@ SHA-256 digest; ARM64 and macOS CPU builds remain GPU-independent.
 Runner setup and owner-controlled registration procedures are in
 [RELEASE_RUNNERS_0_2_2.md](RELEASE_RUNNERS_0_2_2.md).
 
-The candidate now **fails closed** until a protected Linux x64 NVIDIA runner
-installs its exact candidate wheel, loads the bundled CUDA provider and passes
-the native GPU test inventory and sanitizer checks. The RC then requires the
-complete four-wheel + source archive bundle and the compatibility test matrix.
+The candidate **does not** require an independent native-Linux NVIDIA runner for
+0.2.2. It still requires the protected Windows GPU wheel-build/device gate,
+the exact Linux x64 CUDA-provider wheel payload and hosted Linux tests, the
+complete four-wheel + source archive bundle, and the 100-environment
+installed-wheel compatibility matrix. The manually dispatched candidate
+produces a revision/run-bound receipt and never publishes to PyPI.
 There is no PyPI publishing step in this workflow.
 
 ## Owner-controlled publication workflow
@@ -97,19 +104,21 @@ and release tags. Nothing has been uploaded or approved by this PR.
 
 Remaining work before releasing 0.2.2:
 
-- Register/provision the protected Windows and Linux CUDA runners, including
-  drivers, NVCC, CMake and compute-sanitizer; execute the CUDA-inclusive RC
-- Verify the claimed CUDA driver/toolkit compatibility floor. The Linux pilot
-  uses a CUDA 12.9 toolkit and does not establish compatibility with earlier
-  drivers solely because GFFX accepts toolkit 12.0 for local builds
+- Supervise and qualify the existing protected Windows NVIDIA runner, including
+  CUDA 12.x NVCC, CMake, Compute Sanitizer, and sufficient disk space; execute the RC.
+  Dedicated native-Linux NVIDIA and native-Mac hardware lanes are post-0.2.2 assurance.
+- Document the supported CUDA driver/toolkit compatibility floor conservatively.
+  The Linux build uses CUDA 12.9 PTX; the tested WSL2 configuration is evidence,
+  not a blanket guarantee for earlier native Linux drivers
 - Run and retain every supported Python/PyTorch artifact test, including
   qualification of the declared PyTorch 2.14.1 upper boundary
 - Configure and qualify the new version-neutral trusted publisher, retiring
   the hard-coded 0.2.1-only publication workflow after review
 - Set release version 0.2.2 and update version-specific metadata and tests;
   confirm public-index installation on all supported systems and Colab
-- Qualify macOS Intel separately before advertising it as supported; Metal/MPS
-  implementation is independent of NVIDIA CUDA
+- Maintain hosted macOS ARM64 CPU wheel testing; independent native-Mac hardware
+  testing and macOS Intel qualification can follow later. Metal/MPS acceleration
+  is separate from NVIDIA CUDA
 
 Until these conditions are satisfied, the existence of a CI matrix or a local wheel is
 not evidence that a cross-platform GFFX release is ready.
