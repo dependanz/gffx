@@ -187,11 +187,11 @@ def test_rc_installs_downloaded_wheels_without_rebuilding_source() -> None:
     rc = (ROOT / ".github" / "workflows" / "package-foundation-rc.yml").read_text(
         encoding="utf-8"
     )
-    assert "needs: [build-artifacts, linux-cuda-hardware]" in rc
+    assert "needs: build-artifacts" in rc
     assert "verify-artifacts:" in rc
     assert "tools/assemble_candidate_bundle.py" in rc
     assert "tools/release_bundle_gate.py" in rc
-    assert "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]" in rc
+    assert "needs: [verify-artifacts, artifact-tests]" in rc
     assert "actions/download-artifact@" in rc
     assert "tools/ci_smoke.py installed" in rc
     assert "tools/ci_smoke.py uninstalled" in rc
@@ -212,25 +212,21 @@ def test_release_candidate_blocks_without_real_cuda_and_exact_commit() -> None:
     assert 'GITHUB_REPOSITORY" == "dependanz/gffx"' in rc
     assert 'GITHUB_ACTOR" == "dependanz"' in rc
     assert 'GITHUB_SHA" == "$CANDIDATE_SHA"' in rc
-    assert '--target linux --require-native-linux --json' in rc
     assert "^[0-9a-f]{40}$" in rc
     assert "fromJSON(" in rc and "cuda-hardware" in rc
     assert "CIBW_CONFIG_SETTINGS:" in rc
     assert "cmake.define.GFFX_ENABLE_CUDA=ON" in rc
     assert "gffx_cuda12.dll" in rc and "libgffx_cuda12.so" in rc
-    assert "release-candidate-linux-nvidia-required" in rc
-    assert "runs-on: [self-hosted, linux, x64, cuda]" in rc
     assert "verify_cuda_lane.py" in rc and "compute-sanitizer" in rc
     assert "tools/release_runner_preflight.py --target windows" in rc
-    assert "tools/release_runner_preflight.py --target linux" in rc
-    assert "tools/qualify_cuda_wheel.py" in rc
-    assert "linux-cuda-wheel-functional/result.json" in rc
-    assert "torch==2.10.0+cu126" in rc
+    assert "linux-cuda-hardware:" not in rc
+    assert "libgffx_cuda12.so" in rc
+    assert "cuda-hardware-report-windows-rc" in rc
     assert "tools/rc_candidate_receipt.py create" in rc
     assert "tools/rc_candidate_receipt.py verify" in rc
     assert "name: rc-candidate-receipt" in rc
-    assert "needs: [build-artifacts, linux-cuda-hardware]" in rc
-    assert "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]" in rc
+    assert "needs: build-artifacts" in rc
+    assert "needs: [verify-artifacts, artifact-tests]" in rc
     pinned = "sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c"
     assert pinned in rc and pinned in preview
     assert "manylinux_2_28_x86_64_cuda12_9:latest" not in preview
@@ -250,7 +246,6 @@ def test_multiplatform_publisher_is_manual_protected_and_never_rebuilds() -> Non
     assert "approved-rc-bundle" in workflow
     assert "rc-candidate-receipt" in workflow
     assert "cuda-hardware-report-windows-rc" in workflow
-    assert "cuda-hardware-report-linux-rc" in workflow
     assert "tools/verify_multiplatform_publication.py" in workflow
     assert "needs: preflight" in workflow
     assert "name: pypi" in workflow
