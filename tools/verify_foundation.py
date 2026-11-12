@@ -468,7 +468,7 @@ def _clean_python_environment() -> dict[str, str]:
 
 def run_python_contracts(source_root: Path, python: Path) -> dict[str, Any]:
     result = run_command(
-        [python, "-m", "pytest", "-q", "tests/python/test_base_import.py", "tests/python/test_cuda_capabilities.py", "tests/python/test_display_pipeline.py", "tests/pytorch/test_adapter_loading.py", "tests/packaging/test_metadata_contract.py", "tests/packaging/test_foundation_verifier.py", "tests/packaging/test_release_bundle_gate.py", "tests/packaging/test_candidate_assembly.py", "tests/packaging/test_rc_candidate_receipt.py", "tests/packaging/test_multiplatform_publication.py", "tests/packaging/test_release_runner_preflight.py", "tests/packaging/test_ptx_resource_build.py", "tests/packaging/test_ci_contract.py"],
+        [python, "-m", "pytest", "-q", "tests/python/test_base_import.py", "tests/python/test_cuda_capabilities.py", "tests/python/test_display_pipeline.py", "tests/pytorch/test_adapter_loading.py", "tests/packaging/test_metadata_contract.py", "tests/packaging/test_foundation_verifier.py", "tests/packaging/test_release_bundle_gate.py", "tests/packaging/test_candidate_assembly.py", "tests/packaging/test_rc_candidate_receipt.py", "tests/packaging/test_multiplatform_publication.py", "tests/packaging/test_release_runner_preflight.py", "tests/packaging/test_ptx_resource_build.py", "tests/packaging/test_qualify_cuda_wheel.py", "tests/packaging/test_ci_contract.py"],
         cwd=source_root,
     )
     summary = next(
