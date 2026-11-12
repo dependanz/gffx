@@ -209,6 +209,10 @@ def test_release_candidate_blocks_without_real_cuda_and_exact_commit() -> None:
     assert "workflow_dispatch:" in rc
     assert "pull_request:" not in rc and "schedule:" not in rc
     assert "rc-exact-commit-required" in rc
+    assert 'GITHUB_REPOSITORY" == "dependanz/gffx"' in rc
+    assert 'GITHUB_ACTOR" == "dependanz"' in rc
+    assert 'GITHUB_SHA" == "$CANDIDATE_SHA"' in rc
+    assert '--target linux --require-native-linux --json' in rc
     assert "^[0-9a-f]{40}$" in rc
     assert "fromJSON(" in rc and "cuda-hardware" in rc
     assert "CIBW_CONFIG_SETTINGS:" in rc
