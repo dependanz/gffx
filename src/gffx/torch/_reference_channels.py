@@ -81,7 +81,11 @@ class _UnitSqrt(torch.autograd.Function):
     @staticmethod
     def forward(ctx, value):
         x = value.to(torch.float64)
-        if x.numel()<=1048576 and x.device.type in ('cpu','cuda'):
+        # Keep CUDA float32 on the existing eager recurrence. It preserves the
+        # prescribed rounding without loading the shared native PTX module
+        # just for normalization. CPU and CUDA float64 retain native fusion.
+        if (x.numel()<=1048576 and x.device.type in ('cpu','cuda')
+                and not (value.device.type=='cuda' and value.dtype==torch.float32)):
             y=torch.ops.gffx.shading_unit_newton(x.contiguous().reshape(-1)).reshape(x.shape)
         else:
             y = torch.full_like(x, 1.5)

@@ -35,7 +35,7 @@ def _rgb(value, batch, points, name, *, grey=False):
     return expand(value,(batch, points, 3))
 
 
-def _geometry(normals, view, directions, two_sided, *, _layout_only=False):
+def _geometry(normals, view, directions, two_sided, *, _layout_only=False, _geometric_normals=None):
     if type(two_sided) is not bool:
         raise TypeError('two_sided must be a bool')
     n = _vectors(normals, 'normals')
@@ -55,9 +55,15 @@ def _geometry(normals, view, directions, two_sided, *, _layout_only=False):
     with torch.no_grad():
         _unit(normals, 'normals'); _unit(view, 'view'); _unit(directions, 'directions')
         nn, vv, ll = _unit(n, 'normals'), _unit(v, 'view'), _unit(l, 'directions')
-        nv = _dot(nn, vv)
+        # Triangle geometry owns sidedness; authored smooth normals own the BRDF.
+        # The renderer supplies this private field; standalone calls keep their
+        # established one-normal contract. All selection predicates are discrete.
+        sided = nn if _geometric_normals is None else _unit(_vectors(_geometric_normals, 'geometric normals'), 'geometric normals')
+        nv = _dot(sided, vv)
         sign = torch.where((nv < 0) & two_sided, -torch.ones_like(nv), torch.ones_like(nv))
         active = ((nv*sign) > 0)[..., None] & (_dot(nn[:, :, None]*sign[..., None, None], ll) > 0)
+        if _geometric_normals is not None:
+            active = active & (_dot(sided[:, :, None]*sign[..., None, None], ll) > 0)
     return n, v, l, sign, active
 
 
@@ -67,7 +73,7 @@ def _zero_connection(*values):
     return sum(value.narrow(0, 0, 0).sum() if value.ndim else value*0 for value in values)
 
 
-def classic(normals, view, directions, *, albedo, specular, exponent, two_sided=False):
+def classic(normals, view, directions, *, albedo, specular, exponent, two_sided=False, _geometric_normals=None):
     """Return albedo/pi + RGB specular*Blinn(N.H, exponent) on active pairs.
 
     Normals own [P,3]/[B,P,3]; output is [P,Q,3]/[B,P,Q,3]. View and light
@@ -77,7 +83,7 @@ def classic(normals, view, directions, *, albedo, specular, exponent, two_sided=
     """
     shade._inputs(normals=normals, view=view, directions=directions,
                   albedo=albedo, specular=specular, exponent=exponent)
-    n, v, l, sign, active = _geometry(normals, view, directions, two_sided)
+    n, v, l, sign, active = _geometry(normals, view, directions, two_sided, _geometric_normals=_geometric_normals)
     b, p, q = active.shape
     shade._domain(albedo, 'albedo'); shade._domain(specular, 'specular')
     shade._domain(exponent, 'exponent', upper=None)
@@ -86,11 +92,22 @@ def classic(normals, view, directions, *, albedo, specular, exponent, two_sided=
     e = shade._scalar(exponent, n[..., 0], 'exponent')
     result = _zero_connection(normals, view, directions, albedo, specular, exponent).expand(b, p, q, 3).clone()
     if bool(active.any()):
+        # A fixed zero specular coefficient makes the entire highlight and its
+        # geometric/exponent adjoints zero. Keep validation and zero graph
+        # connections above, and retain the full path for a trainable zero.
+        if not specular.requires_grad and bool((specular == 0).all()):
+            aa = a[:, :, None].expand_as(l)[active]
+            ss = s[:, :, None].expand_as(l)[active]
+            result[active] = _finite(shade.lambert(aa) + ss)
+            return result[0] if normals.ndim == 2 else result
         nn = _unit(n[:, :, None].expand_as(l)[active], 'normals') * sign[..., None].expand_as(active)[active, None]
         vv = _unit(v[:, :, None].expand_as(l)[active], 'view')
         ll = _unit(l[active], 'directions')
         h = _unit(vv+ll, 'half-vector')
-        cosine = _dot(nn, h)
+        # With independent geometric sidedness, a deliberately bent shading
+        # normal can put H below its hemisphere. Keep diffuse and zero only
+        # the highlight there; the public lobe accepts cosines in [0,1].
+        cosine = _dot(nn, h).clamp_min(0)
         aa = a[:, :, None].expand_as(l)[active]
         ss = s[:, :, None].expand_as(l)[active]
         ee = e[..., None].expand_as(active)[active]

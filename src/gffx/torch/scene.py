@@ -14,6 +14,19 @@ __all__ = ['Attribute','Mesh','Material','Light','Camera','Rig','Scene','PackedS
 _DOMAINS={'constant':1,'uniform':2,'vertex':2,'face_varying':3}
 
 
+def _cat_packed(parts):
+    """Borrow a contiguous static attribute arena instead of copying it."""
+    if parts and all(p.shape[0]==1 and p.is_contiguous() for p in parts):
+        first=parts[0];storage=first.untyped_storage().data_ptr();offset=first.storage_offset();total=0
+        for p in parts:
+            if p.untyped_storage().data_ptr()!=storage or p.storage_offset()!=offset+total:break
+            total+=p.numel()
+        else:
+            tail=first.shape[2:];rows=sum(p.shape[1]for p in parts)
+            return first.as_strided((1,rows,*tail),(rows*tail[0]*tail[1],tail[0]*tail[1],tail[1],1),storage_offset=offset)
+    return torch.cat(parts,dim=1)
+
+
 def _mapping(value):
     if not isinstance(value,Mapping) or any(not isinstance(k,str) or not k for k in value):
         raise TypeError('scene mappings require nonempty string keys')
@@ -50,6 +63,12 @@ class Mesh(_Prim):
         return quad(cls,name,center=center,u=u,v=v,material=material,dtype=dtype,device=device)
 
     @classmethod
+    def strands(cls,name,points,*,radius=.001,tip_radius=0.,sides=6,material=None,dtype=None,device=None):
+        """Tapered explicit tube strands; points are [strands,samples,3]."""
+        from ._strands import strands
+        return strands(cls,name,points,radius=radius,tip_radius=tip_radius,sides=sides,material=material,dtype=dtype,device=device)
+
+    @classmethod
     def sphere(cls,name,*,radius=1.,center=(0,0,0),segments=48,rings=24,material=None,dtype=None,device=None):
         """Author a smooth closed UV sphere with connected radius/center tensors."""
         from ._scene_builders import sphere
@@ -74,9 +93,39 @@ class Material(_Prim):
         return diffuse(cls,name,albedo,dtype=dtype,device=device)
 
     @classmethod
+    def glossy(cls,name,albedo,*,roughness=.25,specular=.3,dtype=None,device=None):
+        """Author a diffuse plus empirical Blinn highlight, retaining tensor gradients."""
+        from ._scene_builders import glossy
+        return glossy(cls,name,albedo,roughness=roughness,specular=specular,dtype=dtype,device=device)
+
+    @classmethod
     def emissive(cls,name,radiance,*,dtype=None,device=None):
         from ._scene_builders import emissive
         return emissive(cls,name,radiance,dtype=dtype,device=device)
+
+    @classmethod
+    def dielectric(cls,name,*,ior=1.5,absorption=(0.,0.,0.),dtype=None,device=None):
+        """Closed smooth dielectric with Beer absorption in inverse world units.
+
+        The raster integrator selects the bounded geometric transmission path.
+        Initial support is for outward-oriented, disjoint closed solids with
+        the camera in air. See docs/studio_d.md for transport limits.
+        """
+        from ._dielectric import make_material
+        return make_material(cls,name,ior=ior,absorption=absorption,dtype=dtype,device=device)
+
+    @classmethod
+    def pbr(cls,name,base_color,*,roughness=.3,metallic=0.,ior=1.5,
+            coat=0.,coat_roughness=.12,normal_map=None,normal_space="tangent",subsurface=0.,
+            subsurface_radius=(.001,.0004,.0002),subsurface_transmission=1.,dtype=None,device=None):
+        """Isotropic GGX metallic surface, optional dielectric coat and normal map.
+
+        Uses the explicit raster integrator. Existing glossy and low-level
+        principled materials retain their distinct models and admission rules.
+        """
+        from ._scene_builders import pbr
+        return pbr(cls,name,base_color,roughness=roughness,metallic=metallic,ior=ior,
+                   coat=coat,coat_roughness=coat_roughness,normal_map=normal_map,normal_space=normal_space,subsurface=subsurface,subsurface_radius=subsurface_radius,subsurface_transmission=subsurface_transmission,dtype=dtype,device=device)
 
 
 @dataclass(frozen=True)
@@ -93,6 +142,26 @@ class Light(Material):
         from ._scene_builders import rectangle
         return rectangle(cls,name,center=center,u=u,v=v,radiance=radiance,samples=samples,
                          visible=visible,dtype=dtype,device=device)
+
+    @classmethod
+    def point(cls,name,*,position,power=1.,color=(1,1,1),dtype=None,device=None):
+        """Isotropic point emitter; power is radiant watts, color is linear RGB."""
+        from ._scene_builders import punctual
+        return punctual(cls,name,'point',position=position,power=power,color=color,dtype=dtype,device=device)
+
+    @classmethod
+    def spot(cls,name,*,position,direction,power=1.,angle=45.,blend=.15,color=(1,1,1),dtype=None,device=None):
+        """Point emitter clipped by a smooth cone; angle is its full width in degrees."""
+        from ._scene_builders import punctual
+        return punctual(cls,name,'spot',position=position,direction=direction,power=power,
+                        angle=angle,blend=blend,color=color,dtype=dtype,device=device)
+
+    @classmethod
+    def sun(cls,name,*,direction,irradiance=1.,angle=.53,color=(1,1,1),dtype=None,device=None):
+        """Distant emitter; direction follows light travel, angle is degrees."""
+        from ._scene_builders import punctual
+        return punctual(cls,name,'sun',direction=direction,power=irradiance,angle=angle,
+                        color=color,dtype=dtype,device=device)
 
 
 @dataclass(frozen=True)
@@ -158,6 +227,12 @@ class Scene:
         names=[p.name for p in self.prims]
         if any(not isinstance(n,str) or not n for n in names):raise ValueError('prim names must be nonempty strings')
         if len(set(names))!=len(names):raise ValueError('duplicate prim name')
+
+    @classmethod
+    def load(cls,path,*,device='auto',dtype=None):
+        """Load a portable gffx scene bundle; asset I/O happens only on request."""
+        from ._raster_scene_io import load
+        return load(path,device=device,dtype=dtype)
 
     def to(self,device=None,*,dtype=None):
         """Explicitly transfer a fresh scene, preserving differentiable tensor links."""
@@ -250,7 +325,7 @@ class Scene:
                     elif attr.domain=='uniform':corners=values[:,:,None,:].expand(batch,f.shape[0],3,c)
                     elif attr.domain=='vertex':corners=values[:,f.long(),:]
                     else:corners=values
-                    if name=='normals':
+                    if name=='normals' and not (p.parent is None and p.transform is None and not attr.values.requires_grad and getattr(attr,'_unit_version',None)==attr.values._version):
                         normal_matrix=torch.linalg.inv(a)*torch.linalg.det(a).sign()[:,None,None]
                         corners=torch.einsum('bfkc,bcd->bfkd',corners,normal_matrix)
                         scale=corners.abs().amax(-1,keepdim=True)
@@ -263,7 +338,7 @@ class Scene:
         of=torch.tensor(fo,dtype=torch.int32,device=device)[None,:]+offsets(nf)[:-1,None]
         packed_v=torch.cat(vertices,dim=1).reshape(-1,3) if vertices else torch.empty(0,3,dtype=dtype,device=device)
         packed_f=(torch.cat(faces,dim=0)[None,:,:]+offsets(nv)[:-1,None,None]).reshape(-1,3) if faces else torch.empty(0,3,dtype=torch.int32,device=device)
-        packed_attrs={name:PackedAttribute(torch.cat(parts,dim=1).reshape(-1,3,channels[name]),
+        packed_attrs={name:PackedAttribute(_cat_packed(parts).reshape(-1,3,channels[name]),
                        torch.cat(presence[name]).repeat(batch),tuple(p.attributes[name].domain if name in p.attributes else None for p in meshes)) for name,parts in attrs.items()}
         return PackedScene(packed_v,packed_f,offsets(nv),offsets(nf),ov,of,tuple(p.name for p in meshes),
                torch.cat(face_material).repeat(batch) if face_material else torch.empty(0,dtype=torch.int32,device=device),

@@ -97,7 +97,7 @@ def _prepare(scene,camera):
     return packed,_camera(camera,batch,pose=pose)
 
 
-def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu_workspace_allowance_bytes=67108864,ambient=None):
+def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu_workspace_allowance_bytes=67108864,ambient=None,*,shadow_storage_bytes=0):
     """Conservative built-in estimate using shapes only, before scene packing.
 
     A trusted callback's unknown allocations are not certified by this estimate.
@@ -161,6 +161,10 @@ def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu
             inspect(prim.parameters);inspect(prim.emission)
             sources+=isinstance(prim.emission,(AttributeSource,TextureSource))
             sources+=sum(isinstance(v,(AttributeSource,TextureSource)) for v in prim.parameters.values())
+        elif isinstance(prim,scene_types.Light):
+            # Light-only fitting must retain the differentiated streaming path
+            # and charge its inputs/adjoints, just like geometry and materials.
+            inspect(prim.parameters)
     batch=max(sizes);element=meshes[0].vertices.element_size() if meshes else camera.fx.element_size()
     pixels=batch*camera.image_height*camera.image_width*factor*factor
     base_pixels=batch*camera.image_height*camera.image_width
@@ -183,7 +187,7 @@ def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu
         sources=pixels*sources*32*element*batch,
         selection_masks=pixels*batch*len(mats)*(3 if backward else 1) if 'colour' in outputs else 0,
         lighting=0,material_scratch=0)
-    qualified=True;principled_work=[]
+    qualified=True;principled_work=[];rectangle_sample_block=1
     if 'colour' in outputs:
         sample_counts=[]
         for lamp in lamps:
@@ -203,6 +207,25 @@ def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu
         # per-frame/material boolean masks are separately counted above; they
         # must not disappear with this removal of duplicate point-light work.
         parts['lighting']=pixels*sum(sample_counts)*element*(512 if backward else 128)
+        # Coalesce only independent forward classic evaluations. Charge the
+        # expanded packet before allocating it, and retain one-sample streaming
+        # when the caller's existing budget has insufficient room. Differentiated
+        # execution keeps its original graph and reduction grouping.
+        if (not backward and camera.fx.device.type=='cuda' and
+                all(mat.evaluator is materials.classic for mat in mats)):
+            for block in (4,2):
+                grouped=0
+                for lamp in lamps:
+                    if lamp.evaluator is lighting.rectangle:
+                        grouped+=min(block,lamp.parameters['samples']**2)
+                    elif lamp.evaluator in (lighting.directional,lighting.point):
+                        name='directions' if lamp.evaluator is lighting.directional else 'positions'
+                        grouped+=lamp.parameters[name].shape[-2]
+                extra=pixels*max(0,grouped-sum(sample_counts))*element*128
+                if sum(parts.values())+extra+shadow_storage_bytes<=limit:
+                    rectangle_sample_block=block
+                    parts['lighting']+=extra
+                    break
         for mat in mats:
             if mat.evaluator is materials.principled:
                 budget=mat.parameters.get('budget')
@@ -237,8 +260,9 @@ def _plan_workload(scene,camera,factor,limit,outputs,background=None,soft=0.,cpu
             if estimate<=limit:break
         if estimate<=limit:break
     if estimate>limit:raise ValueError(f'deferred workspace budget exceeded before scene allocation: {estimate} > {limit} bytes')
-    return dict(estimated_bytes=estimate,components=parts,builtins_only=qualified,backward=backward,
-                principled_point_block_limit=point_block_limit,principled_group_point_limit=group_point_limit)
+    return dict(estimated_bytes=estimate,components=parts,builtins_only=qualified,backward=backward,batch_size=batch,element_size=element,
+                principled_point_block_limit=point_block_limit,principled_group_point_limit=group_point_limit,
+                rectangle_sample_block=rectangle_sample_block)
 
 
 def _validate_bindings(packed):
@@ -478,16 +502,21 @@ def _principled_blocks(normals,view,directions,parameters,*,point_block_limit=4,
     return torch.cat(pieces,dim=0) if pieces else normals.new_empty((0,samples,3))
 
 
-def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_shared_curves=None,ambient=None,shadows=False,shadow_map_size=256):
+def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_shared_curves=None,ambient=None,shadows=False,shadow_map_size=256,rectangle_sample_block=1,_shadow_caches=None):
     result=buffer['world_position'].new_zeros(buffer['world_position'].shape)
     covered=buffer['_covered'];ids=buffer['material_index']
+    # Visibility and shadow receiver planes are geometric, independent of
+    # authored smooth normals. Their predicates do not carry geometry gradients.
+    with torch.no_grad():
+        geometric_normals,_,_=geometry.face_geometry(packed.vertices,packed.faces,eps=0.0)
     if bool((covered & (ids<0)).any()):raise ValueError('colour requires a material on every selected face')
     for frame in range(camera.batch_size):
-        shadow_cache={}
+        shadow_cache={} if _shadow_caches is None else _shadow_caches.setdefault(frame,{})
         for number,mat in enumerate(packed.materials):
             selected=torch.zeros_like(covered);selected[frame]=covered[frame]&(ids[frame]==number)
             if not bool(selected.any()):continue
             points=buffer['world_position'][selected];n=buffer['normal'][selected]
+            geometric=geometric_normals[buffer['face_index'][selected].long()]
             view=(camera.pose[frame,:3,2].to(dtype=points.dtype).expand_as(points)
                   if camera.projection_kind=='orthographic' else
                   camera.pose[frame,:3,3].to(dtype=points.dtype)-points)
@@ -535,8 +564,8 @@ def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_sha
                     value=value+torch.where(active[:,None],radiance,torch.zeros_like(radiance))
                     continue
                 from ._area import packets
-                for packet in packets(lamp,packed,frame,points,n,shadows=shadows,size=shadow_map_size,
-                                      cache=shadow_cache,ordinary=_light_packet):
+                for packet in packets(lamp,packed,frame,points,geometric,shadows=shadows,size=shadow_map_size,
+                                      cache=shadow_cache,ordinary=_light_packet,sample_block=rectangle_sample_block):
                     # Validate the original packet before shielding only its declared
                     # invalid directions from BRDF normalization. Integration still
                     # consumes the original zeros/mask; malformed packets are errors.
@@ -548,12 +577,26 @@ def _shade(packed,camera,buffer,*,point_block_limit=4,group_point_limit=128,_sha
                         prepared=_shared_curves.setdefault(number,{})
                     brdf=(_principled_blocks(n,view,safe_direction,params,point_block_limit=point_block_limit,group_point_limit=group_point_limit,_prepared=prepared)
                           if mat.evaluator is materials.principled else
+                          materials.classic(n,view,safe_direction,_geometric_normals=geometric,**params)
+                          if mat.evaluator is materials.classic else
                           mat.evaluator(n,view,safe_direction,**params))
                     oriented=n
                     if params.get('two_sided',False):
-                        sign=torch.where(sum3(n*view)<0,-torch.ones_like(n[:,0]),torch.ones_like(n[:,0]))
+                        side=geometric if mat.evaluator is materials.classic else n
+                        sign=torch.where(sum3(side*view)<0,-torch.ones_like(n[:,0]),torch.ones_like(n[:,0]))
                         oriented=n*sign[:,None]
-                    value=value+lighting.integrate(oriented,brdf,packet)
+                    if lamp.evaluator is lighting.rectangle and rectangle_sample_block>1:
+                        # Preserve the published sample-by-sample accumulation,
+                        # including addition to ambient/emission. A batched BRDF
+                        # must not replace this with a different reduction tree.
+                        for sample in range(brdf.shape[-2]):
+                            single=dict(measure=packet['measure'],
+                                direction=packet['direction'][...,sample:sample+1,:],
+                                irradiance=packet['irradiance'][...,sample:sample+1,:],
+                                valid=packet['valid'][...,sample:sample+1])
+                            value=value+lighting.integrate(oriented,brdf[...,sample:sample+1,:],single)
+                    else:
+                        value=value+lighting.integrate(oriented,brdf,packet)
             result[selected]=_finite(value,'shaded colour')
     return result*buffer['mask'][...,None]
 
@@ -572,15 +615,48 @@ def _visibility(packed,camera,buffer,epsilon):
     return result.reshape(camera.batch_size,count)
 
 
+def _sampled(packed,camera,factor,soft,cull_mode,shade_options,colour_enabled):
+    """Bounded forward pixel quadrature; each sample selects its own material.
+
+    Camera offsets visit the same stratified positions as dense supersampling.
+    Shadow maps depend only on scene/light, so reuse them within this render.
+    No output-space blur, edge detection or fitting soft coverage is introduced.
+    """
+    constructor=Camera.from_orthographic if camera.projection_kind=='orthographic' else Camera.from_intrinsics
+    cache={};colour=mask=None
+    for row in range(factor):
+        for column in range(factor):
+            dx=.5-(column+.5)/factor;dy=.5-(row+.5)/factor
+            sample=constructor(camera.fx,camera.fy,camera.cx+dx,camera.cy+dy,
+                camera.image_height,camera.image_width,camera.near,camera.far,pose=camera.pose)
+            buffer=_buffers(packed,sample,soft,cull_mode)
+            current=(_shade(packed,sample,buffer,_shadow_caches=cache,**shade_options)
+                     if colour_enabled else None)
+            if current is not None:colour=current if colour is None else colour+current
+            mask=buffer['mask'] if mask is None else mask+buffer['mask']
+    count=factor*factor
+    return (None if colour is None else colour/count),mask/count
+
+
 def render(scene,camera,integrator='deferred',*,soft=0.0,supersample=1,coverage=None,
            outputs=('colour','mask'),cull_mode=primitives.CULL_BACK,background=None,
            depth_epsilon=1e-4,workspace_limit_bytes=None,opaque_tile_pixels=None,
-           cpu_workspace_allowance_bytes=None,ambient=0.,shadows=False,shadow_map_size=256):
+            cpu_workspace_allowance_bytes=None,ambient=0.,shadows=False,shadow_map_size=256,
+            fragment_block=262144,progress=None,environment=None,probes=(),irradiance=None,mirrors=(),caustics=None):
     """Render named tensors; transparent output is premultiplied linear RGB.
 
     Explicit background composites RGB but does not change foreground coverage.
     Whole-triangle clipping and front-fragment soft silhouettes are approximate.
     """
+    if integrator=='raster':
+        if soft or coverage is not None:raise ValueError('raster integrator uses hard raster visibility and shaded AA')
+        if isinstance(ambient,torch.Tensor) or ambient!=0:raise ValueError('raster lights are explicit; uniform ambient fill is not physical lighting')
+        from ._raster import render as raster
+        return raster(scene,camera,supersample=supersample,shadows=shadows,
+                      shadow_map_size=shadow_map_size,background=background,outputs=outputs,
+                      fragment_block=fragment_block,progress=progress,environment=environment,probes=probes,irradiance=irradiance,mirrors=mirrors,caustics=caustics)
+    if caustics is not None:raise ValueError('plane caustics require integrator=raster')
+    if environment is not None or probes or irradiance is not None or mirrors:raise ValueError('image lighting currently requires integrator=raster')
     if integrator!='deferred':raise ValueError('unknown integrator')
     if type(shadows) is not bool:raise TypeError('shadows must be boolean')
     if type(shadow_map_size) is not int or not 16<=shadow_map_size<=2048:
@@ -631,9 +707,29 @@ def render(scene,camera,integrator='deferred',*,soft=0.0,supersample=1,coverage=
         from ._opaque_scene import mask as opaque_mask
         return {'mask':opaque_mask(scene,camera,cull_mode=cull_mode,workspace_limit_bytes=workspace_limit_bytes)}
     if opaque_tile_pixels is not None:raise ValueError('opaque_tile_pixels requires opaque colour rendering')
-    workload=_plan_workload(scene,camera,supersample,workspace_limit_bytes,outputs,background,soft,cpu_workspace_allowance_bytes,ambient)
-    if shadows and workload['estimated_bytes']+shadow_reserve(scene,shadow_map_size)>workspace_limit_bytes:
-        raise ValueError('deferred workspace budget exceeded by shadow-map storage')
+    # Admit one live sample before selecting forward streaming. Backward keeps
+    # the dense graph and its existing factor-squared retained-storage charge.
+    factor=1 if supersample>1 else supersample
+    workload=_plan_workload(scene,camera,factor,workspace_limit_bytes,outputs,background,soft,cpu_workspace_allowance_bytes,ambient)
+    streamed=supersample>1 and not workload['backward']
+    if supersample>1 and not streamed:
+        factor=supersample
+        workload=_plan_workload(scene,camera,factor,workspace_limit_bytes,outputs,background,soft,cpu_workspace_allowance_bytes,ambient)
+    shadow_storage=shadow_reserve(scene,shadow_map_size) if shadows else 0
+    if streamed:
+        # All frame/light maps remain live for reuse across subpixel passes.
+        shadow_storage*=workload['batch_size']
+        element=workload['element_size']
+        channels=4 if 'colour' in outputs else 1
+        shadow_storage+=2*workload['batch_size']*resolved.image_height*resolved.image_width*channels*element
+    if workload['estimated_bytes']+shadow_storage>workspace_limit_bytes:
+        # A roomy first plan may coalesce samples. Reserve the maps before
+        # selecting a smaller block, rather than rejecting an existing streamed
+        # workload that still fits the caller's explicit budget.
+        workload=_plan_workload(scene,camera,factor,workspace_limit_bytes,outputs,background,soft,
+                                cpu_workspace_allowance_bytes,ambient,shadow_storage_bytes=shadow_storage)
+        if workload['estimated_bytes']+shadow_storage>workspace_limit_bytes:
+            raise ValueError('deferred workspace budget exceeded by shadow-map/AA storage')
     packed,camera=_prepare(scene,camera)
     _validate_bindings(packed)
     if soft:
@@ -644,19 +740,26 @@ def render(scene,camera,integrator='deferred',*,soft=0.0,supersample=1,coverage=
         if not isinstance(background,torch.Tensor) or background.dtype!=packed.vertices.dtype:raise TypeError('background must match scene dtype')
         if background.device!=packed.vertices.device or background.shape not in ((3,),(camera.batch_size,3)):raise ValueError('background shape/device mismatch')
         _finite(background,'background')
-    high_camera=_camera(camera,camera.batch_size,factor=supersample)
-    high=_buffers(packed,high_camera,soft*supersample,cull_mode)
-    colour=(_shade(packed,high_camera,high,point_block_limit=workload['principled_point_block_limit'],group_point_limit=workload['principled_group_point_limit'],ambient=ambient,shadows=shadows,shadow_map_size=shadow_map_size)
-            if 'colour' in outputs else None)
-    mask=high['mask']
-    if supersample>1:
-        from .image import reconstruct
-        if colour is not None:
-            joined=reconstruct(torch.cat((colour,mask[...,None]),-1),supersample)
-            colour,mask=joined[...,:3],joined[...,3]
-        else:mask=reconstruct(mask[...,None],supersample)[...,0]
+    shade_options=dict(point_block_limit=workload['principled_point_block_limit'],
+        group_point_limit=workload['principled_group_point_limit'],ambient=ambient,
+        shadows=shadows,shadow_map_size=shadow_map_size,
+        rectangle_sample_block=workload['rectangle_sample_block'])
     geometric=set(outputs)-{'colour','mask'}
-    base=_buffers(packed,camera,0.,cull_mode) if geometric and (supersample>1 or soft>0) else high
+    if streamed:
+        colour,mask=_sampled(packed,camera,supersample,soft,cull_mode,shade_options,'colour' in outputs)
+        base=_buffers(packed,camera,0.,cull_mode) if geometric else {}
+    else:
+        high_camera=_camera(camera,camera.batch_size,factor=supersample)
+        high=_buffers(packed,high_camera,soft*supersample,cull_mode)
+        colour=_shade(packed,high_camera,high,**shade_options) if 'colour' in outputs else None
+        mask=high['mask']
+        if supersample>1:
+            from .image import reconstruct
+            if colour is not None:
+                joined=reconstruct(torch.cat((colour,mask[...,None]),-1),supersample)
+                colour,mask=joined[...,:3],joined[...,3]
+            else:mask=reconstruct(mask[...,None],supersample)[...,0]
+        base=_buffers(packed,camera,0.,cull_mode) if geometric and (supersample>1 or soft>0) else high
     result={k:base[k] for k in outputs if k not in ('colour','mask','visibility')}
     if 'mask' in outputs:result['mask']=mask
     if colour is not None:
