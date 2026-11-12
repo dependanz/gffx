@@ -51,13 +51,11 @@ def _args(tmp_path):
     receipt = tmp_path / "receipt.json"
     receipt.write_text(json.dumps(receipt_for(dist, project, SHA, RUN)), encoding="utf-8")
     windows = tmp_path / "windows.json"
-    linux = tmp_path / "linux.json"
     _device(windows, "win32")
-    _device(linux, "linux")
     return dict(
         tag="v0.2.2", run_id=RUN, git_head=SHA, project=project,
         dist=dist, receipt=receipt, windows_report=windows,
-        linux_report=linux, run_data=_run(),
+        run_data=_run(),
     )
 
 
@@ -123,3 +121,11 @@ def test_publisher_detects_substituted_commit_and_run(tmp_path):
     args["run_id"] = "999999"
     with pytest.raises(PublicationError):
         preflight(**args)
+
+
+def test_publication_preflight_does_not_require_linux_device_evidence(tmp_path):
+    """Hosted Linux x64 wheel stays mandatory; an independent GPU host does not."""
+    args = _args(tmp_path)
+    result = preflight(**args)
+    assert result["status"] == "approved-for-human-publishing-review"
+    assert "linux_report" not in args
