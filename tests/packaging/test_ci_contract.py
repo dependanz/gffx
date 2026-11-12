@@ -265,3 +265,12 @@ def test_ci_smoke_exposes_installed_and_uninstalled_modes() -> None:
     assert 'add_parser("uninstalled"' in script
     assert "gpu_probed" in script
     assert "_foundation_probe" in script
+
+
+def test_absent_cuda_capabilities_fixture_isolated_from_real_linux_plugin() -> None:
+    """Full ABI capability testing must not be perturbed by adjacent CUDA plugin builds."""
+    cmake = (ROOT / "tests" / "abi" / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "add_test(NAME abi.capabilities COMMAND gffx_test_abi_capabilities)" in cmake
+    assert "GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH" in cmake
+    assert "set_tests_properties(abi.capabilities PROPERTIES" in cmake
+    assert "GFFX_CUDA_PLUGIN_PATH=${GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH}" in cmake
