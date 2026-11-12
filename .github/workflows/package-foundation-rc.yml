@@ -21,12 +21,29 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Refuse moving refs and invalid commit identifiers
+      - name: Require owner dispatch of the exact workflow and candidate revision
         shell: bash
         env:
           CANDIDATE_SHA: ${{ inputs.revision }}
         run: |
-          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'RC requires an exact lowercase 40-character commit SHA' >&2; exit 1; }
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "dependanz/gffx" && "$GITHUB_ACTOR" == "dependanz" ]] || {
+            echo 'Only the repository owner may request protected release qualification' >&2
+            exit 1
+          }
+          [[ "$GITHUB_REF" == refs/heads/* ]] || {
+            echo 'RC workflow must be dispatched from a branch, not a movable tag' >&2
+            exit 1
+          }
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'RC requires an exact lowercase 40-character commit SHA' >&2
+            exit 1
+          }
+          [[ "$GITHUB_SHA" == "$CANDIDATE_SHA" ]] || {
+            echo 'The workflow branch tip must exactly equal the candidate SHA' >&2
+            exit 1
+          }
+          echo "Admitted exact workflow and candidate SHA: $CANDIDATE_SHA"
 
   build-artifacts:
     name: build / ${{ matrix.name }}
@@ -233,7 +250,7 @@ jobs:
           path: ${{ runner.temp }}/linux-cuda-release-wheel
       - name: Preflight protected Linux CUDA test host
         shell: bash
-        run: python tools/release_runner_preflight.py --target linux --json
+        run: python tools/release_runner_preflight.py --target linux --require-native-linux --json
       - name: Prove installed wheel discovers its bundled plugin on a real NVIDIA device
         shell: bash
         run: |
