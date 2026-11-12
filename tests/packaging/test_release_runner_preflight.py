@@ -13,7 +13,9 @@ def valid_report(platform="linux"):
     }
     results["nvcc"]["output"] = "Cuda compilation tools, release 12.9, V12.9.86"
     results["nvidia_smi"]["output"] = "GPU 0: NVIDIA GeForce RTX (UUID: GPU-placeholder)"
-    return {"os": platform, "architecture": "x86_64", "python": "3.10.14", "tools": results}
+    return {"os": platform, "architecture": "x86_64", "python": "3.10.14",
+            "kernel_release": "6.8.0-generic" if platform == "linux" else "10.0.26100",
+            "tools": results}
 
 
 @pytest.mark.parametrize("system", ["windows", "linux"])
@@ -47,3 +49,24 @@ def test_runner_preflight_refuses_missing_qualification_prerequisites(problem):
 def test_runner_preflight_cannot_claim_unsupported_cuda_os(target):
     with pytest.raises(ValueError):
         validate(valid_report(), target)
+
+
+def test_native_linux_rc_gate_accepts_real_linux_kernel():
+    assert validate(valid_report("linux"), "linux", require_native_linux=True) == []
+
+
+@pytest.mark.parametrize("kernel", [
+    "6.18.58.1-microsoft-standard-WSL2", "5.15.153.1-microsoft-standard-WSL2",
+    "", None,
+])
+def test_native_linux_rc_gate_rejects_wsl_and_unreported_kernels(kernel):
+    report = valid_report("linux")
+    report["kernel_release"] = kernel
+    errors = validate(report, "linux", require_native_linux=True)
+    assert any("native Linux kernel" in message for message in errors)
+    assert validate(report, "linux") == []  # Local development WSL remains supported.
+
+
+def test_native_linux_gate_never_claims_windows_admission():
+    with pytest.raises(ValueError, match="Linux target"):
+        validate(valid_report("windows"), "windows", require_native_linux=True)
