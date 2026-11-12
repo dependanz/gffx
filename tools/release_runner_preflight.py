@@ -45,18 +45,25 @@ def inspect() -> dict:
     return {
         "os": platform.system().lower(),
         "architecture": platform.machine().lower(),
+        "kernel_release": platform.release(),
         "python": platform.python_version(),
         "tools": {name: probe(command) for name, command in TOOLS.items()},
     }
 
 
-def validate(report: dict, os_target: str) -> list[str]:
+def validate(report: dict, os_target: str, *, require_native_linux: bool = False) -> list[str]:
     errors = []
     target = {"windows": "windows", "linux": "linux"}.get(os_target)
     if target is None:
         raise ValueError("os_target must be windows or linux")
     if report.get("os") != target:
         errors.append(f"host must run {target}; received {report.get('os')}")
+    if require_native_linux:
+        if target != "linux":
+            raise ValueError("require_native_linux is valid only for a Linux target")
+        kernel = str(report.get("kernel_release") or "")
+        if not kernel or "microsoft" in kernel.lower() or "wsl" in kernel.lower():
+            errors.append("release candidate Linux NVIDIA qualification requires a native Linux kernel, not WSL2")
     if report.get("architecture") not in {"x86_64", "amd64"}:
         errors.append("CUDA release host must use x86-64")
     version = report.get("python", "")
@@ -81,9 +88,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", choices=["windows", "linux"], required=True)
     parser.add_argument("--json", action="store_true", help="include host/tool output in result")
+    parser.add_argument("--require-native-linux", action="store_true",
+                        help="refuse WSL2 and unknown kernel provenance for production Linux RC")
     args = parser.parse_args()
     result = inspect()
-    issues = validate(result, args.target)
+    issues = validate(result, args.target, require_native_linux=args.require_native_linux)
     summary = {
         "status": "pass" if not issues else "blocked",
         "target": args.target,
