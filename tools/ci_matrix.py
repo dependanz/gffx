@@ -398,6 +398,9 @@ def validate_workflows(root: Path) -> list[str]:
     # qualification on both x64 targets before the exact bundle is admitted.
     rc_cuda_requirements = (
         "rc-exact-commit-required",
+        'GITHUB_SHA" == "$CANDIDATE_SHA"',
+        'GITHUB_ACTOR" == "dependanz"',
+        "--require-native-linux",
         "^[0-9a-f]{40}$",
         "fromJSON(",
         "cuda-hardware",
