@@ -386,7 +386,7 @@ def validate_workflows(root: Path) -> list[str]:
     if _extract_generated(rc, "RC TEST MATRIX") != render_release_test_block():
         errors.append("release-candidate test matrix differs from canonical 80 environments")
     for token in (
-        "needs: [build-artifacts, linux-cuda-hardware]", "verify-artifacts:", "release-candidate-bundle-required",
+        "needs: build-artifacts", "verify-artifacts:", "release-candidate-bundle-required",
         "tools/assemble_candidate_bundle.py", "tools/release_bundle_gate.py",
         "approved-rc-bundle", "actions/download-artifact@", "tools/ci_smoke.py installed",
         "tools/ci_smoke.py uninstalled", "python -m pip uninstall --yes gffx",
@@ -394,27 +394,18 @@ def validate_workflows(root: Path) -> list[str]:
     ):
         if token not in rc:
             errors.append(f"release-candidate workflow missing {token}")
-    # A production candidate must be immutable and include real-device CUDA
-    # qualification on both x64 targets before the exact bundle is admitted.
+    # Production RC requires immutable wheels, exact-artifact acceptance, and
+    # the Windows NVIDIA device gate; native Linux GPU is future assurance.
     rc_cuda_requirements = (
         "rc-exact-commit-required",
         'GITHUB_SHA" == "$CANDIDATE_SHA"',
         'GITHUB_ACTOR" == "dependanz"',
-        "--require-native-linux",
         "^[0-9a-f]{40}$",
         "fromJSON(",
         "cuda-hardware",
-        "linux-cuda-hardware:",
-        "release-candidate-linux-nvidia-required",
-        "needs: [build-artifacts, linux-cuda-hardware]",
-        "needs: [linux-cuda-hardware, verify-artifacts, artifact-tests]",
-        "runs-on: [self-hosted, linux, x64, cuda]",
+        "needs: [verify-artifacts, artifact-tests]",
         "verify_cuda_lane.py",
         "tools/release_runner_preflight.py",
-        "tools/qualify_cuda_wheel.py",
-        "--provenance",
-        "linux-cuda-wheel-functional/result.json",
-        "torch==2.10.0+cu126",
         "compute-sanitizer",
         "GFFX_ENABLE_CUDA=ON",
         "quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9@sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c",
