@@ -35,7 +35,10 @@ CUDA_PROVIDERS = {
 }
 
 PLATFORM_BINARIES = {
-    "windows-x64": {"gffx/gffx_core.dll", "gffx/_core.abi3.pyd", "gffx/_torch.abi3.pyd"},
+    # On Windows, GFFX installs _core.pyd and _torch.pyd. The CPython 3.10
+    # stable ABI is independently enforced by the Windows wheel abi3audit --strict
+    # build step; the .abi3 suffix is a Unix-style extension filename convention.
+    "windows-x64": {"gffx/gffx_core.dll", "gffx/_core.pyd", "gffx/_torch.pyd"},
     "linux-x64": {"gffx/libgffx_core.so", "gffx/_core.abi3.so", "gffx/_torch.abi3.so"},
     "linux-arm64": {"gffx/libgffx_core.so", "gffx/_core.abi3.so", "gffx/_torch.abi3.so"},
     "macos-arm64": {"gffx/libgffx_core.dylib", "gffx/_core.abi3.so", "gffx/_torch.abi3.so"},
