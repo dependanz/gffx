@@ -70,7 +70,7 @@ def test_nightly_matrix_is_36_blocking_lanes_with_iso_week_rotation() -> None:
     assert sum(entry["lane"] == "intermediate" for entry in odd) == 8
 
 
-def test_release_candidate_matrix_builds_four_and_tests_eighty() -> None:
+def test_release_candidate_matrix_builds_four_and_tests_one_hundred() -> None:
     matrix = _load_ci_matrix()
     builds = matrix.release_candidate_build_matrix()
     tests = matrix.release_candidate_test_matrix()
@@ -79,8 +79,9 @@ def test_release_candidate_matrix_builds_four_and_tests_eighty() -> None:
     assert all(entry["python"] == "3.10" for entry in builds)
     assert all(entry["pytorch"] == "2.10.0" for entry in builds)
     assert sum(bool(entry["build_sdist"]) for entry in builds) == 1
-    assert len(tests) == 80
-    assert len({(e["platform"], e["python"], e["pytorch"]) for e in tests}) == 80
+    assert len(tests) == 100
+    assert "2.14.1" in {entry["pytorch"] for entry in tests}
+    assert len({(e["platform"], e["python"], e["pytorch"]) for e in tests}) == 100
 
 
 def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
@@ -90,7 +91,9 @@ def test_workflows_are_exactly_the_adopted_cadences_and_validate() -> None:
     assert not (workflows / "wheels.yml").exists()
     assert {path.name for path in workflows.glob("*.yml")} == {
         "package-foundation-pr.yml", "package-foundation-nightly.yml",
-        "package-foundation-rc.yml", "cuda-hardware.yml", "publish-alpha.yml", "windows-functional.yml",
+        "package-foundation-rc.yml", "package-artifacts-pr.yml",
+        "cuda-hardware.yml", "publish-alpha.yml",
+        "publish-multiplatform.yml", "windows-functional.yml",
     }
 
 
@@ -185,11 +188,74 @@ def test_rc_installs_downloaded_wheels_without_rebuilding_source() -> None:
         encoding="utf-8"
     )
     assert "needs: build-artifacts" in rc
+    assert "verify-artifacts:" in rc
+    assert "tools/assemble_candidate_bundle.py" in rc
+    assert "tools/release_bundle_gate.py" in rc
+    assert "needs: [verify-artifacts, artifact-tests]" in rc
     assert "actions/download-artifact@" in rc
     assert "tools/ci_smoke.py installed" in rc
     assert "tools/ci_smoke.py uninstalled" in rc
     assert "python -m pip uninstall --yes gffx" in rc
     assert "python -m pip wheel ." not in rc.split("artifact-tests:", maxsplit=1)[1]
+
+
+def test_release_candidate_blocks_without_real_cuda_and_exact_commit() -> None:
+    rc = (ROOT / ".github" / "workflows" / "package-foundation-rc.yml").read_text(
+        encoding="utf-8"
+    )
+    preview = (ROOT / ".github" / "workflows" / "package-artifacts-pr.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "workflow_dispatch:" in rc
+    assert "pull_request:" not in rc and "schedule:" not in rc
+    assert "rc-exact-commit-required" in rc
+    assert 'GITHUB_REPOSITORY" == "dependanz/gffx"' in rc
+    assert 'GITHUB_ACTOR" == "dependanz"' in rc
+    assert 'GITHUB_SHA" == "$CANDIDATE_SHA"' in rc
+    assert "^[0-9a-f]{40}$" in rc
+    assert "fromJSON(" in rc and "cuda-hardware" in rc
+    assert "CIBW_CONFIG_SETTINGS:" in rc
+    assert "cmake.define.GFFX_ENABLE_CUDA=ON" in rc
+    assert "gffx_cuda12.dll" in rc and "libgffx_cuda12.so" in rc
+    assert "verify_cuda_lane.py" in rc and "compute-sanitizer" in rc
+    assert "tools/release_runner_preflight.py --target windows" in rc
+    assert "linux-cuda-hardware:" not in rc
+    assert "libgffx_cuda12.so" in rc
+    assert "cuda-hardware-report-windows-rc" in rc
+    assert "tools/rc_candidate_receipt.py create" in rc
+    assert "tools/rc_candidate_receipt.py verify" in rc
+    assert "name: rc-candidate-receipt" in rc
+    assert "needs: build-artifacts" in rc
+    assert "needs: [verify-artifacts, artifact-tests]" in rc
+    pinned = "sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c"
+    assert pinned in rc and pinned in preview
+    assert "manylinux_2_28_x86_64_cuda12_9:latest" not in preview
+
+
+def test_multiplatform_publisher_is_manual_protected_and_never_rebuilds() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "publish-multiplatform.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request:" not in workflow
+    assert "schedule:" not in workflow
+    assert "push:" not in workflow
+    assert "release:" not in workflow
+    assert "github.actor == 'dependanz'" in workflow
+    assert "rc_run_id:" in workflow
+    assert "approved-rc-bundle" in workflow
+    assert "rc-candidate-receipt" in workflow
+    assert "cuda-hardware-report-windows-rc" in workflow
+    assert "tools/verify_multiplatform_publication.py" in workflow
+    assert "needs: preflight" in workflow
+    assert "name: pypi" in workflow
+    assert "id-token: write" in workflow
+    assert "packages-dir: dist/" in workflow
+    # OIDC runs only a pinned PyPI action against downloaded vetted wheel bytes.
+    privileged = workflow.split("\n  publish:\n", maxsplit=1)[1]
+    assert "actions/checkout@" not in privileged
+    assert "run:" not in privileged
+    assert "pypa/gh-action-pypi-publish@" in privileged
 
 
 def test_ci_smoke_exposes_installed_and_uninstalled_modes() -> None:
@@ -198,3 +264,25 @@ def test_ci_smoke_exposes_installed_and_uninstalled_modes() -> None:
     assert 'add_parser("uninstalled"' in script
     assert "gpu_probed" in script
     assert "_foundation_probe" in script
+
+
+def test_absent_cuda_capabilities_fixture_isolated_from_real_linux_plugin() -> None:
+    """Full ABI capability testing must not be perturbed by adjacent CUDA plugin builds."""
+    cmake = (ROOT / "tests" / "abi" / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "add_test(NAME abi.capabilities COMMAND gffx_test_abi_capabilities)" in cmake
+    assert "GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH" in cmake
+    assert "set_tests_properties(abi.capabilities PROPERTIES" in cmake
+    assert "GFFX_CUDA_PLUGIN_PATH=${GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH}" in cmake
+
+
+def test_rc_ctest_junit_path_matches_build_directory() -> None:
+    """CTest writes relative JUnit paths beneath --test-dir, not the source root."""
+    rc = (ROOT / ".github" / "workflows" / "package-foundation-rc.yml").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "ctest --test-dir build/release-device -C Release --output-on-failure "
+        "--output-junit ctest.xml"
+    ) in rc
+    assert "python tools/verify_cuda_lane.py build/release-device/ctest.xml" in rc
+    assert "--output-junit build/release-device/ctest.xml" not in rc

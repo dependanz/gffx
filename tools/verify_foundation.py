@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 in the declared test group
+    import tomli as tomllib
 import email.parser
 import hashlib
 import json
@@ -191,7 +195,7 @@ def run_command(
     success = completed.returncode == 0
     if success != expect_success:
         expectation = "succeed" if expect_success else "fail"
-        tail = "\n".join(combined.splitlines()[-80:])
+        tail = "\n".join(combined.splitlines()[-250:])
         raise VerificationError(
             f"command was expected to {expectation} but returned {completed.returncode}: "
             f"{_display_command(normalized)}\n{tail}"
@@ -322,6 +326,19 @@ def _safe_archive_names(names: Iterable[str], *, label: str) -> list[str]:
     return normalized
 
 
+def _canonical_requirement(text: str) -> str:
+    # The foundation gate handles the currently supported simple PEP 508 subset.
+    # Unknown marker/extras syntax must fail closed rather than silently disappear.
+    match = re.fullmatch(r"([A-Za-z0-9_.-]+)((?:[<>=!~].*)?)", text.replace(" ", ""))
+    if match is None:
+        raise VerificationError("unsupported Requires-Dist syntax in foundation check")
+    terms = [term for term in match.group(2).split(",") if term]
+    if any(re.fullmatch(r"(?:===|~=|==|!=|<=|>=|<|>)[A-Za-z0-9_.+*-]+", term) is None
+           for term in terms):
+        raise VerificationError("unsupported Requires-Dist specifier in foundation check")
+    return match.group(1).lower() + ",".join(sorted(terms))
+
+
 def inspect_wheel(path: Path) -> dict[str, Any]:
     path = path.resolve()
     with zipfile.ZipFile(path) as archive:
@@ -334,14 +351,16 @@ def inspect_wheel(path: Path) -> dict[str, Any]:
         wheel_text = archive.read(wheel_names[0]).decode("utf-8")
 
     metadata = email.parser.Parser().parsestr(metadata_text)
-    if metadata.get("Name") != "gffx" or metadata.get("Version") != "0.2.0.dev0":
-        raise VerificationError("wheel identity is not gffx 0.2.0.dev0")
-    if metadata.get("Requires-Python") != ">=3.10":
-        raise VerificationError("wheel Requires-Python must be exactly >=3.10")
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as source:
+        project = tomllib.load(source)["project"]
+    if metadata.get("Name", "").lower() != project["name"] or metadata.get("Version") != project["version"]:
+        raise VerificationError("wheel identity differs from the source pyproject.toml")
+    if metadata.get("Requires-Python") != project["requires-python"]:
+        raise VerificationError("wheel Requires-Python differs from the source")
     requires = metadata.get_all("Requires-Dist", [])
-    expected_requires = ['torch<=2.14.1,>=2.10.0'] if metadata.get("Version")=="0.2.1" else []
-    if requires != expected_requires:
-        raise VerificationError("wheel contains forbidden Requires-Dist runtime dependencies")
+    expected_requires = project.get("dependencies", [])
+    if sorted(map(_canonical_requirement, requires)) != sorted(map(_canonical_requirement, expected_requires)):
+        raise VerificationError("wheel Requires-Dist differs from the source dependency contract")
 
     missing = sorted(REQUIRED_WHEEL_FILES - set(names))
     if missing:
@@ -392,6 +411,10 @@ def inspect_sdist(path: Path) -> dict[str, Any]:
     if len(roots) != 1:
         raise VerificationError("sdist must have one top-level source directory")
     root = next(iter(roots))
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as source:
+        expected_root = "gffx-" + tomllib.load(source)["project"]["version"]
+    if root != expected_root:
+        raise VerificationError("sdist root does not match source package version")
     relative_names = {
         PurePosixPath(*PurePosixPath(name).parts[1:]).as_posix() for name in names
     }
@@ -445,7 +468,7 @@ def _clean_python_environment() -> dict[str, str]:
 
 def run_python_contracts(source_root: Path, python: Path) -> dict[str, Any]:
     result = run_command(
-        [python, "-m", "pytest", "-q", "tests/python/test_base_import.py", "tests/python/test_cuda_capabilities.py", "tests/pytorch/test_adapter_loading.py", "tests/packaging/test_metadata_contract.py", "tests/packaging/test_foundation_verifier.py", "tests/packaging/test_ci_contract.py"],
+        [python, "-m", "pytest", "-q", "tests/python/test_base_import.py", "tests/python/test_cuda_capabilities.py", "tests/python/test_display_pipeline.py", "tests/pytorch/test_adapter_loading.py", "tests/packaging/test_metadata_contract.py", "tests/packaging/test_foundation_verifier.py", "tests/packaging/test_release_bundle_gate.py", "tests/packaging/test_candidate_assembly.py", "tests/packaging/test_rc_candidate_receipt.py", "tests/packaging/test_multiplatform_publication.py", "tests/packaging/test_release_runner_preflight.py", "tests/packaging/test_ptx_resource_build.py", "tests/packaging/test_qualify_cuda_wheel.py", "tests/packaging/test_ci_contract.py"],
         cwd=source_root,
     )
     summary = next(
@@ -616,7 +639,7 @@ def verify_install_optional_and_uninstall(
         assert report['native_core']['limited_api'] == '0x030A0000', report
         assert report['gpu_probed'] is False, report
         distribution = importlib.metadata.distribution('gffx')
-        assert not list(distribution.requires or []), distribution.requires
+        assert list(distribution.requires or []) == ['torch<=2.14.1,>=2.10.0'], distribution.requires
         files = [str(distribution.locate_file(item)) for item in distribution.files or []]
         print(json.dumps({'files': files, 'version': gffx.__version__}))
         """

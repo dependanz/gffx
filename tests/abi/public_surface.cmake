@@ -36,14 +36,14 @@ endif()
 set(violations "")
 
 # ---------------------------------------------------------------- read the classified manifest
-file(STRINGS "${manifest_file}" manifest_entries REGEX "^(infra|op|setup|private)[ \t]")
+file(STRINGS "${manifest_file}" manifest_entries REGEX "^(infra|op|setup|experimental|private)[ \t]")
 set(manifest_symbols "")
 set(manifest_ops "")
 set(manifest_private "")
 foreach(entry IN LISTS manifest_entries)
-    if(NOT entry MATCHES "^(infra|op|setup|private)[ \t]+(gffx_[A-Za-z0-9_]+)[ \t]*$")
+    if(NOT entry MATCHES "^(infra|op|setup|experimental|private)[ \t]+(gffx_[A-Za-z0-9_]+)[ \t]*$")
         list(APPEND violations
-            "manifest line is not '<infra|op|setup|private> <gffx_symbol>': ${entry}")
+            "manifest line is not '<infra|op|setup|experimental|private> <gffx_symbol>': ${entry}")
         continue()
     endif()
     set(entry_class "${CMAKE_MATCH_1}")
@@ -52,6 +52,8 @@ foreach(entry IN LISTS manifest_entries)
         list(APPEND violations "manifest lists ${entry_symbol} more than once")
     endif()
     list(APPEND manifest_symbols "${entry_symbol}")
+    # Experimental exports are enumerated and checked for header closure, but do not
+    # inherit the v0.1 operation-trio contract while their APIs remain under review.
     if(entry_class STREQUAL "op")
         list(APPEND manifest_ops "${entry_symbol}")
     elseif(entry_class STREQUAL "private")

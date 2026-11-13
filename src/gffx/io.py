@@ -14,7 +14,7 @@ def write_png(path, image, *, tone_map='aces', exposure=0., overwrite=False):
     supplied tensor or its gradient graph. No NumPy or Pillow is required.
     """
     import torch
-    from .torch.image import linear_to_srgb
+    from .image import to_display
     if not isinstance(image,torch.Tensor):raise TypeError('image must be a tensor')
     if image.ndim==4 and image.shape[0]==1:image=image[0]
     if image.ndim!=3 or image.shape[-1]!=3 or min(image.shape[:2])<1:
@@ -29,14 +29,11 @@ def write_png(path, image, *, tone_map='aces', exposure=0., overwrite=False):
     target=Path(path)
     if target.exists() and not overwrite:raise FileExistsError(target)
     with torch.no_grad():
-        rgb=image.detach()*2.**exposure
-        if not bool(torch.isfinite(rgb).all()):raise ValueError('exposure overflows image precision')
-        if tone_map=='aces':
-            # Algebraically equivalent rational curve without large-value squaring.
-            x=rgb.clamp_max(1e6)
-            rgb=(x*(2.51*x+.03)/(x*(2.43*x+.59)+.14)).clamp(0,1)
-        else:rgb=rgb.clamp(0,1)
-        data=(linear_to_srgb(rgb.contiguous()).clamp(0,1)*255).round().to(torch.uint8).cpu()
+        # One shared color transform for PNG and interactive/notebook previews.
+        # Export remains an explicit detached/quantized boundary; to_display
+        # itself leaves the input tensor's autograd graph intact.
+        display = to_display(image.detach(), tone_map=tone_map, exposure=exposure)
+        data = (display * 255).round().to(torch.uint8).cpu()
     h,w,_=data.shape
     def chunk(kind,payload):
         return struct.pack('>I',len(payload))+kind+payload+struct.pack('>I',zlib.crc32(kind+payload)&0xffffffff)

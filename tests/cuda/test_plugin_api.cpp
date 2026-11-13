@@ -43,7 +43,7 @@ int main() {
     ops.render_opaque_boundary=boundary_stub;
     ops.struct_size=offsetof(gffx_cuda_operations,render_opaque_boundary);
     if(GFFX_CUDA_HAS_OPERATION(table,render_opaque_boundary))return __LINE__;
-    ops.struct_size=sizeof(ops)-1;
+    ops.struct_size=offsetof(gffx_cuda_operations,render_opaque_boundary)+sizeof(ops.render_opaque_boundary)-1;
     if(GFFX_CUDA_HAS_OPERATION(table,render_opaque_boundary))return __LINE__;
     ops.struct_size=sizeof(ops);
     if(!GFFX_CUDA_HAS_OPERATION(table,render_opaque_boundary))return __LINE__;

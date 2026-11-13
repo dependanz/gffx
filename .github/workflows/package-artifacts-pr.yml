@@ -1,0 +1,201 @@
+name: package-artifacts-pr
+
+# Disposable CPU-only preview. No publishing or CUDA-readiness claims.
+on:
+  pull_request:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-artifacts-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-artifacts:
+    name: preview-build / ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: windows-x64, runner: windows-2022, cibw_arch: AMD64, artifact: win_amd64, sdist: false}
+          - {platform: linux-x64, runner: ubuntu-24.04, cibw_arch: x86_64, artifact: manylinux_2_28_x86_64, sdist: true}
+          - {platform: linux-arm64, runner: ubuntu-24.04-arm, cibw_arch: aarch64, artifact: manylinux_2_28_aarch64, sdist: false}
+          - {platform: macos-arm64, runner: macos-26, cibw_arch: arm64, artifact: macosx_14_0_arm64, sdist: false}
+    steps:
+      - name: Check out exact PR merge revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select packaging Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Build one sdist
+        if: matrix.sdist
+        shell: bash
+        run: |
+          python -m pip install build==1.3.0
+          python -m build --sdist --outdir wheelhouse
+      - name: Build and repair ABI3 wheel (CPU adapter)
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        env:
+          CIBW_ARCHS: ${{ matrix.cibw_arch }}
+          CIBW_BUILD: cp310-*
+          CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation"
+          CIBW_BEFORE_BUILD: >-
+            python -m pip install scikit-build-core==1.0.3 cmake==4.4.2 ninja==1.13.0 &&
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_BEFORE_TEST: >-
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_CONFIG_SETTINGS: "cmake.define.GFFX_BUILD_PYTORCH=ON"
+          CIBW_TEST_COMMAND: >-
+            python -c "import gffx; c=gffx.capabilities();
+            assert c['native_core']['available'] and c['native_core']['abi_version']=='1.0' and not c['gpu_probed'];
+            gffx.torch; import torch;
+            assert hasattr(torch.ops.gffx_internal, '_foundation_probe');
+            print('wheel ok', c['python_version'], torch.__version__)"
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        with:
+          output-dir: wheelhouse
+      - name: Record exact repaired artifact hashes
+        shell: bash
+        run: python tools/ci_smoke.py artifacts --directory wheelhouse --output wheelhouse/provenance.json
+      - name: Retain candidate wheel
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: preview-wheel-${{ matrix.artifact }}
+          path: wheelhouse/
+          if-no-files-found: error
+          retention-days: 14
+
+  test-artifacts:
+    name: preview-install / ${{ matrix.platform }}
+    needs: build-artifacts
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: windows-x64, runner: windows-2022, artifact: win_amd64}
+          - {platform: linux-x64, runner: ubuntu-24.04, artifact: manylinux_2_28_x86_64}
+          - {platform: linux-arm64, runner: ubuntu-24.04-arm, artifact: manylinux_2_28_aarch64}
+          - {platform: macos-arm64, runner: macos-26, artifact: macosx_14_0_arm64}
+    steps:
+      - name: Check out test tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select minimum supported CPython
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Download actual repaired wheel
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: preview-wheel-${{ matrix.artifact }}
+          path: ${{ runner.temp }}/candidate
+      - name: Install and verify scene, derivative smoke and uninstall
+        shell: bash
+        env:
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          python -m pip install pytest==9.0.3
+          WHEEL_PATH="$(python -c 'import os; from pathlib import Path; files=list((Path(os.environ["RUNNER_TEMP"])/"candidate").glob("gffx-*.whl")); assert len(files)==1, files; print(files[0])')"
+          python -m pip install --no-deps "$WHEEL_PATH"
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/tools/ci_smoke.py" installed --wheel "$WHEEL_PATH" --output "$RUNNER_TEMP/installed.json"
+          python "$GITHUB_WORKSPACE/tools/simple_scene_validation.py" --wheel "$WHEEL_PATH" --device cpu --output "$RUNNER_TEMP/scene-validation"
+          python -m pip check
+          python -m pip uninstall --yes gffx
+          python "$GITHUB_WORKSPACE/tools/ci_smoke.py" uninstalled --output "$RUNNER_TEMP/uninstalled.json"
+      - name: Retain exact-wheel test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: preview-test-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/installed.json
+            ${{ runner.temp }}/uninstalled.json
+            ${{ runner.temp }}/scene-validation/
+          if-no-files-found: warn
+          retention-days: 14
+
+  linux-cuda-pilot:
+    # This host has no NVIDIA device. It qualifies compilation/repair only, never GPU execution.
+    # The image tag is temporary for the exploratory lane; pin its digest before release use.
+    name: experimental-linux-x64-cuda-provider
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select packaging Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Build experimental manylinux x86-64 CUDA 12 provider
+        uses: pypa/cibuildwheel@1828c10ab37f080699c7b81cea34097c684a7074 # v4.2.0
+        env:
+          CIBW_ARCHS: x86_64
+          CIBW_BUILD: cp310-manylinux_x86_64
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9@sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c
+          CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation"
+          CIBW_BEFORE_BUILD: >-
+            python -m pip install scikit-build-core==1.0.3 cmake==4.4.2 ninja==1.13.0 &&
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_BEFORE_TEST: >-
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.10.0
+          CIBW_CONFIG_SETTINGS: >-
+            cmake.define.GFFX_BUILD_PYTORCH=ON
+            cmake.define.GFFX_ENABLE_CUDA=ON
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
+            auditwheel repair --exclude libc10.so --exclude libtorch.so
+            --exclude libtorch_cpu.so --exclude libcuda.so.1 --exclude libcuda.so
+            -w {dest_dir} {wheel}
+          CIBW_TEST_COMMAND: >-
+            python -c "import gffx; from pathlib import Path;
+            c=gffx.capabilities();
+            assert c['native_core']['available'] and not c['gpu_probed'];
+            assert (Path(gffx.__file__).parent/'libgffx_cuda12.so').is_file();
+            gffx.torch; import torch;
+            assert hasattr(torch.ops.gffx_internal, '_foundation_probe');
+            print('linux CUDA provider packaged without GPU execution')"
+        with:
+          output-dir: wheelhouse-linux-cuda
+      - name: Inspect the CUDA-enabled wheel and record its artifact digest
+        shell: bash
+        run: |
+          python tools/ci_smoke.py artifacts --directory wheelhouse-linux-cuda --output wheelhouse-linux-cuda/provenance.json
+          python -c 'from pathlib import Path; from zipfile import ZipFile; wheels=list(Path("wheelhouse-linux-cuda").glob("gffx-*.whl")); assert len(wheels)==1, wheels; f=ZipFile(wheels[0]); assert "gffx/libgffx_cuda12.so" in f.namelist(); print("CUDA provider payload present")'
+      - name: Retain non-publishable Linux CUDA experiment
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pilot-linux-x64-cuda
+          path: wheelhouse-linux-cuda/
+          if-no-files-found: error
+          retention-days: 14
+
+  required:
+    name: package-artifacts-pr-required
+    if: ${{ always() }}
+    needs: [build-artifacts, test-artifacts]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all four built and installed artifacts
+        shell: bash
+        run: |
+          test "${{ needs.build-artifacts.result }}" = "success"
+          test "${{ needs.test-artifacts.result }}" = "success"

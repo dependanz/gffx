@@ -1,5 +1,5 @@
 """Lazy image facade; arithmetic exists only in the selected backend implementation."""
-__all__ = ["convert_alpha", "srgb_to_linear", "linear_to_srgb", "apply_mask",
+__all__ = ["convert_alpha", "srgb_to_linear", "linear_to_srgb", "to_display", "apply_mask",
            "composite", "reconstruct", "affine_matrix", "warp_affine", "adjust",
            "gaussian_blur", "capabilities"]
 
@@ -17,6 +17,12 @@ def srgb_to_linear(rgb):
 def linear_to_srgb(rgb):
     from .torch.image import linear_to_srgb as operation
     return operation(rgb)
+
+
+def to_display(image, *, tone_map="aces", exposure=0.0):
+    """Preview scene-linear RGB as display-ready sRGB, matching PNG export."""
+    from .torch.image import to_display as operation
+    return operation(image, tone_map=tone_map, exposure=exposure)
 
 
 def apply_mask(image, mask=None, *, opacity=1.0, alpha="premultiplied"):

@@ -41,7 +41,7 @@ ACTION_PINS = {
 }
 
 SUPPORTED_PYTHONS = ("3.10", "3.11", "3.12", "3.13", "3.14")
-SUPPORTED_PYTORCH = ("2.10.0", "2.11.0", "2.12.1", "2.13.0")
+SUPPORTED_PYTORCH = ("2.10.0", "2.11.0", "2.12.1", "2.13.0", "2.14.1")
 
 # Insertion order is normative and is used by release-candidate artifact planning.
 PLATFORMS: Mapping[str, Mapping[str, str]] = {
@@ -75,6 +75,7 @@ WORKFLOW_NAMES = {
     "package-foundation-pr.yml",
     "package-foundation-nightly.yml",
     "package-foundation-rc.yml",
+    "package-artifacts-pr.yml",
     "cuda-hardware.yml",
 }
 
@@ -202,7 +203,7 @@ def release_candidate_build_matrix() -> list[dict[str, Any]]:
 
 
 def release_candidate_test_matrix() -> list[dict[str, Any]]:
-    """Return the exhaustive 4 platform x 5 Python x 4 PyTorch artifact-test matrix."""
+    """Return the exhaustive 4 platform x 5 Python x 5 PyTorch artifact-test matrix."""
     result = []
     for platform, values in PLATFORMS.items():
         for python in SUPPORTED_PYTHONS:
@@ -300,7 +301,7 @@ def validate_workflows(root: Path) -> list[str]:
     root = Path(root)
     directory = root / ".github" / "workflows"
     errors: list[str] = []
-    actual_names = {path.name for path in directory.glob("*.yml")} - {"publish-alpha.yml", "windows-functional.yml"}
+    actual_names = {path.name for path in directory.glob("*.yml")} - {"publish-alpha.yml", "publish-multiplatform.yml", "windows-functional.yml"}
     if actual_names != WORKFLOW_NAMES:
         errors.append(
             "workflow files differ: expected %s, found %s"
@@ -365,18 +366,63 @@ def validate_workflows(root: Path) -> list[str]:
         if token in cuda:
             errors.append(f"cuda hardware workflow must not use {token}")
 
+    preview = texts.get("package-artifacts-pr.yml", "")
+    for required in (
+        "pull_request:", "branches: [dev]", "package-artifacts-pr-required",
+        "pypa/cibuildwheel@", "CIBW_BUILD_FRONTEND", "GFFX_BUILD_PYTORCH=ON",
+        "actions/download-artifact@", 'tools/ci_smoke.py" installed',
+        'tools/ci_smoke.py" uninstalled', "tools/simple_scene_validation.py",
+        "python -m pip uninstall --yes gffx",
+        "preview-wheel-", "macos-arm64", "linux-arm64", "linux-x64", "windows-x64",
+    ):
+        if required not in preview:
+            errors.append(f"artifact preview workflow missing {required}")
+    if "python -m pip wheel ." in preview.split("test-artifacts:", maxsplit=1)[-1]:
+        errors.append("artifact preview installs must never rebuild source")
+
     rc = texts.get("package-foundation-rc.yml", "")
     if _extract_generated(rc, "RC BUILD MATRIX") != render_release_build_block():
         errors.append("release-candidate build matrix differs from canonical four artifacts")
     if _extract_generated(rc, "RC TEST MATRIX") != render_release_test_block():
         errors.append("release-candidate test matrix differs from canonical 80 environments")
     for token in (
-        "needs: build-artifacts", "actions/download-artifact@", "tools/ci_smoke.py installed",
+        "needs: build-artifacts", "verify-artifacts:", "release-candidate-bundle-required",
+        "tools/assemble_candidate_bundle.py", "tools/release_bundle_gate.py",
+        "approved-rc-bundle", "actions/download-artifact@", "tools/ci_smoke.py installed",
         "tools/ci_smoke.py uninstalled", "python -m pip uninstall --yes gffx",
         "CIBW_BUILD_FRONTEND", "--no-build-isolation", "GFFX_BUILD_PYTORCH=ON",
     ):
         if token not in rc:
             errors.append(f"release-candidate workflow missing {token}")
+    # Production RC requires immutable wheels, exact-artifact acceptance, and
+    # the Windows NVIDIA device gate; native Linux GPU is future assurance.
+    rc_cuda_requirements = (
+        "rc-exact-commit-required",
+        'GITHUB_SHA" == "$CANDIDATE_SHA"',
+        'GITHUB_ACTOR" == "dependanz"',
+        "^[0-9a-f]{40}$",
+        "fromJSON(",
+        "cuda-hardware",
+        "needs: [verify-artifacts, artifact-tests]",
+        "verify_cuda_lane.py",
+        "tools/release_runner_preflight.py",
+        "compute-sanitizer",
+        "GFFX_ENABLE_CUDA=ON",
+        "quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9@sha256:d47cabc113c296d832677757f34b3fcd355d107445ecfccedde847f6360f047c",
+        "libgffx_cuda12.so",
+        "gffx_cuda12.dll",
+        "tools/rc_candidate_receipt.py create",
+        "tools/rc_candidate_receipt.py verify",
+        "name: rc-candidate-receipt",
+    )
+    for required in rc_cuda_requirements:
+        if required not in rc:
+            errors.append(f"release-candidate CUDA safety contract missing {required}")
+    if "pull_request:" in rc or "schedule:" in rc or "id-token: write" in rc:
+        errors.append("release-candidate device lane must not run on untrusted events")
+    if "manylinux_2_28_x86_64_cuda12_9:latest" in preview:
+        errors.append("experimental CUDA pilot image must be digest-pinned")
+
     artifact_tests = rc.split("artifact-tests:", maxsplit=1)
     if len(artifact_tests) == 2 and "python -m pip wheel ." in artifact_tests[1]:
         errors.append("release-candidate artifact tests rebuild the source tree")

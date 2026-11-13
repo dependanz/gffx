@@ -4,6 +4,7 @@
 #   infra      ABI, validation, and capability transport
 #   op         differentiable operation entry point (forward, backward, or workspace query)
 #   setup      setup-class utility, excluded from any claimed real-time frame path
+#   experimental  visible C function under review; no v0.1 operation-trio or stability claim
 #
 # This file is normative alongside MODULE_BOUNDARY_V0_1.md section 3 in the project record.
 # runtime.public_surface fails if a GFFX_API declaration exists that is not listed here, or if a
@@ -132,3 +133,38 @@ op gffx_render_opaque_material_quadrature_workspace
 op gffx_render_opaque_material_quadrature
 op gffx_render_opaque_material_quadrature_backward
 op gffx_render_opaque_material_batch_workspace
+
+# Explicitly visible experimental rendering continuation/partition and shading tails.
+# These are enumerated, not admitted into the stable v0.1 operation-trio promise.
+# Rendering continuation/partition
+experimental gffx_render_opaque_material_batch_rule
+experimental gffx_render_opaque_material_batch_rule_backward
+experimental gffx_render_opaque_material_prefix_backward
+experimental gffx_render_opaque_material_prefix_backward80
+experimental gffx_render_opaque_partition_prepare80
+experimental gffx_render_opaque_partition_emit_workspace80
+experimental gffx_render_opaque_partition_emit80
+experimental gffx_render_opaque_boundary_batch80
+experimental gffx_render_opaque_material_prefix_backward64
+experimental gffx_render_opaque_partition_prepare
+experimental gffx_render_opaque_partition_prepare64
+experimental gffx_render_opaque_partition_emit_workspace
+experimental gffx_render_opaque_partition_emit_workspace64
+experimental gffx_render_opaque_partition_emit
+experimental gffx_render_opaque_partition_emit64
+experimental gffx_render_opaque_boundary_batch64
+
+# Shading extensions
+experimental gffx_shading_opaque_samples_workspace
+experimental gffx_shading_opaque_samples
+experimental gffx_shading_opaque_albedo_workspace
+experimental gffx_shading_opaque_albedo
+experimental gffx_shading_delta_brdf_workspace
+experimental gffx_shading_delta_brdf
+experimental gffx_shading_unit_vectors_workspace
+experimental gffx_shading_unit_vectors
+experimental gffx_shading_unit_newton_workspace
+experimental gffx_shading_unit_newton
+experimental gffx_shading_ordered_rgba_workspace
+experimental gffx_shading_ordered_rgba
+experimental gffx_shading_principled_shared_groups

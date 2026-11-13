@@ -69,6 +69,12 @@ target_include_directories(gffx_core
 # unresolved symbols so the library builds, and the interpreter has already loaded libm so the
 # wheel imports and every Python gate passes. Only a directly linked executable fails, which is
 # what the native CTest build does. Windows and macOS carry these in their default C library.
+if(UNIX)
+    # glibc 2.28 needs an explicit pthread dependency; newer glibc hides this omission.
+    # The CUDA capability loader uses pthread_once even when the CUDA plugin is disabled.
+    find_package(Threads REQUIRED)
+endif()
+
 function(gffx_link_core_runtime target)
     # Source properties are directory-scoped: set this in each target's own
     # directory, including the two ABI providers created under tests/abi.
@@ -82,7 +88,7 @@ function(gffx_link_core_runtime target)
     endif()
     target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})
     if(UNIX)
-        target_link_libraries(${target} PRIVATE m)
+        target_link_libraries(${target} PRIVATE m Threads::Threads)
     endif()
     if(UNIX AND NOT APPLE)
         # Report a missing dependency at the library that has it, rather than at whichever

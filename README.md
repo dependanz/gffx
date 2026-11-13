@@ -1,5 +1,20 @@
 # GFFX
 
+## Next release candidate: 0.2.2 (not yet published)
+
+The 0.2.2 candidate targets installable `cp310-abi3` wheels for Windows x64,
+Linux x64 and ARM64 (glibc 2.28+), and macOS 14+ Apple Silicon. Windows/Linux
+x64 candidate wheels include the optional NVIDIA CUDA provider; macOS and Linux
+ARM64 are CPU-only for this release. Native CUDA and the full 100-environment
+release matrix must pass before publishing. See
+[cross-platform release admission](docs/MULTIPLATFORM_RELEASE_ADMISSION.md)
+and [installation status](docs/INSTALLATION.md).
+
+This candidate also adds `gffx.image.to_display()` for consistent ACES-style
+notebook previews and PNG color export. The currently public PyPI 0.2.1 wheel
+remains **Windows-only** until the candidate is qualified and uploaded.
+
+
 ## Simple scene API — 0.2.1
 
 A user scene should declare objects, lights and a camera, then render and save.

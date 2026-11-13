@@ -3,6 +3,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifndef GFFX_EXPECTED_PACKAGE_VERSION
+#error "GFFX_EXPECTED_PACKAGE_VERSION must be set by CMake"
+#endif
+
 #define CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 
 static gffx_capability_report make_report(
@@ -91,7 +95,7 @@ static int run_query(int full_probe) {
     CHECK(record->value_u64 == GFFX_ABI_VERSION);
     CHECK(find_key(&report, GFFX_CAPABILITY_KEY_PACKAGE_VERSION, &record));
     CHECK(record->value_type == GFFX_CAPABILITY_VALUE_STRING);
-    CHECK(strcmp(report.strings + record->string_offset, "0.2.0.dev0") == 0);
+    CHECK(strcmp(report.strings + record->string_offset, GFFX_EXPECTED_PACKAGE_VERSION) == 0);
     CHECK(find_key(&report, GFFX_CAPABILITY_KEY_POINTER_BITS, &record));
     CHECK(record->value_u64 == 64u);
     CHECK(find_key(&report, GFFX_CAPABILITY_KEY_OPERATION_COUNT, &record));

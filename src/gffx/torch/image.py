@@ -6,13 +6,14 @@ IMAGE_ACCEPTANCE_V0_1.md for branch conventions and unqualified device/export pr
 """
 from __future__ import annotations
 
+import math
 import numbers
 
 import torch
 from torch.autograd.function import once_differentiable
 from ._common import materialize, translate_native_error
 
-__all__ = ["convert_alpha", "srgb_to_linear", "linear_to_srgb", "apply_mask",
+__all__ = ["convert_alpha", "srgb_to_linear", "linear_to_srgb", "to_display", "apply_mask",
            "composite", "reconstruct", "affine_matrix", "warp_affine", "adjust",
            "gaussian_blur", "capabilities"]
 
@@ -162,6 +163,40 @@ def linear_to_srgb(rgb):
     """Encode channel values with the low linear derivative at the exact threshold."""
     _tensor(rgb, "rgb")
     return _finish(_Transfer.apply(materialize(rgb),1), "linear_to_srgb")
+
+
+def to_display(image, *, tone_map="aces", exposure=0.0):
+    """Convert scene-linear RGB to display-ready sRGB without quantization.
+
+    Accepts HWC or BHWC float32/float64 RGB tensors on the same CPU/CUDA device
+    as the input. The source tensor and its autograd graph remain intact.
+
+    This is the exact floating-point color pipeline used by gffx.io.write_png:
+    exposure in stops, ACES-style tone mapping (or clipping), then sRGB encoding.
+    Unlike PNG export, this operation retains its first-order gradients.
+    """
+    rgb = _image(image, "image", rgba=False)
+    if rgb.shape[-1] != 3:
+        raise ValueError("image must have three RGB channels")
+    if bool((rgb < 0).any()):
+        raise ValueError("linear RGB must be nonnegative")
+    if isinstance(exposure, bool) or not isinstance(exposure, (int, float)) or not math.isfinite(exposure):
+        raise ValueError("exposure must be finite stops")
+    if tone_map not in ("aces", "clip"):
+        raise ValueError("tone_map must be aces or clip")
+
+    exposed = rgb * (2.0 ** exposure)
+    if not bool(torch.isfinite(exposed).all()):
+        raise ValueError("exposure overflows image precision")
+    if tone_map == "aces":
+        # Preserve the established PNG curve exactly: clamp *before* the rational
+        # expression to avoid overflow when inputs contain bright HDR radiance.
+        x = exposed.clamp_max(1e6)
+        mapped = (x * (2.51 * x + .03) / (x * (2.43 * x + .59) + .14)).clamp(0, 1)
+    else:
+        mapped = exposed.clamp(0, 1)
+
+    return _finish(linear_to_srgb(mapped.contiguous()).clamp(0, 1), "to_display")
 
 
 class _MaskedMultiply(torch.autograd.Function):

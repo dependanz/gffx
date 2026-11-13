@@ -7,8 +7,26 @@ target_link_libraries(gffx_test_abi_runtime PRIVATE gffx_core)
 add_test(NAME abi.runtime COMMAND gffx_test_abi_runtime)
 
 add_executable(gffx_test_abi_capabilities test_abi_capabilities.c)
+target_compile_definitions(gffx_test_abi_capabilities PRIVATE
+    GFFX_EXPECTED_PACKAGE_VERSION=\"${GFFX_PACKAGE_VERSION_VALUE}\"
+)
 target_link_libraries(gffx_test_abi_capabilities PRIVATE gffx_core)
 add_test(NAME abi.capabilities COMMAND gffx_test_abi_capabilities)
+
+# This fixture explicitly exercises the *absent* optional CUDA provider contract.
+# On Linux the real plugin sits beside libgffx_core.so in the build directory,
+# so default discovery legitimately loads it and breaks the absent-provider
+# assertion. Give only this test a deliberately nonexistent absolute override.
+# Successful default discovery is covered separately by cuda.plugin.default_discovery.
+set(GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH
+    "${CMAKE_CURRENT_BINARY_DIR}/gffx_abi_capabilities_missing_cuda_plugin")
+if(EXISTS "${GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH}")
+    message(FATAL_ERROR "The ABI absent-provider fixture path must not exist")
+endif()
+set_tests_properties(abi.capabilities PROPERTIES
+    ENVIRONMENT "GFFX_CUDA_PLUGIN_PATH=${GFFX_ABI_CAPABILITIES_MISSING_CUDA_PATH}"
+)
+
 
 add_executable(gffx_test_abi_symbols test_abi_symbols.c)
 target_link_libraries(gffx_test_abi_symbols PRIVATE ${CMAKE_DL_LIBS})
