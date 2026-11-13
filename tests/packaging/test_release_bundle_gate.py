@@ -23,8 +23,9 @@ def _write_wheel(path: Path, platform: str, version: str, *, cuda: bool = True, 
         file.writestr("gffx/__init__.py", "")
         file.writestr("gffx/examples/cornell_box.py", "")
         file.writestr("gffx/" + core, "binary")
-        file.writestr("gffx/_core.abi3" + suffix, "binary")
-        file.writestr("gffx/_torch.abi3" + suffix, "binary")
+        extension_prefix = "" if platform == "windows-x64" else ".abi3"
+        file.writestr("gffx/_core" + extension_prefix + suffix, "binary")
+        file.writestr("gffx/_torch" + extension_prefix + suffix, "binary")
         if cuda and platform in ("windows-x64", "linux-x64"):
             file.writestr("gffx/" + ("gffx_cuda12.dll" if platform == "windows-x64" else "libgffx_cuda12.so"), "plugin")
         info = f"gffx-{version}.dist-info/"
@@ -111,4 +112,35 @@ def test_missing_sdist_fails(tmp_path):
     dist, pyproject = _bundle(tmp_path)
     (dist / "gffx-0.2.2.tar.gz").unlink()
     with pytest.raises(ReleaseBundleError, match="incomplete"):
+        verify(dist, pyproject)
+
+
+@pytest.mark.parametrize("extension", ["_core.pyd", "_torch.pyd"])
+def test_windows_release_refuses_missing_native_extensions(tmp_path, extension):
+    """Both real Windows .pyd extension payloads remain mandatory for release."""
+    dist, pyproject = _bundle(tmp_path)
+    wheel = dist / f"gffx-0.2.2-{PLATFORMS['windows-x64']['wheel_tag']}.whl"
+    with zipfile.ZipFile(wheel) as source:
+        contents = [(name, source.read(name)) for name in source.namelist()]
+    with zipfile.ZipFile(wheel, "w") as target:
+        for name, data in contents:
+            if name != f"gffx/{extension}":
+                target.writestr(name, data)
+    with pytest.raises(ReleaseBundleError, match="missing release payload") as exc:
+        verify(dist, pyproject)
+    assert extension in str(exc.value)
+
+
+def test_windows_release_rejects_misnamed_abi3_pyd_extensions(tmp_path):
+    """An incorrect .abi3.pyd spelling cannot disguise absent importable .pyd files."""
+    dist, pyproject = _bundle(tmp_path)
+    wheel = dist / f"gffx-0.2.2-{PLATFORMS['windows-x64']['wheel_tag']}.whl"
+    with zipfile.ZipFile(wheel) as source:
+        contents = [(name, source.read(name)) for name in source.namelist()]
+    with zipfile.ZipFile(wheel, "w") as target:
+        for name, data in contents:
+            if name in {"gffx/_core.pyd", "gffx/_torch.pyd"}:
+                name = name.removesuffix(".pyd") + ".abi3.pyd"
+            target.writestr(name, data)
+    with pytest.raises(ReleaseBundleError, match="missing release payload"):
         verify(dist, pyproject)
